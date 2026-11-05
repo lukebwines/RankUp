@@ -101,6 +101,15 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
         "versione_proposta": 1, "decisione": "da_verificare",
     }
     if digest in already.get("hashes", set()):
+        # Recupera CdS e sede della scheda già conservata senza rianalizzare
+        # gli stessi bytes. Serve per non superare il filtro CdS con duplicati.
+        owner=already.get("hash_owner",{}).get(digest)
+        candidate=next((c for c in candidates if c["id"]==owner),None)
+        if candidate:
+            result.update(candidatura_id=candidate["id"],id_pica=candidate["id_pica"],
+                          cds=candidate["cds"],sede=candidate["sede"],
+                          incarico=candidate["insegnamento"]+" / "+candidate["modulo"],
+                          modello=candidate["modello"])
         result.update(stato="duplicato",motivo="PDF già acquisito o conservato in precedenza")
         return result
     if len(contents) > MAX_PDF_BYTES or not contents.startswith(b"%PDF-"):
