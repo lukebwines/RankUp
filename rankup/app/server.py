@@ -1277,3 +1277,273 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
         "Content-Disposition":'attachment; filename="'+filename+'.zip"',
         "Cache-Control":"no-store",
     })
+
+
+# === Restituzione delle schede PDF: anteprima e conferma separata ===
+class ConfermaValutazioni(BaseModel):
+    token: str = Field(min_length=24, max_length=80)
+    conferma_rettifiche: bool = False
+
+
+def _val_context(db: sqlite3.Connection, bando_id: int) -> tuple[list[dict], dict]:
+    candidates = [
+        dict(r) for r in db.execute("""
+            SELECT c.id,c.id_pica,c.nome,c.cognome,c.codice_fiscale,c.stato,
+                   i.key,i.cds,i.sede,i.insegnamento,i.modulo,
+                   CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
+                     THEN NULL
+                     WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
+                     ELSE COALESCE(cl.tipo,'ordinario') END AS modello
+            FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+            LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+            WHERE c.bando_id=?
+        """, (bando_id,))
+    ]
+    pdf_rows = db.execute(
+        "SELECT sha256,candidatura_id,versione FROM valutazioni_pdf WHERE bando_id=?",
+        (bando_id,)
+    ).fetchall()
+    active = db.execute("""
+        SELECT candidatura_id,versione,sha256 FROM valutazioni_pdf
+        WHERE bando_id=? AND stato='Acquisita' AND attiva=1
+    """, (bando_id,)).fetchall()
+    return candidates, {
+        "hashes": {r["sha256"] for r in pdf_rows},
+        "active": {r["candidatura_id"]: dict(r) for r in active}
+    }
+
+
+def _pdf_batch_read(uploads: list[UploadFile]) -> list[tuple[str,bytes]]:
+    if not uploads or len(uploads) > MAX_BATCH_FILES:
+        fail("Seleziona da 1 a 120 PDF, oppure un archivio ZIP", 400)
+    output=[]
+    total=0
+    for upload in uploads:
+        name = str(upload.filename or "").replace("\\","/").rsplit("/",1)[-1][:150]
+        if not name:
+            fail("Nome del file non valido")
+        data = upload.file.read(MAX_BATCH_BYTES + 1)
+        total += len(data)
+        if total > MAX_BATCH_BYTES:
+            fail("Caricamento superiore al limite complessivo di 40 MB")
+        if name.lower().endswith(".pdf"):
+            output.append((name,data))
+        elif name.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(BytesIO(data)) as package:
+                    for info in package.infolist():
+                        if info.is_dir():
+                            continue
+                        if not info.filename.lower().endswith(".pdf"):
+                            fail("Lo ZIP deve contenere esclusivamente schede PDF")
+                        if info.file_size > MAX_PDF_BYTES:
+                            fail("Una scheda PDF nello ZIP supera 5 MB")
+                        total += info.file_size
+                        if total > MAX_BATCH_BYTES:
+                            fail("Dimensione dei PDF decompressi superiore a 40 MB")
+                        filename = info.filename.replace("\\","/").rsplit("/",1)[-1][:150]
+                        with package.open(info) as source:
+                            payload = source.read(MAX_PDF_BYTES+1)
+                        output.append((filename,payload))
+                        if len(output) > MAX_BATCH_FILES:
+                            fail("Troppi PDF: limite 120 schede per caricamento")
+            except (zipfile.BadZipFile, RuntimeError, OSError):
+                fail("Archivio ZIP non leggibile")
+        else:
+            fail("Sono consentiti soltanto file PDF o ZIP")
+        if len(output)>MAX_BATCH_FILES:
+            fail("Troppi PDF: limite 120 schede per caricamento")
+    if not output:
+        fail("Nessuna scheda PDF trovata nel caricamento")
+    return output
+
+
+@app.post("/api/bandi/{code}/valutazioni/anteprima")
+async def preview_valutazioni(code: str, files: list[UploadFile] = File(...)):
+    code = valid_code(code)
+    with connect() as db:
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if b is None:
+            fail("Bando non trovato",404)
+        candidates, already = _val_context(db,b["id"])
+    uploads = _pdf_batch_read(files)
+    token = secrets.token_urlsafe(30)
+    staging = PENDING / ("pdf_" + token)
+    staging.mkdir(mode=0o700)
+    seen_hashes=set()
+    for_index={}
+    items=[]
+    try:
+        for index,(filename,data) in enumerate(uploads):
+            result = evaluate_pdf(data,code,candidates,already)
+            result["nome_originale"] = filename
+            result["temp_file"] = str(index)+".pdf"
+            if result["sha256"] in seen_hashes:
+                result.update(stato="duplicato",motivo="File identico ripetuto nel caricamento")
+            else:
+                seen_hashes.add(result["sha256"])
+                if result["candidatura_id"] is not None and result["stato"] in ("regolare","rettifica"):
+                    for_index.setdefault(result["candidatura_id"],[]).append(index)
+            (staging/result["temp_file"]).write_bytes(data)
+            items.append(result)
+        for positions in for_index.values():
+            if len(positions)>1:
+                for idx in positions:
+                    items[idx].update(
+                        stato="da_verificare",
+                        motivo="Più PDF differenti per la stessa candidatura: verificare quale scheda sia valida"
+                    )
+        package = {"code":code, "created_at":time.time(), "items":items}
+        (staging/"preview.json").write_text(
+            json.dumps(package,ensure_ascii=False),encoding="utf-8"
+        )
+        (staging/"preview.json").chmod(0o600)
+    except Exception:
+        shutil.rmtree(staging,ignore_errors=True)
+        raise
+    return {
+        "token":token,
+        "schede":[{k:v for k,v in item.items() if k not in ("punteggi","temp_file")}
+                  for item in items],
+        "riepilogo":{status:sum(x["stato"]==status for x in items)
+                     for status in ("regolare","rettifica","da_verificare","duplicato")},
+        "avvertenza":"Nessuna valutazione è stata acquisita. I PDF sono conservati soltanto nell'area temporanea in attesa di conferma.",
+    }
+
+
+@app.post("/api/bandi/{code}/valutazioni/conferma")
+def confirm_valutazioni(code: str, body: ConfermaValutazioni):
+    code=valid_code(code)
+    if not re.fullmatch(r"[A-Za-z0-9_-]+",body.token):
+        fail("Token anteprima non valido")
+    staging = PENDING / ("pdf_"+body.token)
+    metadata = staging/"preview.json"
+    if not metadata.is_file():
+        fail("Anteprima scaduta o già acquisita: caricare nuovamente i PDF",409)
+    # Rinomina atomica per impedire che due conferme usino lo stesso token.
+    processing = PENDING / ("in_elaborazione_"+body.token)
+    try:
+        staging.rename(processing)
+    except OSError:
+        fail("Anteprima già in fase di acquisizione",409)
+    saved=[]
+    try:
+        document=json.loads((processing/"preview.json").read_text(encoding="utf-8"))
+        if document.get("code")!=code or time.time()-document.get("created_at",0)>3600:
+            fail("Anteprima scaduta: caricare nuovamente i PDF",409)
+        items=document["items"]
+        if any(x["stato"]=="rettifica" for x in items) and not body.conferma_rettifiche:
+            fail("Per acquisire una nuova versione, confermare esplicitamente le rettifiche",409)
+        counts={"acquisite":0,"rettificate":0,"da_verificare":0,"duplicate":0}
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+            if not b:
+                fail("Bando non trovato",404)
+            candidates,already=_val_context(db,b["id"])
+            fresh=[]
+            for item in items:
+                if item["stato"]=="duplicato":
+                    counts["duplicate"]+=1
+                    continue
+                data=(processing/item["temp_file"]).read_bytes()
+                if hashlib.sha256(data).hexdigest()!=item["sha256"]:
+                    fail("Il PDF dell'anteprima è cambiato: interrompere l'acquisizione",409)
+                revised=evaluate_pdf(data,code,candidates,already)
+                if item["stato"]=="da_verificare" and item["motivo"].startswith("Più PDF differenti"):
+                    revised.update(stato="da_verificare",motivo=item["motivo"])
+                keys=("stato","candidatura_id","id_pica","modello","punteggio",
+                      "totale_pdf","esito","note")
+                if any(item.get(k)!=revised.get(k) for k in keys):
+                    fail("Dati variati dopo l'anteprima: ripetere il caricamento",409)
+                fresh.append((item,data,revised))
+            now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+            store=SOURCES/code/"schede_restituite"
+            store.mkdir(parents=True,exist_ok=True)
+            for item,data,revised in fresh:
+                filepath=store/(item["sha256"]+".pdf")
+                if not filepath.exists():
+                    with filepath.open("xb") as target:
+                        target.write(data)
+                    filepath.chmod(0o600)
+                    saved.append(filepath)
+                status=item["stato"]
+                if status=="rettifica":
+                    db.execute("""
+                        UPDATE valutazioni_pdf SET attiva=0
+                        WHERE candidatura_id=? AND stato='Acquisita' AND attiva=1
+                    """,(item["candidatura_id"],))
+                accepted=status in ("regolare","rettifica")
+                db.execute("""
+                    INSERT INTO valutazioni_pdf
+                    (bando_id,candidatura_id,stato,versione,attiva,sha256,
+                     nome_originale,percorso,modello,punteggi_json,totale_calcolato,
+                     totale_pdf,esito,note,motivo,confermata_da,confermata_il)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,(
+                    b["id"],item["candidatura_id"],
+                    "Acquisita" if accepted else "Da verificare",
+                    item["versione_proposta"] if accepted else 0,
+                    1 if accepted else 0,
+                    item["sha256"],item["nome_originale"],str(filepath.relative_to(BASE)),
+                    item["modello"],
+                    json.dumps(item["punteggi"],ensure_ascii=False) if accepted else "{}",
+                    item["punteggio"] if accepted else None,
+                    item["totale_pdf"] if accepted else "",item["esito"] if accepted else "",
+                    item["note"] if accepted else "",item["motivo"],AUTH.username,now
+                ))
+                counts["rettificate" if status=="rettifica" else
+                       "acquisite" if status=="regolare" else "da_verificare"]+=1
+            db.commit()
+        return {"ok":True,**counts,
+                "avviso":"Conservati gli originali PDF. Le anomalie non modificano i punteggi acquisiti. Le rettifiche mantengono lo storico."}
+    except Exception:
+        # In caso di errore nel DB non restano documenti orfani dell'acquisizione.
+        for path in saved:
+            try:path.unlink(missing_ok=True)
+            except OSError:pass
+        raise
+    finally:
+        shutil.rmtree(processing,ignore_errors=True)
+
+
+@app.get("/api/bandi/{code}/valutazioni")
+def stato_valutazioni(code: str,cds: str="",sede: str=""):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        conditions=["i.bando_id=?"]
+        args=[b["id"]]
+        if cds:
+            conditions.append("i.cds=?");args.append(cds)
+        if sede:
+            conditions.append("i.sede=?");args.append(sede)
+        where=" AND ".join(conditions)
+        rows=db.execute("""
+          SELECT i.cds,i.sede,
+            SUM(CASE WHEN c.stato='Attiva' THEN 1 ELSE 0 END) AS attese,
+            SUM(CASE WHEN c.stato='Attiva' AND v.id IS NOT NULL THEN 1 ELSE 0 END) AS acquisite,
+            SUM(CASE WHEN c.stato='Attiva' AND v.id IS NULL
+              AND EXISTS (SELECT 1 FROM valutazioni_pdf a
+                  WHERE a.candidatura_id=c.id AND a.stato='Da verificare') THEN 1 ELSE 0 END)
+              AS da_verificare
+          FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+          LEFT JOIN valutazioni_pdf v ON v.candidatura_id=c.id
+             AND v.stato='Acquisita' AND v.attiva=1
+          WHERE """+where+"""
+          GROUP BY i.cds,i.sede ORDER BY i.cds COLLATE NOCASE,i.sede COLLATE NOCASE
+        """,args).fetchall()
+        archives=db.execute("""
+          SELECT id,nome_originale,stato,motivo,totale_calcolato,versione,
+                 confermata_il,candidatura_id FROM valutazioni_pdf WHERE bando_id=?
+          ORDER BY id DESC LIMIT 300
+        """,(b["id"],)).fetchall()
+    detail=[dict(row) for row in rows]
+    return {
+        "cds_sedi":[dict(row,complete=(row["attese"]==row["acquisite"]))
+                    for row in detail],
+        "totale_attese":sum(row["attese"] for row in detail),
+        "totale_acquisite":sum(row["acquisite"] for row in detail),
+        "archivio":[dict(r) for r in archives],
+    }
