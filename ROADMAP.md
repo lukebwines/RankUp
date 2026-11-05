@@ -66,3 +66,12 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [ ] Verifica funzionale interattiva in Adobe Acrobat Reader e revisione formale da parte dell'operatore.
 - [ ] Modelli PDF caricabili e versionati, senza intervento sul codice.
 - [ ] Revisione del modello **non professionalizzante** secondo il suo originale ufficiale.
+
+## 0.4.3 — Scheda ordinaria e NN
+- [x] Sostituito il precedente elenco generico con un modello ordinario A4 su una pagina.
+- [x] Sei aree con massimali 15/10/15/10/3/7.
+- [x] Campi P01-P15 e calcolo PDF del totale; punteggi iniziali 0.
+- [x] Attività scientifica con cinque descrizioni e un punteggio unico P13.
+- [x] SSD NN usa automaticamente il modello ordinario, senza classificazione o modifica del dato PICA.
+- [x] Test di regressione aggiunti per NN, struttura ordinaria e scheda professionalizzante.
+- [ ] Verifica funzionale su Home Assistant OS e prova del calcolo in Adobe Acrobat Reader.
