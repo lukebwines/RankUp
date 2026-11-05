@@ -372,3 +372,90 @@ def test_manual_wrong_pica_and_filter_scope_rejected(tmp_path,monkeypatch):
             files={"files":("different_site.pdf",original,"application/pdf")})
         assert response.status_code==400,response.text
         assert "diversi" in response.text
+
+
+def test_legacy_acquired_without_outcome_is_reclassified_without_losing_pdf_or_score(
+    tmp_path, monkeypatch
+):
+    """Una scheda storica da 15 punti senza esito non è un'idoneità valida."""
+    import hashlib
+    from datetime import datetime,timezone
+
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        pdf=next(doc for doc in sheets.values()
+                 if "P19" not in PdfReader(BytesIO(doc)).get_fields())
+        # Simuliamo un record registrato dalla versione precedente, quando
+        # la lettura del totale non richiedeva un esito della commissione.
+        with server.connect() as db:
+            bid=db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()[0]
+            fields=PdfReader(BytesIO(pdf)).get_fields()
+            id_pica=str(fields["ID-DOMANDA"].value)
+            row=db.execute("""
+                SELECT c.id FROM candidature c
+                JOIN incarichi i ON i.id=c.incarico_id
+                WHERE c.bando_id=? AND c.id_pica=?
+                ORDER BY c.id LIMIT 1
+            """,(bid,id_pica)).fetchone()
+            assert row
+            cid=row["id"]
+            digest=hashlib.sha256(pdf).hexdigest()
+            originals=server.SOURCES/"26-02"/"schede_restituite"
+            originals.mkdir(parents=True,exist_ok=True)
+            saved=originals/(digest+".pdf")
+            saved.write_bytes(pdf)
+            timestamp=datetime.now(timezone.utc).isoformat()
+            db.execute("""
+                INSERT INTO valutazioni_pdf
+                (bando_id,candidatura_id,stato,versione,attiva,sha256,
+                 nome_originale,percorso,modello,punteggi_json,totale_calcolato,
+                 totale_pdf,esito,note,motivo,confermata_da,confermata_il,decisione,metodo)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,(bid,cid,"Acquisita",1,1,digest,"originale.pdf",
+                 str(saved.relative_to(server.BASE)),"ordinario","{}",15,
+                 "15","","","Controlli superati",
+                 "utente-test",timestamp,"da_verificare","automatico"))
+            db.commit()
+        server.initialize()
+        with server.connect() as db:
+            migrated=db.execute("""
+                SELECT stato,attiva,decisione,totale_calcolato,versione,
+                       confermata_il,sha256,motivo FROM valutazioni_pdf
+                WHERE sha256=?
+            """,(digest,)).fetchone()
+            assert migrated["stato"]=="Da verificare"
+            assert migrated["attiva"]==0
+            assert migrated["decisione"]=="da_verificare"
+            assert migrated["totale_calcolato"]==15
+            assert migrated["versione"]==1
+            assert migrated["confermata_il"]==timestamp
+            assert migrated["sha256"]==digest
+            events=db.execute("""
+                SELECT azione FROM valutazioni_pdf_eventi
+                WHERE azione='Riesame automatico acquisizione precedente'
+            """).fetchall()
+            assert len(events)==1
+        server.initialize() # Il riesame non deve aggiungere duplicati.
+        with server.connect() as db:
+            assert db.execute("""
+                SELECT COUNT(*) FROM valutazioni_pdf_eventi
+                WHERE azione='Riesame automatico acquisizione precedente'
+            """).fetchone()[0]==1
+        assert saved.read_bytes()==pdf
+        report=client.get("/api/bandi/26-02/valutazioni").json()
+        assert report["totale_acquisite"]==0
+        assert report["archivio"][0]["stato"]=="Da verificare"
+        assert report["archivio"][0]["totale_calcolato"]==15
+        # Non è lecito inventare un giudizio positivo usando soltanto il numero.
+        response=_post(client,
+             f"/api/bandi/26-02/valutazioni/{report['archivio'][0]['id']}/manuale",
+             json={
+                "candidatura_id":cid,
+                "esito":"CANDIDATO AMMESSO IN GRADUATORIA",
+                "punteggio":"15",
+                "nota_commissione":"",
+                "motivazione_tecnica":"Punteggio storico senza esito della commissione.",
+                "documento_verificato":True
+             })
+        assert response.status_code==409,response.text
+        assert "non contiene né esito né motivazione" in response.text
