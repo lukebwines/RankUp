@@ -5,10 +5,11 @@
 - [x] Dashboard e selettore bando attivo
 - [x] Anteprima importazione PICA, lettura codice bando da prima riga
 - [x] Importazione candidati e ricostruzione incarichi da file PICA
+- [x] Importazione iniziale commissioni dal file .xlsx per bando
 - [ ] Test reale su HAOS Raspberry Pi 5
 
 ## Milestone 2 — Commissioni e PDF
-- [ ] Import commissioni Excel per anno accademico, copia indipendente per bando
+- [ ] Gestione anagrafica annuale e propagazione selettiva degli aggiornamenti delle commissioni
 - [ ] Caricamento e configurazione modelli PDF compilabili (SSD professionalizzanti e altri)
 - [ ] Scheda PDF per candidatura e incarico; punteggi preimpostati a 0
 - [ ] ZIP schede per CdS e per intero bando
