@@ -118,3 +118,16 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] 0.6.3: Nomi delle schede PDF con ID PICA + cognome + nome + chiave incarico, test di unicità e lunghezza.
 
 - [x] v0.6.4: Diagnostica esplicita ZIP PDF trovati/analizzati/classificati, conferma bloccata se divergenti e test sintetico con 21 PDF.
+
+## Versione 0.7.0 — Completato sul repository
+- [x] Suddivisione Valutazioni per CdS e sede, con riepilogo e storico filtrati.
+- [x] Distinzione fra esito idoneo, non idoneo ed escluso senza deduzioni dal punteggio.
+- [x] Acquisizione automatica delle decisioni negative motivate senza punteggio fittizio.
+- [x] Acquisizione manuale di schede da verificare con anagrafica PICA e verifica documentale.
+- [x] Registro eventi e versione precedente conservata in caso di rettifica.
+- [x] Esclusione documenti appartenenti a CdS/sedi diversi dal filtro selezionato.
+- [x] Supporto agli ZIP contenenti metadati Finder/macOS.
+- [x] 24 test automatici superati.
+- [ ] Collaudo interattivo su Home Assistant OS e con schede realmente compilate.
+- [ ] Produzione graduatorie e verbali a partire dalle sole valutazioni con esito idoneo/concluso, previa verifica dei criteri ufficiali.
+- [ ] Anagrafica annuale delle commissioni con importazione indipendente dai singoli bandi.
