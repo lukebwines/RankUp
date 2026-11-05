@@ -18,14 +18,14 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Request
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from pica import MAX_FILE_BYTES, parse_pica
-from commissioni import MAX_COMMISSION_FILE, parse_commissioni
-from commission_match import commission_index, resolve_commission
+from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_template
+from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
@@ -105,6 +105,17 @@ def initialize() -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(bando_id, cds, sede)
         );
+        CREATE TABLE IF NOT EXISTS commissioni_eventi (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            commissione_id INTEGER,
+            azione TEXT NOT NULL,
+            precedente_json TEXT,
+            successivo_json TEXT,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_comm_eventi_bando ON commissioni_eventi(bando_id);
         CREATE TABLE IF NOT EXISTS ssd_classificazioni (
             ssd TEXT PRIMARY KEY,
             tipo TEXT NOT NULL CHECK(tipo IN ('professionalizzante','ordinario')),
@@ -643,7 +654,8 @@ def list_commissioni(code: str):
     code = valid_code(code)
     with connect() as db:
         rows = db.execute("""
-            SELECT cm.cds, cm.sede, cm.presidente, cm.componenti, cm.anno
+            SELECT cm.id, cm.cds, cm.sede, cm.presidente, cm.componenti,
+                   cm.requisiti, cm.anno, cm.updated_at
             FROM commissioni cm JOIN bandi b ON cm.bando_id=b.id
             WHERE b.codice=? ORDER BY cm.cds COLLATE NOCASE, cm.sede COLLATE NOCASE
         """, (code,)).fetchall()
