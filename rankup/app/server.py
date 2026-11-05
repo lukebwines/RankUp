@@ -947,9 +947,10 @@ def associazioni_commissioni(code: str):
     result=[]
     for item in assignments:
         status, commission = resolve_commission(index, item["cds"], item["sede"])
-        if status == "associata" and not commission.get("presidente"):
-            status = "mancante"
-            commission = None
+        if status == "associata" and (
+            not commission.get("presidente") or not commission.get("componenti")
+        ):
+            status = "incompleta"
         result.append({
             "cds": item["cds"],
             "sede": item["sede"],
@@ -963,6 +964,7 @@ def associazioni_commissioni(code: str):
         "associate": sum(x["stato"] == "associata" for x in result),
         "mancanti": sum(x["stato"] == "mancante" for x in result),
         "ambigue": sum(x["stato"] == "ambigua" for x in result),
+        "incomplete": sum(x["stato"] == "incompleta" for x in result),
         "associazioni": result,
     }
 
@@ -1201,7 +1203,8 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
     ambiguous = set()
     for row in rows:
         status, commission = resolve_commission(index, row["cds"], row["sede"])
-        if status != "associata" or not commission or not commission.get("presidente"):
+        if (status != "associata" or not commission
+                or not commission.get("presidente") or not commission.get("componenti")):
             label = row["cds"] + " / " + row["sede"]
             (ambiguous if status == "ambigua" else missing).add(label)
             continue
