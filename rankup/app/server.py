@@ -960,9 +960,59 @@ def associazioni_commissioni(code: str):
     }
 
 
-@app.post("/api/bandi/{code}/commissioni/import")
-async def import_commissioni(code: str, file: UploadFile = File(...)):
+
+@app.get("/api/bandi/{code}/commissioni/modello")
+def download_modello_commissioni(code: str, tipo: str = "cds_sedi"):
     code = valid_code(code)
+    if tipo not in ("vuoto", "cds_sedi", "esistenti"):
+        fail("Tipo di modello non riconosciuto")
+    with connect() as db:
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        if tipo == "vuoto":
+            values = []
+        elif tipo == "cds_sedi":
+            values = [
+                {"cds": r["cds"], "sede": r["sede"]}
+                for r in db.execute("""
+                    SELECT cds,sede FROM incarichi WHERE bando_id=?
+                    GROUP BY cds,sede ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE
+                """, (b["id"],)).fetchall()
+            ]
+        else:
+            values = [
+                dict(r) for r in db.execute("""
+                    SELECT cds,sede,presidente,componenti,requisiti,anno
+                    FROM commissioni WHERE bando_id=?
+                    ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE
+                """, (b["id"],)).fetchall()
+            ]
+    data = make_commission_template(code, values)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="RankUp_' +
+                                   code + '_commissioni_' + tipo + '.xlsx"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/bandi/{code}/commissioni/import")
+async def import_commissioni(
+    code: str, file: UploadFile = File(...), mode: str = Form("solo_nuove")
+):
+    """Import incrementale: non cancellare righe non presenti nel file.
+
+    Le commissioni già presenti non vengono sovrascritte salvo scelta
+    esplicita aggiorna; in quel caso i campi vuoti dell'Excel non
+    eliminano informazioni già registrate.
+    """
+    code = valid_code(code)
+    if mode not in ("solo_nuove", "aggiorna"):
+        fail("Modalità importazione non valida")
     filename = (file.filename or "").split("/")[-1].split("\\")[-1]
     content = await file.read(MAX_COMMISSION_FILE + 1)
     try:
@@ -971,28 +1021,54 @@ async def import_commissioni(code: str, file: UploadFile = File(...)):
         fail(str(error))
     except Exception:
         fail("Impossibile leggere l'Excel delle commissioni")
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    to_add = to_update = skipped = 0
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
-        if b is None:
-            db.rollback()
+        if not b:
             fail("Bando non trovato", 404)
-        exists = db.execute("SELECT 1 FROM commissioni WHERE bando_id=? LIMIT 1", (b["id"],)).fetchone()
-        if exists:
-            db.rollback()
-            fail("Commissioni già importate: la modifica guidata sarà disponibile in una fase successiva", 409)
-        for row in parsed["rows"]:
-            db.execute("""
-              INSERT INTO commissioni(bando_id,cds,sede,presidente,componenti,requisiti,anno,updated_at)
-              VALUES(?,?,?,?,?,?,?,?)
-            """, (b["id"],row["cds"],row["sede"],row["presidente"],row["componenti"],
-                  row["requisiti"],row["anno"],now))
+        all_existing = db.execute(
+            "SELECT * FROM commissioni WHERE bando_id=?", (b["id"],)
+        ).fetchall()
+        available = {course_key(r["cds"]) + "|" + seat_key(r["sede"])
+                     for r in db.execute(
+                         "SELECT cds,sede FROM incarichi WHERE bando_id=?", (b["id"],)
+                     ).fetchall()}
+        for item in parsed["rows"]:
+            values = _commission_fields(item)
+            key = course_key(values["cds"]) + "|" + seat_key(values["sede"])
+            if key not in available:
+                fail("Il CdS/sede dell'Excel non risulta nel bando PICA: " +
+                     values["cds"] + " / " + values["sede"])
+            previous = _match_commission_row(all_existing, values["cds"], values["sede"])
+            if previous:
+                if mode == "solo_nuove":
+                    skipped += 1
+                    continue
+                if _update_commission(
+                    db, b["id"], dict(previous), values, "aggiornamento_excel",
+                    keep_blank=False,
+                ):
+                    to_update += 1
+                else:
+                    skipped += 1
+            else:
+                row_id = _insert_commission(db, b["id"], values, "importazione_excel")
+                all_existing.append(dict(values, id=row_id))
+                to_add += 1
         db.commit()
-    destination=SOURCES / code
-    destination.mkdir(parents=True,exist_ok=True)
-    (destination / "commissioni_originali.xlsx").write_bytes(content)
-    return {"ok":True,"commissioni":parsed["numero_sedi"],"cds":parsed["numero_cds"]}
+    # Conservare tutti i file importati, senza sovrascrivere l'originale.
+    destination = SOURCES / code
+    destination.mkdir(parents=True, exist_ok=True)
+    checksum = hashlib.sha256(content).hexdigest()[:16]
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    (destination / ("commissioni_import_" + timestamp + "_" + checksum + ".xlsx")).write_bytes(content)
+    return {
+        "ok": True, "aggiunte": to_add, "aggiornate": to_update,
+        "gia_presenti_o_inalterate": skipped,
+        "righe_da_compilare_omesse": parsed.get("righe_da_compilare_omesse", 0),
+        "avviso": "Rigenerare le schede PDF dei CdS interessati in caso di modifiche",
+    }
 
 
 class ClassificazioneSSD(BaseModel):
