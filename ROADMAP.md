@@ -146,3 +146,14 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 
 - [x] v0.7.4: Ripristinato per Admin il comando `Acquisisci manualmente` in tutte le schede `Da verificare`, incluse quelle con esito assente. Controlli al salvataggio e autorizzazione backend invariati.
 - [x] v0.7.4: Test di regressione per presenza del comando nella vista Admin.
+
+## Versione 0.8.0 — Gestione multiutente
+- [x] Account operativi persistenti creati e amministrati dall'Admin di Home Assistant.
+- [x] Password utente minima 8 caratteri (Admin preesistente minimo 12).
+- [x] Salt individuali e PBKDF2-HMAC-SHA256 per le password degli account operativi.
+- [x] Gestione Admin per elenco utenti, creazione, disattivazione/riattivazione e reset password.
+- [x] Accesso operativo ai moduli RankUp, esclusi acquisizione manuale e gestione account.
+- [x] Permessi e revoca sessioni verificati lato server.
+- [x] Audit con l'identità dell'operatore autenticato.
+- [x] Test di autenticazione, ruoli, persistenza, revoca e accesso alle funzioni: 36 superati.
+- [ ] Collaudo interattivo con due browser/sessioni su Home Assistant OS.
