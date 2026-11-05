@@ -104,3 +104,28 @@ Con il bando aperto, andare su **Commissioni**. Il riquadro *Associazione commis
 La generazione ZIP per **tutto il bando** si interrompe se vi sono CdS/sedi senza commissione certa. Nel frattempo è possibile selezionare un **singolo CdS** con commissione abbinata, evitando di generare schede con nominativi errati. Le 16 righe dell'Excel originale risultano sufficienti per 16 delle 17 combinazioni CdS/sedi del file PICA 26-02. Manca una riga ufficiale per *Igiene Dentale / Verona*; non attribuirle altri nominativi. Non ricaricare l'Excel già importato, perché l'integrazione differenziale delle commissioni è una funzione ancora da implementare.
 
 Nel PDF professionalizzante, i menu delle attività professionali e aggiuntive ora espongono le denominazioni delle scelte, anche quando hanno valori identici (per esempio le due opzioni da 0,5 punti). Per verificare: aprire una nuova scheda dopo l'aggiornamento in Adobe Acrobat Reader, espandere il menu, selezionare una voce e controllare che il **totale resti numerico**. Il PDF precedente non viene sovrascritto sul computer.
+
+## v0.5.0 — Inserimento e modifica commissioni
+
+Aprire il **Bando attivo → Commissioni**. Il riquadro iniziale mostra i CdS e le sedi con commissione mancante o ambigua. Per inserire quella di un CdS mancante, selezionare **Inserisci** sulla riga oppure **Nuova commissione**. La scelta di CdS e sede è ricavata da PICA: i nominativi devono essere acquisiti esclusivamente dalle fonti ufficiali. Per modificare una commissione già presente scegliere **Modifica** sulla relativa riga e salvare. RankUp registra uno storico della modifica e impedisce di sovrascrivere silenziosamente un aggiornamento intervenuto nel frattempo.
+
+### Format Excel scaricabile
+
+Nella stessa schermata scegliere una delle tre opzioni e premere **Scarica modello Excel**:
+- **Con CdS e sedi PICA**: sono compilate le coppie CdS/sede e il codice bando; i nominativi sono volutamente vuoti. Le righe non ancora compilate vengono escluse dall'importazione con conteggio esplicito.
+- **Formato vuoto**: sono presenti le intestazioni richieste e il codice bando nelle righe predisposte.
+- **Con commissioni già registrate**: include soltanto i dati già salvati nel bando, utili per un aggiornamento massivo.
+
+I nomi delle sette colonne non devono essere modificati: CORSO DI LAUREA, SEDE, PRESIDENTE, COMPONENTI COMMISSIONE, BANDO, REQUISITI, ANNO. La colonna BANDO deve riferirsi al bando attivo.
+
+Il caricamento standard **aggiunge solo nuove commissioni**. Per modificare commissioni già esistenti selezionare espressamente **Aggiorna anche le commissioni già presenti**. In tale modalità le celle vuote non cancellano informazioni già salvate: le cancellazioni intenzionali si effettuano da **Modifica** sulla singola commissione. Sono ammessi file con commissioni di CdS senza candidature, che rimangono nell'archivio del bando senza essere associate a schede PICA.
+
+## v0.5.0 — Riferimenti modificabili del bando
+
+Dal menu **Bandi**, scegliere il bando attivo e raggiungere **Riferimenti del bando**. Inserire soltanto gli estremi verificati: **repertorio dell'avviso**, **protocollo**, **data** (GG/MM/AAAA), e, se disponibile, **anno accademico** (AAAA-AAAA). Il codice PICA del bando resta autonomo e non viene alterato.
+
+I campi non sono precompilati con dati provenienti dai PDF di esempio. La nuova generazione delle schede PDF utilizza la formula *Come indicato nell'avviso di selezione per il conferimento degli incarichi: Rep. ... Prot. ... del ...* **soltanto quando tutti e tre i riferimenti sono stati inseriti**. L'anno accademico, se definito a livello di bando, è utilizzato nell'intestazione della nuova scheda. I requisiti specifici per CdS restano nel database delle commissioni.
+
+Dopo una modifica di commissione o dei riferimenti dell'avviso, **rigenerare gli ZIP delle schede già scaricati**. RankUp non modifica i PDF già presenti sul computer e non firma i documenti. Tutti i nuovi dati vengono salvati nel solo bando selezionato, con registro delle variazioni.
+
+**Collaudo ancora necessario:** verifica dei flussi su Raspberry Pi/HAOS, test dell'Excel compilato, verifica della persistenza dopo riavvio e controllo delle nuove schede PDF in Adobe Acrobat Reader. Finché non sono state svolte tali verifiche, evitare dati personali reali e atti amministrativi definitivi.
