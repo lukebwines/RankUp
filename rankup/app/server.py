@@ -565,13 +565,23 @@ def commit_pica(body: CommitRequest):
                 item = record["incarico"]
                 key = item["key"]
                 if key not in assignment_ids:
-                    cur = db.execute("""
-                       INSERT INTO incarichi(bando_id,key,cds,sede,insegnamento,modulo,ul,
-                                            codice_copertura,id_copertura,ssd)
-                       VALUES(?,?,?,?,?,?,?,?,?,?)
-                    """, (bando_id, key, item["cds"], item["sede"], item["insegnamento"],
-                          item["modulo"], item["ul"], item["codice_copertura"], item["id_copertura"],
-                          item.get("ssd","").strip().upper()))
+                    details = incarico_extra_db(item)
+                    columns = (
+                        "bando_id", "key", "cds", "sede", "insegnamento",
+                        "modulo", "ul", "codice_copertura", "id_copertura",
+                        "ssd", *EXTRA_DB_FIELDS
+                    )
+                    values = (
+                        bando_id, key, item["cds"], item["sede"],
+                        item["insegnamento"], item["modulo"], item["ul"],
+                        item["codice_copertura"], item["id_copertura"],
+                        item.get("ssd", "").strip().upper(),
+                        *(details[field] for field in EXTRA_DB_FIELDS)
+                    )
+                    cur = db.execute(
+                        "INSERT INTO incarichi (" + ",".join(columns) + ") VALUES (" +
+                        ",".join("?" for _ in columns) + ")", values
+                    )
                     assignment_ids[key] = cur.lastrowid
                 db.execute("""
                     INSERT INTO candidature(bando_id,incarico_id,id_pica,nome,cognome,
@@ -580,6 +590,21 @@ def commit_pica(body: CommitRequest):
                 """, (bando_id, assignment_ids[key], record["id_pica"], record["nome"],
                       record["cognome"], record["codice_fiscale"], record["stato_pica"],
                       record["source_row"], json.dumps(record, ensure_ascii=False)))
+            distinct_metadata = {}
+            for record in parsed["rows"]:
+                inc = record["incarico"]
+                distinct_metadata[inc["key"]] = incarico_extra_db(inc)
+            metadata_count = sum(
+                1 for info in distinct_metadata.values()
+                for value in info.values() if value
+            )
+            db.execute("""
+                INSERT INTO incarichi_metadata_migrations
+                (bando_id,source_sha256,metodo,incarichi_verificati,
+                 incarichi_aggiornati,campi_compilati,aggiornato_il)
+                VALUES(?,?,?,?,?,?,?)
+            """, (bando_id, meta["sha256"], "importazione",
+                  len(assignment_ids), 0, metadata_count, now))
             db.commit()
         except sqlite3.IntegrityError:
             db.rollback()
