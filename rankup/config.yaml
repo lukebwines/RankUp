@@ -21,5 +21,5 @@ options:
   admin_username: admin
 schema:
   admin_username: str(3,50)
-  admin_password: password(12,)
+  admin_password: password(12,128)
 stage: experimental
