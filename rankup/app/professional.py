@@ -236,10 +236,11 @@ def make_professional(record: dict) -> bytes:
         "Attività", "professionale", "svolta con",
         "continuità", "(ultimi 5 anni)",
     ], 7.3, leading=9)
-    year = re.search(r"(20\d{2})", aa)
+    # L'unico quinquennio verificato nel modello fornito è il 2021-2025
+    # per l'A.A. 2026-2027. Per altri bandi servono anni approvati.
     years = (
-        [str(int(year.group(1))-j-1) for j in range(5)] if year
-        else ["[DA VER.]"] * 5
+        ["2025", "2024", "2023", "2022", "2021"]
+        if re.fullmatch(r"2026[-/]2027", aa) else ["[DA VER.]"] * 5
     )
     for i, year_label in enumerate(years):
         top = 373 + 17*i
@@ -299,10 +300,13 @@ def make_professional(record: dict) -> bytes:
         numbers(key, 449, top+2, 47, height-4, maximum)
         area(500, top, 50, height, maximum_area)
 
-    multiline(53, 627, [
-        "Tutte le variabili devono essere pesate in rapporto alla pertinenza del curriculum.",
-        "In presenza di requisiti d’accesso mancanti la commissione valuta l’esito.",
-    ], 6.4, leading=8)
+    # Testo operativo fedele al documento: non introdurre una regola
+    # diversa sui requisiti mancanti.
+    multiline(53, 626, [
+        "Tutte le variabili devono essere pesate in rapporto alla pertinenza del curriculum",
+        "all'insegnamento/modulo indicato. Se i requisiti di accesso alla docenza non",
+        "sono presenti non si procede alla valutazione e si assegna punteggio pari a zero.",
+    ], 5.3, leading=6.2)
     for x, width in [(401, 45), (447, 51), (500, 50)]:
         rect(x, 626, width, 19, MAGENTA)
     centered(401, 629, 45, "TOTALE", 8.2, True, white)
