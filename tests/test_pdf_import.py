@@ -545,3 +545,62 @@ def test_old_inactive_acquired_without_outcome_gets_archived_as_unvalidated(
             assert row["stato"]=="Da verificare"
             assert row["attiva"]==0
             assert row["totale_calcolato"]==15
+
+
+def test_only_admin_can_manually_acquire_a_pdf(tmp_path, monkeypatch):
+    """Il ruolo deve essere verificato nel server, anche con POST diretto."""
+    server, client, sheets = _setup(tmp_path, monkeypatch)
+    with client:
+        original=next(p for p in sheets.values()
+            if "P19" not in PdfReader(BytesIO(p)).get_fields())
+        # Una scheda tecnicamente anomala, ma con giudizio esplicito nel PDF.
+        document=_edit(original,{
+            "STATUS":"CANDIDATO AMMESSO IN GRADUATORIA",
+            "P01":"2",
+            "TOT":"0",
+        })
+        preview=_preview(client,[("scheda_riservata.pdf",document)])
+        assert preview["riepilogo"]["da_verificare"]==1
+        _confirm(client,preview["token"])
+        record=client.get("/api/bandi/26-02/valutazioni").json()["archivio"][0]
+        payload={
+            "candidatura_id":record["candidatura_id"],
+            "esito":"CANDIDATO AMMESSO IN GRADUATORIA",
+            "punteggio":"2",
+            "nota_commissione":"",
+            "motivazione_tecnica":"Il totale Acrobat non e' stato aggiornato nel PDF.",
+            "documento_verificato":True,
+        }
+        original_role=server.AUTH.role
+        monkeypatch.setattr(server.AUTH, "role", lambda cookie: (
+            "user" if server.AUTH.valid(cookie) else None
+        ))
+        status=client.get("/api/auth/status")
+        assert status.status_code==200
+        assert status.json()["role"]=="user"
+        # L'utente regolarmente autenticato può leggere il documento.
+        readable=client.get(
+            f"/api/bandi/26-02/valutazioni/{record['id']}/documento"
+        )
+        assert readable.status_code==200
+        assert readable.content==document
+        # Non può invocare il POST riservato attraverso una chiamata diretta.
+        denied=_post(client,
+            f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+            json=payload)
+        assert denied.status_code==403,denied.text
+        assert "riservata all'amministratore" in denied.text
+        with server.connect() as db:
+            row=db.execute(
+                "SELECT stato,totale_calcolato FROM valutazioni_pdf WHERE id=?",
+                (record["id"],)
+            ).fetchone()
+            assert row["stato"]=="Da verificare"
+            assert row["totale_calcolato"] is None
+        monkeypatch.setattr(server.AUTH,"role",original_role)
+        assert client.get("/api/auth/status").json()["role"]=="admin"
+        approved=_post(client,
+            f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+            json=payload)
+        assert approved.status_code==200,approved.text
+        assert approved.json()["metodo"]=="manuale"
