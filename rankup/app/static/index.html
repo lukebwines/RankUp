@@ -387,10 +387,12 @@
         try{
           var data=await Promise.all([
             api("bandi/"+encodeURIComponent(code)+"/ssd"),
-            api("bandi/"+encodeURIComponent(code))
+            api("bandi/"+encodeURIComponent(code)),
+            api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni")
           ]);
           if(state.active!==code||state.page!=="schede")return;
           var rows=data[0].ssd, locations=data[1].cds_sedi||[];
+          var commissionsReport=data[2];
           var unresolved=rows.filter(function(item){return !item.tipo;}).length;
           var professional=rows.filter(function(item){return item.tipo==="professionalizzante";}).length;
           var ordinary=rows.filter(function(item){return item.tipo==="ordinario";}).length;
@@ -415,6 +417,11 @@
              '<div class="notice" style="margin-top:10px">Correzione SSD da PICA completata: '+esc(migration.incarichi_corretti)+
              ' incarichi aggiornati su '+esc(migration.incarichi_verificati)+' verificati, senza reimportare le candidature.</div>':'';
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
+          var commissionSummary='<div class="notice" style="margin:0 0 16px 0">Commissioni associate: '+
+            esc(commissionsReport.associate)+'/'+esc(commissionsReport.totale)+' CdS/sedi. '+
+            (commissionsReport.mancanti
+             ?esc(commissionsReport.mancanti)+' commissioni non associate: genera le schede per i CdS già coperti, oppure integra l’Excel delle commissioni.'
+             :'Tutte le commissioni associate.')+'</div>';
           html('<div class="card mb"><h3 class="section-heading">Modelli PDF per SSD · Bando '+esc(code)+'</h3>'+
             '<p class="muted">Ogni SSD identificato utilizza di default il modello non professionalizzante. Seleziona Professionalizzante soltanto per gli SSD interessati: la modifica viene salvata automaticamente.</p>'+
             '<div class="notice">'+ordinary+' SSD non professionalizzanti · '+professional+
@@ -422,7 +429,7 @@
             (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
-            '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+
+            '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+commissionSummary+
             '<p class="caption">Modelli tecnici facsimile. Criteri, massimali e layout devono essere verificati rispetto alle schede ufficiali prima dell’impiego amministrativo.</p>'+
             '<div class="actions" style="margin-top:14px"><select id="sheet-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutti i CdS</option>'+
             courses.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('')+
