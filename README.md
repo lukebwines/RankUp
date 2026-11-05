@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.4.4 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.5.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -69,3 +69,18 @@ I PDF già scaricati non sono sostituiti automaticamente: **rigenerare lo ZIP** 
 - Per il file PICA e l'Excel commissioni forniti del bando 26-02, il confronto locale rileva **16 CdS/sedi associati su 17**: manca nell'Excel la commissione per **IGIENE DENTALE / VERONA**. Non sono stati inventati nominativi e nessuna commissione esistente viene sovrascritta.
 - I menu professionali di attività e tutoraggio mostrano le **etichette descrittive** del modello, anziché duplicare il valore numerico per opzioni che condividono gli stessi punti (es. 0,5). I valori esportati restano numerici per il totale calcolato.
 - Nessuna reimportazione PICA/commissioni è richiesta per gli altri CdS. Gli ZIP generati in precedenza vanno rigenerati. I PDF restano facsimili da collaudare in Adobe Acrobat Reader.
+
+### Commissioni modificabili e riferimenti del bando (v0.5.0)
+
+Nella pagina **Commissioni** RankUp consente ora di:
+- inserire manualmente una commissione scegliendo CdS/sede dagli incarichi PICA, anche direttamente dall'elenco delle commissioni mancanti;
+- modificare presidente, componenti, requisiti e anno accademico di una commissione già registrata, oppure correggerne l'associazione CdS/sede attraverso la selezione guidata;
+- scaricare un **format Excel .xlsx** con le stesse sette colonne accettate dall'importatore: CORSO DI LAUREA, SEDE, PRESIDENTE, COMPONENTI COMMISSIONE, BANDO, REQUISITI, ANNO;
+- scegliere tra formato **vuoto**, formato **precompilato con CdS/sedi PICA** (senza nominativi inventati) oppure formato **con le commissioni già registrate**;
+- importare soltanto le commissioni nuove oppure, con scelta esplicita, aggiornare le commissioni esistenti. Le righe assenti dall'Excel non vengono eliminate e i campi vuoti non cancellano quelli precedenti durante gli aggiornamenti massivi.
+
+Tutte le variazioni sono registrate nello storico SQLite del singolo bando. Le modifiche non si propagano ad altri bandi. Dopo una modifica rilevante occorre rigenerare le schede PDF già scaricate.
+
+Nella pagina **Bandi** è presente anche il pannello *Riferimenti del bando*, con campi editabili per **repertorio avviso, protocollo, data dell'avviso e anno accademico**. I campi sono vuoti finché l'operatore non acquisisce i dati ufficiali; **nessuno degli estremi presenti nei PDF di esempio viene copiato automaticamente**. Una volta completati repertorio, protocollo e data, i riferimenti vengono utilizzati nella nuova generazione delle schede PDF, senza eliminare i requisiti specifici salvati nell'anagrafica delle commissioni.
+
+La versione 0.5.0 è un prototipo sperimentale: richiede ancora collaudo completo su Home Assistant e validazione dei modelli PDF prima dell'impiego in procedimenti ufficiali.
