@@ -88,6 +88,7 @@
         <button data-page="incarichi"><span class="navdot"></span> Incarichi</button>
         <button data-page="candidature"><span class="navdot"></span> Candidature</button>
         <button data-page="commissioni"><span class="navdot"></span> Commissioni</button>
+        <button data-page="schede"><span class="navdot"></span> Schede PDF</button>
         <button data-page="valutazioni"><span class="navdot"></span> Valutazioni</button>
         <button data-page="verbali"><span class="navdot"></span> Verbali</button>
         <button data-page="graduatorie"><span class="navdot"></span> Graduatorie</button>
@@ -202,13 +203,14 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
         if(state.page==="dashboard")return dashboard();
         if(state.page==="bandi")return renderBandi();
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
+        if(state.page==="schede")return renderSchede();
         if(state.page==="valutazioni")return html(panel("Monitoraggio schede", "La gestione dei PDF editabili, delle restituzioni e delle anomalie sarà attivata nella seconda milestone."));
         if(state.page==="verbali")return html(panel("Verbali delle commissioni", "Generazione di un verbale per CdS dopo l'acquisizione delle valutazioni: funzionalità prevista, non ancora implementata."));
         if(state.page==="graduatorie")return html(panel("Graduatorie per CdS e generali", "Saranno distinti i nominativi in chiaro per le commissioni e l'identificazione selettiva dei vincitori per l'approvazione degli atti."));
@@ -286,6 +288,89 @@
             renderList("commissioni");
           }catch(error){note(error.message,true);btn.disabled=false;}
         };
+      }
+      async function renderSchede(){
+        if(!cur()){html(panel("Seleziona bando","Importa o apri un bando prima di classificare gli SSD."));return;}
+        var code=state.active;
+        html('<div class="card"><p class="muted">Lettura SSD del bando '+esc(code)+'...</p></div>');
+        try{
+          var data=await Promise.all([
+            api("bandi/"+encodeURIComponent(code)+"/ssd"),
+            api("bandi/"+encodeURIComponent(code))
+          ]);
+          if(state.active!==code||state.page!=="schede")return;
+          var rows=data[0].ssd, locations=data[1].cds_sedi||[];
+          var unclassified=rows.filter(function(item){return !item.tipo;}).length;
+          var statuses=rows.map(function(item){
+            var select='<select class="ssd-type" aria-label="Tipologia SSD '+esc(item.ssd)+'">'+
+                '<option value="">Da classificare</option>'+
+                '<option value="ordinario"'+(item.tipo==="ordinario"?" selected":"")+'>Non professionalizzante</option>'+
+                '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?" selected":"")+'>Professionalizzante</option>'+
+                '</select>';
+            return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+esc(item.ssd||"[SSD mancante]")+'</td>'+
+              '<td>'+esc(item.incarichi)+'</td><td>'+select+'</td>'+
+              '<td><input class="ssd-reference" aria-label="Fonte per '+esc(item.ssd)+'" placeholder="Riferimento verificato" value="'+esc(item.riferimento||'')+'" style="width:100%;max-width:220px;padding:8px;border:1px solid #c4d2e1;border-radius:7px"></td>'+
+              '<td><button class="btn secondary save-ssd"'+(!item.ssd?' disabled':'')+'>Salva</button></td></tr>';
+          }).join('');
+          var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
+          html('<div class="card mb"><h3 class="section-heading">Classificazione SSD · Bando '+esc(code)+'</h3>'+
+            '<p class="muted">La scheda professionalizzante è ammessa esclusivamente per gli SSD classificati come professionalizzanti. Nessuna classificazione è attribuita automaticamente.</p>'+
+            '<div class="notice">'+unclassified+' SSD da classificare su '+rows.length+
+            '. La classificazione sarà riutilizzata negli altri bandi, ma richiede un riferimento documentale verificato.</div>'+
+            '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello</th><th>Fonte classificazione</th><th></th></tr></thead>'+
+            '<tbody>'+statuses+'</tbody></table></div></div>'+
+            '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+
+            '<p class="caption">Modelli tecnici facsimile. Criteri, massimali e layout devono essere verificati rispetto alle schede ufficiali prima dell’impiego amministrativo.</p>'+
+            '<div class="actions" style="margin-top:14px"><select id="sheet-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutti i CdS</option>'+
+            courses.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('')+
+            '</select><select id="sheet-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutte le sedi</option></select>'+
+            '<button class="btn" id="sheet-download">Genera e scarica ZIP</button></div>'+
+            '<p class="caption">Per generare un singolo CdS scegli il corso; lasciando tutti i CdS selezionati otterrai lo ZIP completo.</p></div>');
+          document.querySelectorAll(".save-ssd").forEach(function(button){
+            button.onclick=async function(){
+              var tr=button.closest("tr"),sector=tr.dataset.sector;
+              var tipo=tr.querySelector(".ssd-type").value;
+              var riferimento=tr.querySelector(".ssd-reference").value.trim();
+              if(!tipo||riferimento.length<3){note("Seleziona il modello e indica una fonte verificata per l'SSD "+sector,true);return;}
+              button.disabled=true;
+              try{
+                await api("ssd/"+encodeURIComponent(sector)+"/classificazione",{
+                  method:"PUT",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({tipo:tipo,riferimento:riferimento})
+                });
+                note("Classificazione salvata per SSD "+sector,false);
+                renderSchede();
+              }catch(error){note(error.message,true);button.disabled=false;}
+            };
+          });
+          $("sheet-cds").onchange=function(){
+            var relevant=locations.filter(function(x){return !$("sheet-cds").value||x.cds===$("sheet-cds").value;});
+            var sites=[...new Set(relevant.map(function(x){return x.sede;}))].sort();
+            $("sheet-sede").innerHTML='<option value="">Tutte le sedi</option>'+
+                sites.map(function(site){return '<option value="'+esc(site)+'">'+esc(site)+'</option>';}).join('');
+          };
+          $("sheet-cds").onchange();
+          $("sheet-download").onclick=async function(){
+            var button=this;button.disabled=true;button.textContent="Generazione...";
+            var query=new URLSearchParams();
+            if($("sheet-cds").value)query.set("cds",$("sheet-cds").value);
+            if($("sheet-sede").value)query.set("sede",$("sheet-sede").value);
+            try{
+              var resp=await fetch("api/bandi/"+encodeURIComponent(code)+"/schede/zip?"+query.toString(),{cache:"no-store"});
+              if(!resp.ok){
+                var err=await resp.json().catch(function(){return {};});
+                throw new Error(err.detail||"Impossibile generare le schede");
+              }
+              var blob=await resp.blob(),url=URL.createObjectURL(blob);
+              var link=document.createElement("a");
+              link.href=url;link.download="RankUp_"+code+"_schede.zip";
+              document.body.appendChild(link);link.click();link.remove();
+              setTimeout(function(){URL.revokeObjectURL(url);},60000);
+              note("ZIP delle schede generato; verificare sempre i modelli prima dell'uso amministrativo.",false);
+            }catch(error){note(error.message,true);}
+            finally{button.disabled=false;button.textContent="Genera e scarica ZIP";}
+          };
+        }catch(error){note(error.message,true);html('');}
       }
       async function reload(){
         var result=await api("bandi");state.bandi=result.bandi;
