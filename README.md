@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.7.3 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.7.4 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -140,3 +140,11 @@ Questa versione include inoltre il riepilogo dei punti provvisori nei PDF con es
 Il modulo **Riferimenti del bando** è stato spostato dalla pagina di gestione generale **Bandi** a una pagina autonoma sotto **Procedimento del bando attivo**, sopra **Incarichi**. Nella pagina Bandi rimangono elenco delle procedure e importazione del file PICA.
 
 Il modulo continua a leggere e salvare i quattro dati verificati dell'avviso (repertorio, protocollo, data e anno accademico) sul codice del bando attualmente selezionato. Gli endpoint `/api/bandi/{code}/riferimenti` e la struttura del database non sono stati modificati. I dati esistenti restano associati al rispettivo bando, senza recuperare valori da facsimile né introdurre valori predefiniti.
+
+### RankUp 0.7.4 — Ripristino del comando di acquisizione manuale all'Admin
+
+Nello storico Valutazioni, ogni documento in stato **Da verificare** mostra all'amministratore il pulsante **Acquisisci manualmente**, anche quando il PDF non riporta un esito della commissione. L'interfaccia mostra in quel caso un'avvertenza, ma non nasconde il comando.
+
+La modifica riguarda la visibilità e l'apertura del modulo: restano invariati il controllo del ruolo `admin` nel backend e il divieto di confermare un giudizio senza un esito o una motivazione documentati dalla commissione. Il totale numerico provvisorio, quando leggibile, resta visibile come **da convalidare** e non prova l'idoneità.
+
+La suite di test comprende un controllo di regressione specifico per il pulsante nelle schede prive di esito. Fare un backup prima dell'aggiornamento in Home Assistant.
