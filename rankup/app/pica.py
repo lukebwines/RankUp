@@ -108,6 +108,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "modulo": ["descrizione copertura"],
         "id_copertura": ["id copertura"],
         "codice_copertura": ["codice copertura"],
+        "ssd": ["settore scientifico disciplinare", "ssd insegnamento", "ssd"],
         "ul": ["partizione studenti", "codice partizione studenti"],
         "cognome": ["cognome"],
         "nome": ["nome"],
@@ -127,6 +128,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
         raise ValueError("Colonne obbligatorie PICA assenti: " + ", ".join(missing))
 
     records = []
+    ssd_by_key = {}
     keys_seen = set()
     duplicate_rows = 0
     warnings = []
@@ -143,13 +145,19 @@ def parse_pica(filename: str, content: bytes) -> dict:
             continue
 
         incarico = {k: get(k) for k in
-                    ("cds", "sede", "insegnamento", "modulo", "id_copertura", "codice_copertura", "ul")}
+                    ("cds", "sede", "insegnamento", "modulo", "id_copertura", "codice_copertura", "ssd", "ul")}
         # I codici di copertura sono preferiti ai nomi. La sede e il CdS
         # restano inclusi per impedire unioni indesiderate.
         stable = incarico["id_copertura"] or incarico["codice_copertura"]
         basis = "|".join([incarico["cds"], incarico["sede"], stable,
                           incarico["insegnamento"], incarico["modulo"], incarico["ul"]])
         incarico["key"] = hashlib.sha256(normalize(basis).encode()).hexdigest()[:24]
+        ssd = incarico["ssd"].strip().upper()
+        prior = ssd_by_key.get(incarico["key"])
+        if prior and ssd and prior != ssd:
+            raise ValueError("SSD discordante per la stessa copertura PICA: " + incarico["modulo"])
+        if ssd:
+            ssd_by_key[incarico["key"]] = ssd
         row_key = (candidate_id, incarico["key"])
         if row_key in keys_seen:
             duplicate_rows += 1
@@ -176,6 +184,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
             "candidature": len(records),
             "incarichi": len(assignments),
             "cds": len(courses),
+            "ssd_distinti": len(set(ssd_by_key.values())),
             "righe_duplicate_ignorate": duplicate_rows,
             "avvisi": warnings[:30],
         },
