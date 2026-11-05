@@ -187,7 +187,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""}};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -265,7 +265,7 @@
       var note = function(message,error){$("notification").innerHTML='<div class="'+(error?"error":"success")+' mb">'+esc(message)+'</div>';};
       var clearNote = function(){$("notification").innerHTML="";};
       var cur = function(){return state.bandi.find(function(b){return b.codice===state.active;});};
-      var setActive = function(code){state.active=code;localStorage.setItem("rankup_active",code);updateHeader();render();};
+      var setActive = function(code){state.active=code;state.valFilter={cds:"",sede:""};localStorage.setItem("rankup_active",code);updateHeader();render();};
       function updateHeader(){
         var selected=cur(), code=selected?selected.codice:"nessuno";
         $("side-code").textContent=selected?code:"Nessuno";
@@ -672,37 +672,101 @@
       }
       async function renderValutazioni(){
         if(!cur()){html(panel("Seleziona bando","Apri un bando per acquisire le valutazioni delle commissioni."));return;}
-        var code=state.active;
-        html('<div class="card"><p class="muted">Caricamento delle valutazioni del bando '+esc(code)+'...</p></div>');
+        var code=state.active, filter=state.valFilter;
+        html('<div class="card"><p class="muted">Lettura valutazioni del bando '+esc(code)+'...</p></div>');
         try{
-          var report=await api("bandi/"+encodeURIComponent(code)+"/valutazioni");
-          if(state.active!==code || state.page!=="valutazioni")return;
+          var query=new URLSearchParams();
+          if(filter.cds)query.set("cds",filter.cds);
+          if(filter.sede)query.set("sede",filter.sede);
+          var responses=await Promise.all([
+            api("bandi/"+encodeURIComponent(code)),
+            api("bandi/"+encodeURIComponent(code)+"/valutazioni?"+query.toString())
+          ]);
+          if(state.active!==code||state.page!=="valutazioni")return;
+          var locations=responses[0].cds_sedi||[],report=responses[1];
+          var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
+          var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
+            .map(function(x){return x.sede;}))].sort();
           var pairs=report.cds_sedi||[];
-          var content='<div class="card mb"><h3 class="section-heading">Reimportazione delle schede PDF · Bando '+esc(code)+'</h3>'+
-            '<p class="muted">Carica i PDF compilati dalla commissione oppure uno ZIP di schede. RankUp riconosce le candidature, verifica i massimali e ricalcola il totale. Nessun punteggio viene registrato senza conferma.</p>'+
-            '<div class="upload"><label for="pdf-eval-files"><strong>Schede PDF compilate o ZIP</strong></label>'+
+          var selectors='<div class="card mb"><h3 class="section-heading">Seleziona il Corso di Studio</h3>'+
+            '<div class="actions"><label for="val-cds" class="caption" style="align-self:center">CdS</label>'+
+            '<select id="val-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px;max-width:100%">'+
+            '<option value="">Tutti i Corsi di Studio</option>'+
+            courses.map(function(c){return '<option value="'+esc(c)+'"'+(filter.cds===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')+
+            '</select><label for="val-sede" class="caption" style="align-self:center">Sede</label>'+
+            '<select id="val-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px">'+
+            '<option value="">Tutte le sedi</option>'+
+            sites.map(function(site){return '<option value="'+esc(site)+'"'+(filter.sede===site?' selected':'')+'>'+esc(site)+'</option>';}).join('')+
+            '</select></div><p class="caption">La selezione filtra il prospetto, lo storico e le candidature disponibili per la trascrizione manuale. Le schede non associate a una candidatura PICA sono visibili selezionando «Tutti i Corsi di Studio».</p></div>';
+          var scope=filter.cds?filter.cds+(filter.sede?' · '+filter.sede:''):"Tutti i CdS";
+          var content=selectors+
+            '<div class="card mb"><h3 class="section-heading">Reimportazione schede PDF · '+esc(scope)+'</h3>'+
+            '<p class="muted">Carica i PDF compilati o uno ZIP. La lettura è preliminare: nessun punteggio viene registrato senza conferma. Le schede di CdS diversi da quello selezionato saranno segnalate.</p>'+
+            '<div class="upload"><label for="pdf-eval-files"><strong>Schede PDF o ZIP</strong></label>'+
             '<input type="file" id="pdf-eval-files" accept=".pdf,.zip,application/pdf,application/zip" multiple>'+
             '<button class="btn" id="pdf-eval-preview" type="button">Analizza PDF senza acquisire</button>'+
-            '<p class="caption">Massimo 120 PDF e 40 MB complessivi per caricamento. I PDF anomali verranno conservati come «Da verificare» solo dopo la conferma.</p>'+
+            '<p class="caption">Limite 120 PDF, 40 MB per caricamento. Le schede anomale si conservano dopo conferma senza attribuire punteggi.</p>'+
             '</div><div id="pdf-eval-result" style="margin-top:16px"></div></div>';
-          content+='<div class="card mb"><h3 class="section-heading">Avanzamento delle valutazioni per CdS e sede</h3>'+
-            '<p class="caption">'+esc(report.totale_acquisite)+' valutazioni attive acquisite su '+esc(report.totale_attese)+
-            ' candidature attive. Le candidature rinunciate o escluse non sono conteggiate tra le schede attese.</p>'+
-            '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Attese</th><th>Acquisite</th><th>Da verificare</th><th>Procedimento</th></tr></thead><tbody>'+
+          content+='<div class="card mb"><h3 class="section-heading">Avanzamento · '+esc(scope)+'</h3>'+
+            '<p class="caption"><strong>'+esc(report.totale_acquisite)+'</strong> esiti conclusi su '+esc(report.totale_attese)+
+            ' candidature attive; '+esc(report.totale_idonee||0)+' idonei · '+esc(report.totale_non_idonee||0)+
+            ' non idonei · '+esc(report.totale_escluse||0)+' esclusi. Un esito negativo motivato conclude la valutazione senza attribuire 0 punti.</p>'+
+            '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Attese</th><th>Concluse</th><th>Non idonei</th><th>Esclusi</th><th>Da verificare</th><th>Procedimento</th></tr></thead><tbody>'+
             pairs.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td>'+
-              '<td>'+esc(r.attese)+'</td><td>'+esc(r.acquisite)+'</td><td>'+esc(r.da_verificare)+'</td>'+
-              '<td><span class="badge '+(r.complete?'':'gray')+'">'+(r.complete?'Schede complete':'Incompleto')+'</span></td></tr>';}).join('')+
+              '<td>'+esc(r.attese)+'</td><td>'+esc(r.acquisite)+'</td><td>'+esc(r.non_idonee||0)+'</td>'+
+              '<td>'+esc(r.escluse||0)+'</td><td>'+esc(r.da_verificare)+'</td>'+
+              '<td><button type="button" class="btn secondary" data-val-course="'+esc(r.cds)+'" data-val-site="'+esc(r.sede)+'">'+
+              (r.complete?'Completo · Apri':'Apri CdS')+'</button></td></tr>';}).join('')+
             '</tbody></table></div></div>';
-          if(report.archivio&&report.archivio.length){
-            content+='<div class="card"><details><summary style="cursor:pointer;font-weight:700">Storico delle schede ricevute ('+
-              esc(report.archivio.length)+')</summary><div class="tablebox"><table><thead><tr><th>File</th><th>Stato</th><th>Versione</th><th>Totale</th><th>Motivo</th><th>Originale</th></tr></thead><tbody>'+
-              report.archivio.map(function(r){return '<tr><td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+
-                '</td><td>'+esc(r.versione||"-")+'</td><td>'+esc(r.totale_calcolato==null?"-":r.totale_calcolato)+
-                '</td><td>'+esc(r.motivo)+'</td><td><a href="api/bandi/'+encodeURIComponent(code)+
-                '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="display:inline-block;text-decoration:none">Scarica PDF</a></td></tr>';}).join('')+
-              '</tbody></table></div></details></div>';
+          var archive=report.archivio||[];
+          if(archive.length){
+            var groups=new Map();
+            archive.forEach(function(r){
+              var group=(r.cds||"Schede non associate")+(r.sede?" · "+r.sede:"");
+              if(!groups.has(group))groups.set(group,[]);
+              groups.get(group).push(r);
+            });
+            var archiveHtml=[...groups.entries()].map(function(entry){
+              var rows=entry[1];
+              return '<details style="margin:10px 0"><summary style="cursor:pointer;padding:10px 0;font-weight:700">'+esc(entry[0])+
+                ' · '+rows.length+' schede</summary><div class="tablebox"><table><thead><tr>'+
+                '<th>Candidatura</th><th>File</th><th>Stato</th><th>Esito</th><th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
+                rows.map(function(r){
+                  var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
+                    (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":"—");
+                  return '<tr><td><div>'+esc(r.id_pica||"Da associare")+'</div>'+
+                    '<span class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</span></td>'+
+                    '<td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+(r.stato==="Acquisita"?
+                    '<div class="caption">'+esc(r.metodo||"automatico")+' · v'+esc(r.versione)+'</div>':'')+'</td>'+
+                    '<td>'+esc(r.esito||"—")+'</td><td>'+esc(scoring)+'</td>'+
+                    '<td>'+esc(r.stato==="Da verificare"?r.motivo:(r.note||r.motivazione_tecnica||"—"))+'</td>'+
+                    '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
+                    '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
+                    (r.stato==="Da verificare"?'<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>':'')+
+                    '</div></td></tr>';
+                }).join('')+'</tbody></table></div></details>';
+            }).join('');
+            content+='<div class="card mb"><h3 class="section-heading">Storico delle schede · '+esc(scope)+'</h3>'+
+              (report.pdf_non_associati?'<p class="caption">'+esc(report.pdf_non_associati)+
+               ' PDF non ancora associati a candidature nel bando; visibili in «Tutti i Corsi di Studio».</p>':'')+
+              archiveHtml+'</div>';
+          }else{
+            content+='<div class="card mb"><h3 class="section-heading">Storico · '+esc(scope)+'</h3>'+
+              '<p class="muted">Nessuna scheda conservata per questa selezione.</p></div>';
           }
+          content+='<div id="manual-eval-panel"></div>';
           html(content);
+          $("val-cds").onchange=function(){state.valFilter.cds=this.value;state.valFilter.sede="";renderValutazioni();};
+          $("val-sede").onchange=function(){state.valFilter.sede=this.value;renderValutazioni();};
+          document.querySelectorAll("[data-val-course]").forEach(function(btn){
+            btn.onclick=function(){state.valFilter={cds:btn.dataset.valCourse,sede:btn.dataset.valSite};renderValutazioni();};
+          });
+          document.querySelectorAll("[data-val-manual]").forEach(function(btn){
+            btn.onclick=function(){
+              var record=archive.find(function(r){return String(r.id)===btn.dataset.valManual;});
+              if(record)renderManualEvaluation(code,record);
+            };
+          });
           $("pdf-eval-preview").onclick=async function(){
             var files=$("pdf-eval-files").files;
             if(!files.length){note("Seleziona almeno un PDF o un archivio ZIP",true);return;}
@@ -710,15 +774,104 @@
             try{
               var form=new FormData();
               Array.from(files).forEach(function(file){form.append("files",file,file.name);});
-              var response=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/anteprima",{
+              var params=new URLSearchParams();
+              if(filter.cds)params.set("cds",filter.cds);
+              if(filter.sede)params.set("sede",filter.sede);
+              var result=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/anteprima?"+params,{
                 method:"POST",body:form
               });
-              if(state.page==="valutazioni" && state.active===code)renderPdfPreview(code,response);
+              if(state.page==="valutazioni" && state.active===code)renderPdfPreview(code,result);
             }catch(err){note(err.message,true);}
             finally{button.disabled=false;button.textContent="Analizza PDF senza acquisire";}
           };
         }catch(err){note("Impossibile leggere le valutazioni: "+err.message,true);html("");}
       }
+
+      async function renderManualEvaluation(code, record){
+        var holder=$("manual-eval-panel");
+        if(!holder)return;
+        var filter=state.valFilter;
+        if(!filter.cds && !record.candidatura_id){
+          note("Seleziona prima il CdS e la sede nel menu in alto per associare una scheda priva di identificativo.",true);
+          return;
+        }
+        holder.innerHTML=panel("Acquisizione manuale", "Caricamento candidature PICA...");
+        try{
+          var params=new URLSearchParams();
+          if(filter.cds)params.set("cds",filter.cds);
+          if(filter.sede)params.set("sede",filter.sede);
+          var data=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/candidature?"+params);
+          if(state.page!=="valutazioni"||state.active!==code)return;
+          var candidates=(data.candidature||[]).filter(function(c){return !record.candidatura_id||c.id===record.candidatura_id;});
+          if(!candidates.length){holder.innerHTML=panel("Nessuna candidatura associabile","Verifica il corso, la sede e l'ID PICA.");return;}
+          var statuses=[
+            ["","— Seleziona l'esito del documento —"],
+            ["CANDIDATO AMMESSO IN GRADUATORIA","Ammesso in graduatoria"],
+            ["CANDIDATO UNICO IDONEO","Unico candidato idoneo"],
+            ["CANDIDATO CON CURRICULUM NON VALUTABILE O NON IDONEO","Curriculum non valutabile o non idoneo"],
+            ["CANDIDATO NON IDONEO","Non idoneo"],
+            ["CANDIDATO CON REQUISITO ENTE DI APPARTENENZA MANCANTE","Requisito ente mancante"],
+            ["CANDIDATO CON TITOLO DI STUDIO RICHIESTO PER L'ACCESSO MANCANTE","Titolo di accesso mancante"],
+            ["CANDIDATO CON TITOLO DI STUDIO RICHIESTO PER L'ACCESSO NON PERTINENTE","Titolo di accesso non pertinente"]
+          ];
+          holder.innerHTML='<div class="card mb"><h3 class="section-heading">Acquisizione manuale · Documento '+esc(record.id)+'</h3>'+
+            '<p class="notice">Trascrivi solo quanto risulta dal PDF della commissione, verificando personalmente l’identità. Il PDF originale è conservato, l’operazione è registrata e le rettifiche mantengono la versione precedente.</p>'+
+            '<label for="eval-man-candidate">Candidatura PICA (obbligatoria)</label>'+
+            '<select id="eval-man-candidate" style="display:block;width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Seleziona candidatura</option>'+
+            candidates.map(function(c){return '<option value="'+esc(c.id)+'"'+(c.id===record.candidatura_id?' selected':'')+'>'+
+              esc(c.id_pica+" · "+c.cognome+" "+c.nome+" · "+c.cds+" / "+c.sede+" · "+c.insegnamento+" / "+c.modulo)+'</option>';}).join('')+'</select>'+
+            '<label for="eval-man-status">Esito riportato dalla commissione</label>'+
+            '<select id="eval-man-status" style="display:block;width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px">'+
+            statuses.map(function(st){return '<option value="'+esc(st[0])+'">'+esc(st[1])+'</option>';}).join('')+'</select>'+
+            '<div id="eval-man-score-row"><label for="eval-man-score">Punteggio complessivo deliberato (0–60, obbligatorio per idonei)</label>'+
+            '<input type="number" min="0" max="60" step="0.01" id="eval-man-score" placeholder="Punteggio, non precompilato" style="display:block;width:100%;max-width:250px;padding:10px;margin:7px 0 14px;border:1px solid #c5d4e3;border-radius:8px"></div>'+
+            '<label for="eval-man-note">Motivazione della commissione (obbligatoria per non idonei ed esclusi)</label>'+
+            '<textarea id="eval-man-note" rows="3" style="width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px" placeholder="Trascrivi fedelmente la nota del documento">'+esc(record.note||"")+'</textarea>'+
+            '<label for="eval-man-reason">Motivo tecnico del recupero manuale</label>'+
+            '<textarea id="eval-man-reason" rows="2" style="width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px" placeholder="Es. PDF salvato da visualizzatore che ha perso i campi, punteggio visibile nel documento"></textarea>'+
+            '<label style="display:block;margin:10px 0"><input type="checkbox" id="eval-man-verified"> Ho controllato il PDF originale, l’identità del candidato, il punteggio o esito e la corrispondenza dei dati trascritti alla decisione della commissione.</label>'+
+            '<label style="display:block;margin:10px 0"><input type="checkbox" id="eval-man-revise"> Confermo l’eventuale rettifica di una valutazione già acquisita, conservando lo storico.</label>'+
+            '<div class="actions"><button class="btn" type="button" id="eval-man-save">Conferma acquisizione manuale</button>'+
+            '<button class="btn secondary" type="button" id="eval-man-cancel">Annulla</button>'+
+            '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+encodeURIComponent(record.id)+'/documento" style="text-decoration:none">Apri PDF originale</a></div></div>';
+          var select=$("eval-man-status");
+          function statusMode(){
+            var negative=/NON IDONEO|NON VALUTABILE|MANCANTE|NON PERTINENTE/.test(select.value);
+            $("eval-man-score-row").style.display=negative?"none":"block";
+            if(negative)$("eval-man-score").value="";
+          }
+          select.onchange=statusMode;statusMode();
+          $("eval-man-cancel").onclick=function(){holder.innerHTML="";};
+          $("eval-man-save").onclick=async function(){
+            var candidacy=$("eval-man-candidate").value;
+            if(!candidacy||!select.value){note("Seleziona candidatura PICA ed esito documentato",true);return;}
+            var score=$("eval-man-score").value.trim();
+            var negative=$("eval-man-score-row").style.display==="none";
+            if(!negative&&!score){note("Per un candidato idoneo il punteggio deve essere riportato dal documento",true);return;}
+            var noteCommission=$("eval-man-note").value.trim();
+            if(negative&&!noteCommission){note("Per non idonei o esclusi è necessaria la motivazione della commissione",true);return;}
+            var reason=$("eval-man-reason").value.trim();
+            if(reason.length<10||!$("eval-man-verified").checked){
+              note("Indica il motivo tecnico e conferma la verifica della documentazione",true);return;
+            }
+            if(!confirm("Acquisire manualmente l'esito riportato nel PDF originale per la candidatura selezionata? L'operazione sarà registrata."))return;
+            var button=this;button.disabled=true;button.textContent="Acquisizione...";
+            try{
+              var result=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+encodeURIComponent(record.id)+"/manuale",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({candidatura_id:Number(candidacy),esito:select.value,
+                  punteggio:negative?null:Number(score),nota_commissione:noteCommission,
+                  motivazione_tecnica:reason,documento_verificato:true,
+                  conferma_rettifica:$("eval-man-revise").checked})
+              });
+              note("Esito acquisito manualmente come "+result.decisione+
+                ". PDF originale conservato, versione "+result.versione+".",false);
+              renderValutazioni();
+            }catch(err){note(err.message,true);button.disabled=false;button.textContent="Conferma acquisizione manuale";}
+          };
+        }catch(err){note(err.message,true);holder.innerHTML="";}
+      }
+
       function renderPdfPreview(code,data){
         var dest=$("pdf-eval-result");
         if(!dest)return;
@@ -730,40 +883,41 @@
                         && (data.schede||[]).length===filesAnalyzed;
         var actionable=(stats.regolare||0)+(stats.rettifica||0)+(stats.da_verificare||0);
         dest.innerHTML='<h3 class="section-heading">Anteprima senza acquisizione</h3>'+
-          '<div class="notice"><strong>PDF trovati nel caricamento: '+esc(filesDetected)+
-          ' · PDF analizzati: '+esc(filesAnalyzed)+' · PDF classificati: '+esc(totalClassified)+'</strong>'+
-          (countsMatch?'': '<div class="error">Attenzione: conteggi incoerenti. Non procedere all’acquisizione.</div>')+'</div>'+
-          '<p class="caption">Il numero di schede attese nel riepilogo CdS è ricavato dalle candidature attive in PICA e non coincide necessariamente con il numero di file presenti nello ZIP.</p>'+
-          '<div class="notice">'+(stats.regolare||0)+' regolari · '+(stats.rettifica||0)+
-          ' nuove versioni · '+(stats.da_verificare||0)+' da verificare · '+
-          (stats.duplicato||0)+' duplicati. I PDF regolari saranno acquisiti solo dopo la conferma.</div>'+
+          '<div class="notice"><strong>PDF trovati: '+esc(filesDetected)+
+          ' · Analizzati: '+esc(filesAnalyzed)+' · Classificati: '+esc(totalClassified)+'</strong>'+
+          (countsMatch?'':'<div class="error">Conteggi non coerenti: acquisizione bloccata.</div>')+'</div>'+
+          '<div class="notice">'+esc(stats.regolare||0)+' regolari · '+esc(stats.rettifica||0)+
+          ' rettifiche · '+esc(stats.da_verificare||0)+' da verificare · '+esc(stats.duplicato||0)+' duplicati.</div>'+
           '<div class="tablebox" style="margin-top:12px"><table><thead><tr>'+
-          '<th>File / ID PICA</th><th>CdS e sede</th><th>Esito lettura</th><th>Totale ricalcolato</th><th>Segnalazione</th></tr></thead><tbody>'+
+          '<th>File / ID PICA</th><th>CdS / sede</th><th>Stato</th><th>Decisione commissione</th><th>Punteggio</th><th>Segnalazione</th></tr></thead><tbody>'+
           (data.schede||[]).map(function(item){
             var labels={regolare:"Regolare",rettifica:"Nuova versione",da_verificare:"Da verificare",duplicato:"Duplicato"};
+            var score=item.decisione==="non_idoneo"||item.decisione==="escluso"?"Non attribuito":
+              item.punteggio==null?"—":item.punteggio;
             return '<tr><td>'+esc(item.nome_originale)+'<div class="caption">ID PICA: '+esc(item.id_pica||"non identificato")+'</div></td>'+
-              '<td>'+esc(item.cds||"—")+' / '+esc(item.sede||"—")+'</td><td><span class="badge '+(item.stato==="regolare"?"":"gray")+'">'+
-              esc(labels[item.stato]||item.stato)+'</span></td><td>'+esc(item.punteggio===null?"—":item.punteggio)+
-              '</td><td>'+esc(item.motivo||"")+'</td></tr>';
+              '<td>'+esc(item.cds||"—")+' / '+esc(item.sede||"—")+'</td>'+
+              '<td><span class="badge '+(item.stato==="regolare"?"":"gray")+'">'+esc(labels[item.stato]||item.stato)+'</span></td>'+
+              '<td>'+esc(item.esito||"—")+'</td><td>'+esc(score)+'</td><td>'+esc(item.motivo||"")+'</td></tr>';
           }).join('')+'</tbody></table></div>'+
-          (stats.rettifica?'<label style="display:block;margin-top:14px"><input type="checkbox" id="pdf-eval-revision"> Confermo esplicitamente la nuova versione delle schede già acquisite (lo storico sarà conservato)</label>':'')+
+          (stats.rettifica?'<label style="display:block;margin-top:14px"><input type="checkbox" id="pdf-eval-revision"> Confermo espressamente le rettifiche di valutazioni già acquisite</label>':'')+
           '<div class="actions" style="margin-top:16px">'+
-          '<button class="btn" id="pdf-eval-confirm" type="button"'+((actionable&&countsMatch)?'':' disabled')+'>Conferma acquisizione ('+
-          (stats.regolare||0)+' regolari, '+(stats.rettifica||0)+' rettifiche, '+(stats.da_verificare||0)+' da verificare)</button>'+
+          '<button class="btn" id="pdf-eval-confirm" type="button"'+((actionable&&countsMatch)?'':' disabled')+
+          '>Conferma acquisizione ('+esc(stats.regolare||0)+' regolari, '+esc(stats.rettifica||0)+
+          ' rettifiche, '+esc(stats.da_verificare||0)+' da verificare)</button>'+
           '<button class="btn secondary" id="pdf-eval-cancel" type="button">Annulla anteprima</button></div>'+
-          '<p class="caption">La conferma conserva anche i PDF anomali come «Da verificare», senza registrare i loro punteggi. I duplicati vengono ignorati.</p>';
+          '<p class="caption">Le schede non leggibili vengono conservate senza attribuire punteggio. L’acquisizione manuale richiede una verifica documentale successiva.</p>';
         $("pdf-eval-cancel").onclick=function(){dest.innerHTML="";};
         $("pdf-eval-confirm").onclick=async function(){
           var check=$("pdf-eval-revision");
-          if(check&&!check.checked){note("Conferma esplicitamente le nuove versioni prima dell'acquisizione",true);return;}
-          if(!confirm("Confermi l'acquisizione delle schede regolari e la conservazione di quelle da verificare nel bando "+code+"?"))return;
-          var button=this;button.disabled=true;button.textContent="Acquisizione in corso...";
+          if(check&&!check.checked){note("Conferma espressamente le nuove versioni prima dell'acquisizione",true);return;}
+          if(!confirm("Confermi le schede regolari e la conservazione di quelle da verificare del bando "+code+"?"))return;
+          var button=this;button.disabled=true;button.textContent="Acquisizione...";
           try{
             var answer=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/conferma",{
               method:"POST",headers:{"Content-Type":"application/json"},
               body:JSON.stringify({token:data.token,conferma_rettifiche:!!(check&&check.checked)})
             });
-            note("Acquisite "+answer.acquisite+" schede; rettificate "+answer.rettificate+
+            note("Schede acquisite "+answer.acquisite+"; rettificate "+answer.rettificate+
                  "; da verificare "+answer.da_verificare+"; duplicati "+answer.duplicate+".",false);
             renderValutazioni();
           }catch(err){note(err.message,true);button.disabled=false;button.textContent="Conferma acquisizione";}
