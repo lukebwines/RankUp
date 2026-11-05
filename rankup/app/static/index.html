@@ -307,7 +307,7 @@
         if(state.page==="bandi")return renderBandi();
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="schede")return renderSchede();
-        if(state.page==="valutazioni")return html(panel("Monitoraggio schede", "La gestione dei PDF editabili, delle restituzioni e delle anomalie sarà attivata nella seconda milestone."));
+        if(state.page==="valutazioni")return renderValutazioni();
         if(state.page==="verbali")return html(panel("Verbali delle commissioni", "Generazione di un verbale per CdS dopo l'acquisizione delle valutazioni: funzionalità prevista, non ancora implementata."));
         if(state.page==="graduatorie")return html(panel("Graduatorie per CdS e generali", "Saranno distinti i nominativi in chiaro per le commissioni e l'identificazione selettiva dei vincitori per l'approvazione degli atti."));
         if(state.page==="archivio")return html(panel("Archivio bandi", "Esportazione ZIP completa, ripristino e cancellazione controllata: funzionalità futura. Attualmente nessun comando di eliminazione è attivo."));
@@ -666,6 +666,95 @@
             note("Importate "+result.commissioni+" righe per "+result.cds+" CdS.",false);
             renderList("commissioni");
           }catch(error){note(error.message,true);btn.disabled=false;}
+        };
+      }
+      async function renderValutazioni(){
+        if(!cur()){html(panel("Seleziona bando","Apri un bando per acquisire le valutazioni delle commissioni."));return;}
+        var code=state.active;
+        html('<div class="card"><p class="muted">Caricamento delle valutazioni del bando '+esc(code)+'...</p></div>');
+        try{
+          var report=await api("bandi/"+encodeURIComponent(code)+"/valutazioni");
+          if(state.active!==code || state.page!=="valutazioni")return;
+          var pairs=report.cds_sedi||[];
+          var content='<div class="card mb"><h3 class="section-heading">Reimportazione delle schede PDF · Bando '+esc(code)+'</h3>'+
+            '<p class="muted">Carica i PDF compilati dalla commissione oppure uno ZIP di schede. RankUp riconosce le candidature, verifica i massimali e ricalcola il totale. Nessun punteggio viene registrato senza conferma.</p>'+
+            '<div class="upload"><label for="pdf-eval-files"><strong>Schede PDF compilate o ZIP</strong></label>'+
+            '<input type="file" id="pdf-eval-files" accept=".pdf,.zip,application/pdf,application/zip" multiple>'+
+            '<button class="btn" id="pdf-eval-preview" type="button">Analizza PDF senza acquisire</button>'+
+            '<p class="caption">Massimo 120 PDF e 40 MB complessivi per caricamento. I PDF anomali verranno conservati come «Da verificare» solo dopo la conferma.</p>'+
+            '</div><div id="pdf-eval-result" style="margin-top:16px"></div></div>';
+          content+='<div class="card mb"><h3 class="section-heading">Avanzamento delle valutazioni per CdS e sede</h3>'+
+            '<p class="caption">'+esc(report.totale_acquisite)+' valutazioni attive acquisite su '+esc(report.totale_attese)+
+            ' candidature attive. Le candidature rinunciate o escluse non sono conteggiate tra le schede attese.</p>'+
+            '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Attese</th><th>Acquisite</th><th>Da verificare</th><th>Procedimento</th></tr></thead><tbody>'+
+            pairs.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td>'+
+              '<td>'+esc(r.attese)+'</td><td>'+esc(r.acquisite)+'</td><td>'+esc(r.da_verificare)+'</td>'+
+              '<td><span class="badge '+(r.complete?'':'gray')+'">'+(r.complete?'Schede complete':'Incompleto')+'</span></td></tr>';}).join('')+
+            '</tbody></table></div></div>';
+          if(report.archivio&&report.archivio.length){
+            content+='<div class="card"><details><summary style="cursor:pointer;font-weight:700">Storico delle schede ricevute ('+
+              esc(report.archivio.length)+')</summary><div class="tablebox"><table><thead><tr><th>File</th><th>Stato</th><th>Versione</th><th>Totale</th><th>Motivo</th></tr></thead><tbody>'+
+              report.archivio.map(function(r){return '<tr><td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+
+                '</td><td>'+esc(r.versione||"-")+'</td><td>'+esc(r.totale_calcolato==null?"-":r.totale_calcolato)+
+                '</td><td>'+esc(r.motivo)+'</td></tr>';}).join('')+
+              '</tbody></table></div></details></div>';
+          }
+          html(content);
+          $("pdf-eval-preview").onclick=async function(){
+            var files=$("pdf-eval-files").files;
+            if(!files.length){note("Seleziona almeno un PDF o un archivio ZIP",true);return;}
+            var button=this;button.disabled=true;button.textContent="Analisi...";
+            try{
+              var form=new FormData();
+              Array.from(files).forEach(function(file){form.append("files",file,file.name);});
+              var response=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/anteprima",{
+                method:"POST",body:form
+              });
+              if(state.page==="valutazioni" && state.active===code)renderPdfPreview(code,response);
+            }catch(err){note(err.message,true);}
+            finally{button.disabled=false;button.textContent="Analizza PDF senza acquisire";}
+          };
+        }catch(err){note("Impossibile leggere le valutazioni: "+err.message,true);html("");}
+      }
+      function renderPdfPreview(code,data){
+        var dest=$("pdf-eval-result");
+        if(!dest)return;
+        var stats=data.riepilogo||{};
+        var actionable=(stats.regolare||0)+(stats.rettifica||0)+(stats.da_verificare||0);
+        dest.innerHTML='<h3 class="section-heading">Anteprima senza acquisizione</h3>'+
+          '<div class="notice">'+(stats.regolare||0)+' regolari · '+(stats.rettifica||0)+
+          ' nuove versioni · '+(stats.da_verificare||0)+' da verificare · '+
+          (stats.duplicato||0)+' duplicati. I PDF regolari saranno acquisiti solo dopo la conferma.</div>'+
+          '<div class="tablebox" style="margin-top:12px"><table><thead><tr>'+
+          '<th>File / ID PICA</th><th>CdS e sede</th><th>Esito lettura</th><th>Totale ricalcolato</th><th>Segnalazione</th></tr></thead><tbody>'+
+          (data.schede||[]).map(function(item){
+            var labels={regolare:"Regolare",rettifica:"Nuova versione",da_verificare:"Da verificare",duplicato:"Duplicato"};
+            return '<tr><td>'+esc(item.nome_originale)+'<div class="caption">ID PICA: '+esc(item.id_pica||"non identificato")+'</div></td>'+
+              '<td>'+esc(item.cds||"—")+' / '+esc(item.sede||"—")+'</td><td><span class="badge '+(item.stato==="regolare"?"":"gray")+'">'+
+              esc(labels[item.stato]||item.stato)+'</span></td><td>'+esc(item.punteggio===null?"—":item.punteggio)+
+              '</td><td>'+esc(item.motivo||"")+'</td></tr>';
+          }).join('')+'</tbody></table></div>'+
+          (stats.rettifica?'<label style="display:block;margin-top:14px"><input type="checkbox" id="pdf-eval-revision"> Confermo esplicitamente la nuova versione delle schede già acquisite (lo storico sarà conservato)</label>':'')+
+          '<div class="actions" style="margin-top:16px">'+
+          '<button class="btn" id="pdf-eval-confirm" type="button"'+(actionable?'':' disabled')+'>Conferma acquisizione ('+
+          (stats.regolare||0)+' regolari, '+(stats.rettifica||0)+' rettifiche, '+(stats.da_verificare||0)+' da verificare)</button>'+
+          '<button class="btn secondary" id="pdf-eval-cancel" type="button">Annulla anteprima</button></div>'+
+          '<p class="caption">La conferma conserva anche i PDF anomali come «Da verificare», senza registrare i loro punteggi. I duplicati vengono ignorati.</p>';
+        $("pdf-eval-cancel").onclick=function(){dest.innerHTML="";};
+        $("pdf-eval-confirm").onclick=async function(){
+          var check=$("pdf-eval-revision");
+          if(check&&!check.checked){note("Conferma esplicitamente le nuove versioni prima dell'acquisizione",true);return;}
+          if(!confirm("Confermi l'acquisizione delle schede regolari e la conservazione di quelle da verificare nel bando "+code+"?"))return;
+          var button=this;button.disabled=true;button.textContent="Acquisizione in corso...";
+          try{
+            var answer=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/conferma",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({token:data.token,conferma_rettifiche:!!(check&&check.checked)})
+            });
+            note("Acquisite "+answer.acquisite+" schede; rettificate "+answer.rettificate+
+                 "; da verificare "+answer.da_verificare+"; duplicati "+answer.duplicate+".",false);
+            renderValutazioni();
+          }catch(err){note(err.message,true);button.disabled=false;button.textContent="Conferma acquisizione";}
         };
       }
       async function renderSchede(){
