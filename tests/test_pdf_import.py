@@ -93,8 +93,8 @@ def test_preview_does_not_update_database_and_confirm_preserves_anomalies(tmp_pa
         regular=_edit(ordinary[0],{"P01":"2","TOT":"2"})
         anomalous=ordinary[1]  # Tutti zero senza esito e nota
         result=_preview(client,[("regolare.pdf",regular),("incompleta.pdf",anomalous)])
-        assert result["riepilogo"]["regolare"]==1
-        assert result["riepilogo"]["da_verificare"]==1
+        assert result["riepilogo"]["regolare"]==1, result["schede"]
+        assert result["riepilogo"]["da_verificare"]==1, result["schede"]
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM valutazioni_pdf").fetchone()[0]==0
         committed=_confirm(client,result["token"])
