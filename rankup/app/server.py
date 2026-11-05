@@ -495,7 +495,10 @@ def list_bandi():
           SELECT b.codice, b.stato, b.import_at, b.source_filename,
                  (SELECT COUNT(*) FROM candidature c WHERE c.bando_id=b.id) AS candidature,
                  (SELECT COUNT(*) FROM incarichi i WHERE i.bando_id=b.id) AS incarichi,
-                 (SELECT COUNT(DISTINCT i.cds) FROM incarichi i WHERE i.bando_id=b.id) AS cds
+                 (SELECT COUNT(DISTINCT i.cds) FROM incarichi i WHERE i.bando_id=b.id) AS cds,
+                 (SELECT COUNT(*) FROM valutazioni_pdf v
+                   WHERE v.bando_id=b.id AND v.stato='Acquisita' AND v.attiva=1)
+                   AS valutazioni_acquisite
           FROM bandi b ORDER BY b.import_at DESC, b.id DESC
         """).fetchall()
     return {"bandi": [dict(x) for x in rows]}
