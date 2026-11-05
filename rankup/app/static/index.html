@@ -390,11 +390,16 @@
         var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){return x.item.stato!=="associata";});
         var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
           '<div class="notice">'+esc(report.associate)+' su '+esc(report.totale)+' CdS/sedi associati · '+
-          esc(report.mancanti)+' mancanti · '+esc(report.ambigue)+' ambigui.</div>'+
+          esc(report.mancanti)+' mancanti · '+esc(report.incomplete||0)+' incomplete · '+esc(report.ambigue)+' ambigui.</div>'+
           (unmatched.length?'<div class="tablebox"><table><thead><tr><th>CdS PICA</th><th>Sede</th><th>Incarichi</th><th>Stato</th><th></th></tr></thead><tbody>'+
           unmatched.map(function(x){return '<tr><td>'+esc(x.item.cds)+'</td><td>'+esc(x.item.sede)+
-            '</td><td>'+esc(x.item.incarichi)+'</td><td>'+esc(x.item.stato==="ambigua"?"Ambigua":"Commissione da inserire")+
-            '</td><td><button class="btn secondary cm-add-missing" data-pair="'+x.index+'" type="button">Inserisci</button></td></tr>';}).join('')+
+            '</td><td>'+esc(x.item.incarichi)+'</td><td>'+esc(x.item.stato==="ambigua"?"Associazione ambigua":(
+               x.item.stato==="incompleta"?"Composizione incompleta":"Commissione da inserire"))+
+            '</td><td>'+(x.item.stato==="mancante"?
+               '<button class="btn secondary cm-add-missing" data-pair="'+x.index+'" type="button">Inserisci</button>':
+               (x.item.stato==="incompleta"?
+               '<button class="btn secondary cm-edit-incomplete" data-pair="'+x.index+'" type="button">Completa</button>':
+               '<span class="caption">Da verificare</span>'))+'</td></tr>';}).join('')+
           '</tbody></table></div>':'<p class="caption">Tutti i CdS/sedi presenti nelle candidature sono associati.</p>')+'</div>';
 
         var upload='<div class="card"><h3 class="section-heading">Importazione massiva delle commissioni · Bando '+esc(code)+'</h3>'+
@@ -460,6 +465,15 @@
         $("cm-new").onclick=function(){openEditor(null);};
         document.querySelectorAll(".cm-add-missing").forEach(function(button){
           button.onclick=function(){openEditor(null,Number(button.dataset.pair));};
+        });
+        document.querySelectorAll(".cm-edit-incomplete").forEach(function(button){
+          button.onclick=function(){
+            var index=Number(button.dataset.pair),p=pairs[index];
+            var existing=rows.find(function(r){
+              return r.cds===p.cds_commissione && r.sede===p.sede_commissione;
+            });
+            if(existing)openEditor(existing,index);
+          };
         });
         document.querySelectorAll(".cm-edit").forEach(function(button){
           button.onclick=function(){openEditor(rows.find(function(r){return String(r.id)===button.dataset.id;}));};
@@ -606,8 +620,9 @@
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
           var commissionSummary='<div class="notice" style="margin:0 0 16px 0">Commissioni associate: '+
             esc(commissionsReport.associate)+'/'+esc(commissionsReport.totale)+' CdS/sedi. '+
-            (commissionsReport.mancanti
-             ?esc(commissionsReport.mancanti)+' commissioni non associate: genera le schede per i CdS già coperti, oppure integra l’Excel delle commissioni.'
+            ((commissionsReport.mancanti||commissionsReport.incomplete)
+             ?esc(commissionsReport.mancanti)+' mancanti e '+esc(commissionsReport.incomplete||0)+
+              ' incomplete: puoi generare le schede dei CdS con commissione completa.'
              :'Tutte le commissioni associate.')+'</div>';
           html('<div class="card mb"><h3 class="section-heading">Modelli PDF per SSD · Bando '+esc(code)+'</h3>'+
             '<p class="muted">Ogni SSD identificato utilizza di default il modello non professionalizzante. Seleziona Professionalizzante soltanto per gli SSD interessati: la modifica viene salvata automaticamente.</p>'+
