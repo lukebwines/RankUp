@@ -165,15 +165,15 @@ def make_scheda(record: dict, tipo: str) -> bytes:
             pdf.showPage()
             yy = page_h - 75
             txt(36, yy+22, "VALUTAZIONE - CONTINUAZIONE", 12, True)
-        rect(36, yy-5, 523, 25, bg)
+        rect(36, yy-3, 523, 19, bg)
         txt(43, yy+4, label,8,False)
         vals=[(str(x),str(x)) for x in allowed]
         form.choice(name=name, tooltip=label, value="0",
-            x=482,y=yy-1,width=70,height=18,options=vals,fontSize=8,
+            x=482,y=yy-1,width=70,height=16,options=vals,fontSize=8,
             borderWidth=.5,fillColor=white,textColor=black,
             borderColor=HexColor("#b8c9dc"),fieldFlags="combo")
         score_names.append(name)
-        yy-=27
+        yy-=21
 
     for key,label,maxval in rows:
         score_row(key,label,range(maxval+1))
