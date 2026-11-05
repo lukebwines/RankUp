@@ -76,6 +76,9 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
         "totale_pdf": None, "esito": "", "note": "", "punteggi": {},
         "versione_proposta": 1,
     }
+    if digest in already.get("hashes", set()):
+        result.update(stato="duplicato",motivo="PDF già acquisito o conservato in precedenza")
+        return result
     if len(contents) > MAX_PDF_BYTES or not contents.startswith(b"%PDF-"):
         result["motivo"] = "Il file non è un PDF valido o supera 5 MB"
         return result
