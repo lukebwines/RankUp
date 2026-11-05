@@ -47,3 +47,11 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] Audit delle integrazioni e indicazione dello stato nell'interfaccia Incarichi.
 - [x] Test sintetici per importazione, coerenza campi e migrazione.
 - [ ] Collaudo dell'aggiornamento reale su Home Assistant OS.
+
+## 0.4.1 — Selezione modelli
+- [x] Tutti gli SSD identificati usano in via predefinita il modello non professionalizzante.
+- [x] Selezione manuale del modello professionalizzante con salvataggio immediato.
+- [x] Nessuna fonte documentale obbligatoria per salvare la scelta operativa del modello.
+- [x] Supporto nei percorsi API per SSD contenenti `/`.
+- [x] Segnalazione distinta per SSD `NN` o non indicati.
+- [ ] Collaudo del salvataggio sul Raspberry Pi e conferma dell'esito del CI.
