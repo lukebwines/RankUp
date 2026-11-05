@@ -160,7 +160,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
     with server.connect() as db:
         sectors=[r["ssd"] for r in db.execute("SELECT DISTINCT ssd FROM incarichi ORDER BY ssd")]
         repaired=db.execute("SELECT incarichi_corretti FROM ssd_import_migrations").fetchone()
+        changes=db.execute("SELECT COUNT(*) AS n FROM ssd_import_rettifiche").fetchone()
     assert sectors == ["SSD-A","SSD-B"]
     assert repaired["incarichi_corretti"] == 2
-        changes=db.execute("SELECT COUNT(*) AS n FROM ssd_import_rettifiche").fetchone()
     assert changes["n"] == 2
