@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.2.0 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.3.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -13,11 +13,14 @@ Prototipo tecnico v0.2.0 (non ancora idoneo alla gestione in produzione di dati 
 - Riconoscimento del codice bando dalla prima riga (es. "univr 26-02 - Esportazione dati").
 - Ricostruzione di incarichi e candidature senza un secondo elenco degli incarichi.
 - Importazione delle commissioni da Excel .xlsx con controllo di coerenza del codice bando e delle composizioni per CdS.
+- Lettura SSD da PICA anche per bandi precedentemente importati (migrazione dal file originale).
+- Configurazione manuale della classificazione SSD con riferimento documentale.
+- Generazione facsimile di schede PDF AcroForm in due strutture distinte e ZIP per CdS o intero bando.
 - Conservazione dei dati in SQLite nello spazio persistente /data.
 - Pagine Bandi, Candidature, Valutazioni, Verbali, Graduatorie, Archivio (alcune ancora segnaposto).
 
 ### Non ancora implementato
-Modifica delle commissioni già importate, generazione/lettura schede PDF, verbali, graduatorie, account operatore/ruoli distinti, export ZIP e cancellazione. Il controllo requisiti è stato rinviato su richiesta.
+Modifica delle commissioni già importate, importazione di modelli PDF personalizzati e lettura delle schede compilate, verbali, graduatorie, account operatore/ruoli distinti, export ZIP e cancellazione. Il controllo requisiti è stato rinviato su richiesta.
 
 ## Installazione su Home Assistant
 Aggiungere questo repository in **Impostazioni > Componenti aggiuntivi > Negozio > Repository**; nella scheda **Configurazione** impostare `admin_username` e `admin_password` (obbligatoria), quindi avviare RankUp e aprire l'interfaccia Ingress. Per il tunnel, nella scheda **Rete** si può assegnare la porta host a `8095/tcp`, disabilitata inizialmente. La build richiede accesso Internet per le dipendenze Python. Per i dettagli vedere `rankup/DOCS.md`.
@@ -26,3 +29,6 @@ Aggiungere questo repository in **Impostazioni > Componenti aggiuntivi > Negozio
 
 ## Sviluppo
 Vedere i file in rankup/app e il piano di sviluppo nel file ROADMAP.md.
+
+### Schede PDF nella v0.3.0
+Dal menu **Schede PDF**, classificare manualmente ciascun SSD sulla base di documenti verificati; quindi selezionare tutti i CdS o un singolo corso/sede e scaricare lo ZIP. La generazione è bloccata in mancanza di classificazione o commissione. **Sono facsimili tecnici da verificare**: non utilizzare per valutazioni amministrative ufficiali finché non saranno approvati criteri, massimali, anni e struttura delle schede.
