@@ -1609,6 +1609,7 @@ def download_valutazione_pdf(code: str, pdf_id: int):
 
 @app.get("/api/bandi/{code}/valutazioni")
 def stato_valutazioni(code: str,cds: str="",sede: str=""):
+    """Riepilogo per CdS e sede. Gli esiti sono espliciti, non dedotti dal voto."""
     code=valid_code(code)
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
@@ -1624,6 +1625,9 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
           SELECT i.cds,i.sede,
             SUM(CASE WHEN c.stato='Attiva' THEN 1 ELSE 0 END) AS attese,
             SUM(CASE WHEN c.stato='Attiva' AND v.id IS NOT NULL THEN 1 ELSE 0 END) AS acquisite,
+            SUM(CASE WHEN c.stato='Attiva' AND v.decisione='idoneo' THEN 1 ELSE 0 END) AS idonee,
+            SUM(CASE WHEN c.stato='Attiva' AND v.decisione='non_idoneo' THEN 1 ELSE 0 END) AS non_idonee,
+            SUM(CASE WHEN c.stato='Attiva' AND v.decisione='escluso' THEN 1 ELSE 0 END) AS escluse,
             SUM(CASE WHEN c.stato='Attiva' AND v.id IS NULL
               AND EXISTS (SELECT 1 FROM valutazioni_pdf a
                   WHERE a.candidatura_id=c.id AND a.stato='Da verificare') THEN 1 ELSE 0 END)
@@ -1631,19 +1635,65 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
           FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
           LEFT JOIN valutazioni_pdf v ON v.candidatura_id=c.id
              AND v.stato='Acquisita' AND v.attiva=1
+             AND v.decisione IN ('idoneo','non_idoneo','escluso')
           WHERE """+where+"""
           GROUP BY i.cds,i.sede ORDER BY i.cds COLLATE NOCASE,i.sede COLLATE NOCASE
         """,args).fetchall()
+        archive_conditions=["v.bando_id=?"]
+        archive_args=[b["id"]]
+        if cds:
+            archive_conditions.append("i.cds=?")
+            archive_args.append(cds)
+        if sede:
+            archive_conditions.append("i.sede=?")
+            archive_args.append(sede)
         archives=db.execute("""
-          SELECT id,nome_originale,stato,motivo,totale_calcolato,versione,
-                 confermata_il,candidatura_id FROM valutazioni_pdf WHERE bando_id=?
-          ORDER BY id DESC LIMIT 300
-        """,(b["id"],)).fetchall()
+          SELECT v.id,v.nome_originale,v.stato,v.motivo,v.totale_calcolato,v.versione,
+                 v.confermata_il,v.candidatura_id,v.decisione,v.metodo,v.attiva,
+                 v.esito,v.note,v.motivazione_tecnica,
+                 c.id_pica,c.cognome,c.nome,i.cds,i.sede,i.insegnamento,i.modulo
+          FROM valutazioni_pdf v LEFT JOIN candidature c ON c.id=v.candidatura_id
+          LEFT JOIN incarichi i ON i.id=c.incarico_id
+          WHERE """+" AND ".join(archive_conditions)+"""
+          ORDER BY v.id DESC LIMIT 1000
+        """,archive_args).fetchall()
+        unmatched=db.execute("""
+          SELECT COUNT(*) FROM valutazioni_pdf
+          WHERE bando_id=? AND candidatura_id IS NULL AND stato='Da verificare'
+        """,(b["id"],)).fetchone()[0]
     detail=[dict(row) for row in rows]
     return {
         "cds_sedi":[dict(row,complete=(row["attese"]==row["acquisite"]))
                     for row in detail],
         "totale_attese":sum(row["attese"] for row in detail),
         "totale_acquisite":sum(row["acquisite"] for row in detail),
+        "totale_idonee":sum(row["idonee"] for row in detail),
+        "totale_non_idonee":sum(row["non_idonee"] for row in detail),
+        "totale_escluse":sum(row["escluse"] for row in detail),
+        "pdf_non_associati":unmatched,
         "archivio":[dict(r) for r in archives],
     }
+
+
+@app.get("/api/bandi/{code}/valutazioni/candidature")
+def candidature_per_valutazione_manuale(code: str, cds: str="",sede: str=""):
+    """Solo candidati PICA del bando; nessuna identità dedotta dal PDF."""
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        where=["c.bando_id=?","c.stato='Attiva'"]
+        args=[b["id"]]
+        if cds:where.append("i.cds=?");args.append(cds)
+        if sede:where.append("i.sede=?");args.append(sede)
+        rows=db.execute("""
+            SELECT c.id,c.id_pica,c.cognome,c.nome,i.cds,i.sede,
+                   i.insegnamento,i.modulo
+            FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+            WHERE """+" AND ".join(where)+"""
+            ORDER BY i.cds COLLATE NOCASE,i.sede COLLATE NOCASE,
+                     c.cognome COLLATE NOCASE,c.nome COLLATE NOCASE,i.modulo COLLATE NOCASE
+            LIMIT 5000
+        """,args).fetchall()
+    return {"candidature":[dict(row) for row in rows]}
+
