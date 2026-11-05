@@ -85,3 +85,15 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] Test sintetici del confronto multi-sede, collisioni e struttura PDF.
 - [ ] Test end-to-end su Home Assistant OS e verifica in Adobe Acrobat Reader.
 - [ ] Integrazione puntuale delle commissioni mancanti nei singoli bandi.
+
+## RankUp 0.5.0 — Commissioni e riferimenti del bando
+- [x] Inserimento manuale delle commissioni con CdS/sede guidati da PICA.
+- [x] Modifica delle commissioni registrate e controllo di modifiche concorrenti.
+- [x] Audit delle variazioni senza modifiche agli altri bandi.
+- [x] Download del format Excel vuoto, con CdS/sedi PICA o con commissioni già registrate.
+- [x] Importazione incrementale delle nuove commissioni e aggiornamento massivo esplicito senza eliminare righe assenti o cancellare campi vuoti.
+- [x] Repertorio, protocollo, data dell'avviso e anno accademico modificabili a livello di bando.
+- [x] Collegamento dei riferimenti completi alle nuove schede PDF.
+- [x] Test sintetici API, persistenza, importazione, audit e produzione PDF aggiunti.
+- [ ] Verifica di GitHub Actions e collaudo manuale su HAOS con database esistente.
+- [ ] Avviso persistente di invalidazione dei PDF già generati dopo variazioni.
