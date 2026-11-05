@@ -1,7 +1,7 @@
 """RankUp - prima milestone operativa (Home Assistant Ingress).
 
-Non esporre l'app direttamente su Internet: l'autenticazione della prima
-milestone è demandata a Home Assistant Ingress.
+Accesso diretto possibile soltanto dopo autenticazione RankUp.
+Home Assistant Ingress rimane disponibile come ulteriore percorso di accesso.
 """
 from __future__ import annotations
 
@@ -16,13 +16,14 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pica import MAX_FILE_BYTES, parse_pica
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni
+from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -106,8 +107,68 @@ def initialize() -> None:
 
 
 initialize()
-app = FastAPI(title="RankUp", version="0.1.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.2.0", docs_url=None, redoc_url=None)
+AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
+
+@app.middleware("http")
+async def require_rankup_login(request: Request, call_next):
+    path = request.url.path
+    public = (
+        path in ("/", "/api/health", "/api/auth/status", "/api/auth/login")
+        or path.startswith("/static/")
+    )
+    # Evita che un sito esterno invii form non autorizzati usando i cookie.
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.headers.get("x-rankup-request") != "1":
+            return JSONResponse({"detail": "Richiesta non autorizzata"}, status_code=403)
+    if not public and not AUTH.valid(request.cookies.get(COOKIE_NAME)):
+        return JSONResponse({"detail": "Autenticazione richiesta"}, status_code=401)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    return {
+        "configured": AUTH.configured,
+        "authenticated": AUTH.valid(request.cookies.get(COOKIE_NAME)),
+        "username": AUTH.username if AUTH.valid(request.cookies.get(COOKIE_NAME)) else None,
+    }
+
+
+@app.post("/api/auth/login")
+def auth_login(credentials: LoginRequest, request: Request):
+    if not AUTH.configured:
+        fail("Configurare amministratore e password nella scheda Configurazione dell'add-on", 503)
+    token = AUTH.authenticate(credentials.username, credentials.password)
+    if token is None:
+        fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
+    response = JSONResponse({"ok": True, "username": AUTH.username})
+    response.set_cookie(
+        key=COOKIE_NAME, value=token, path=cookie_path(request),
+        max_age=SESSION_SECONDS, secure=secure_cookie(request),
+        httponly=True, samesite="lax",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request):
+    AUTH.revoke(request.cookies.get(COOKIE_NAME))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE_NAME, path=cookie_path(request))
+    return response
+
 
 
 def fail(message: str, status: int = 400):
@@ -128,7 +189,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
 
 
 @app.get("/api/bandi")
