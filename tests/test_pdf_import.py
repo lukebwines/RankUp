@@ -459,3 +459,89 @@ def test_legacy_acquired_without_outcome_is_reclassified_without_losing_pdf_or_s
              })
         assert response.status_code==409,response.text
         assert "non contiene né esito né motivazione" in response.text
+
+
+def test_professional_three_points_without_outcome_stays_pending_but_shows_provisional_score(
+    tmp_path, monkeypatch
+):
+    """Caso PDF screenshot: 3 punti assegnati, esito '-' e note vuote."""
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        template=next(doc for doc in sheets.values()
+                      if "P19" in PdfReader(BytesIO(doc)).get_fields())
+        document=_edit(template,{"P05":"3","TOT":"3"})
+        preview=_preview(client,[("professional_three.pdf",document)])
+        assert preview["riepilogo"]["regolare"]==0
+        assert preview["riepilogo"]["da_verificare"]==1
+        item=preview["schede"][0]
+        assert item["punteggio"]==3
+        assert item["decisione"]=="da_verificare"
+        assert item["candidatura_id"] is not None
+        assert "Esito della commissione non selezionato" in item["motivo"]
+        with server.connect() as db:
+            assert db.execute("SELECT COUNT(*) FROM valutazioni_pdf").fetchone()[0]==0
+        result=_confirm(client,preview["token"])
+        assert result["da_verificare"]==1
+        report=client.get("/api/bandi/26-02/valutazioni").json()
+        assert report["totale_acquisite"]==0
+        record=report["archivio"][0]
+        assert record["stato"]=="Da verificare"
+        assert record["decisione"]=="da_verificare"
+        assert record["totale_calcolato"] is None
+        assert record["punteggio_rilevato"]==3
+        assert record["manuale_possibile"] is False
+        assert client.get(
+            f"/api/bandi/26-02/valutazioni/{record['id']}/documento"
+        ).content==document
+        # Non basta trascrivere 3 punti: manca l'esito deliberato.
+        attempt=_post(
+            client,f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+            json={
+                "candidatura_id":record["candidatura_id"],
+                "esito":"CANDIDATO AMMESSO IN GRADUATORIA",
+                "punteggio":"3",
+                "nota_commissione":"",
+                "motivazione_tecnica":"Esito assente nell'originale, registrazione non lecita.",
+                "documento_verificato":True
+            }
+        )
+        assert attempt.status_code==409,attempt.text
+
+
+def test_old_inactive_acquired_without_outcome_gets_archived_as_unvalidated(
+    tmp_path,monkeypatch
+):
+    """Migrazione include versioni inattive: non restano etichette 'Acquisita' improprie."""
+    import hashlib
+    from datetime import datetime,timezone
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        template=next(doc for doc in sheets.values()
+                      if "P19" not in PdfReader(BytesIO(doc)).get_fields())
+        with server.connect() as db:
+            bid=db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()[0]
+            applicant=db.execute("SELECT id FROM candidature WHERE bando_id=? LIMIT 1",(bid,)).fetchone()[0]
+            digest=hashlib.sha256(template).hexdigest()
+            directory=server.SOURCES/"26-02"/"schede_restituite"
+            directory.mkdir(parents=True,exist_ok=True)
+            path=directory/(digest+".pdf")
+            path.write_bytes(template)
+            db.execute("""
+                INSERT INTO valutazioni_pdf
+                (bando_id,candidatura_id,stato,versione,attiva,sha256,
+                nome_originale,percorso,modello,punteggi_json,totale_calcolato,
+                totale_pdf,esito,note,motivo,confermata_da,confermata_il,decisione,metodo)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,(
+                bid,applicant,"Acquisita",1,0,digest,"inattiva.pdf",
+                str(path.relative_to(server.BASE)),"ordinario","{}",15,
+                "15","","","Storica","test",datetime.now(timezone.utc).isoformat(),
+                "da_verificare","automatico"
+            ))
+            db.commit()
+        server.initialize()
+        with server.connect() as db:
+            row=db.execute("SELECT stato,totale_calcolato,attiva FROM valutazioni_pdf WHERE sha256=?",(digest,)).fetchone()
+            assert row["stato"]=="Da verificare"
+            assert row["attiva"]==0
+            assert row["totale_calcolato"]==15
