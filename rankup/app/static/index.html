@@ -231,9 +231,55 @@
           '</section><section class="card"><h3 class="section-heading">Importa esportazione PICA</h3>'+
           '<div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx">'+
           '<button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div>'+
-          '<p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file. I dati non vengono caricati su GitHub.</p></section></div>');
+          '<p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file. I dati non vengono caricati su GitHub.</p></section></div>'+
+          '<div id="bando-refs" style="margin-top:18px"></div>');
         bindBandButtons();
         $("preview-btn").onclick=preview;
+        renderBandoReferences();
+      }
+      async function renderBandoReferences(){
+        var dest=$("bando-refs"),code=state.active;
+        if(!dest)return;
+        if(!code){dest.innerHTML='<div class="card"><h3 class="section-heading">Riferimenti del bando</h3><p class="muted">Seleziona un bando per configurare i riferimenti dell’avviso.</p></div>';return;}
+        dest.innerHTML='<div class="card"><p class="muted">Caricamento riferimenti del bando '+esc(code)+'...</p></div>';
+        try{
+          var data=await api("bandi/"+encodeURIComponent(code)+"/riferimenti");
+          if(state.active!==code||state.page!=="bandi")return;
+          var r=data.riferimenti||{};
+          var inputs=[
+            ["rep","Repertorio avviso","repertorio","Es. numero di repertorio"],
+            ["prot","Protocollo avviso","protocollo","Numero di protocollo"],
+            ["date","Data avviso","data_avviso","GG/MM/AAAA"],
+            ["aa","Anno accademico","anno_accademico","AAAA-AAAA"],
+          ];
+          dest.innerHTML='<div class="card"><h3 class="section-heading">Riferimenti del bando · '+esc(code)+'</h3>'+
+           '<p class="caption">Indica soltanto gli estremi effettivamente verificati nell’avviso ufficiale. I campi vuoti non vengono compilati con i dati dei facsimile PDF.</p>'+
+           '<form id="refs-form"><div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px">'+
+           inputs.map(function(x){return '<label style="font-size:13px;font-weight:700">'+esc(x[1])+
+             '<input id="ref-'+x[0]+'" value="'+esc(r[x[2]]||'')+'" placeholder="'+esc(x[3])+
+             '" style="display:block;width:100%;margin-top:7px;padding:10px;border:1px solid #c2d2e2;border-radius:8px;font-size:14px"></label>';}).join('')+
+           '</div><div style="margin-top:14px"><button class="btn" id="refs-save" type="submit">Salva riferimenti del bando</button></div></form>'+
+           '<p class="caption">Dopo ogni modifica, rigenera le schede PDF già scaricate. Le modifiche sono conservate nello storico del bando e non si propagano ad altri bandi.</p></div>';
+          $("refs-form").onsubmit=async function(event){
+            event.preventDefault();
+            var button=$("refs-save");button.disabled=true;
+            var payload={
+              repertorio:$("ref-rep").value.trim(),
+              protocollo:$("ref-prot").value.trim(),
+              data_avviso:$("ref-date").value.trim(),
+              anno_accademico:$("ref-aa").value.trim(),
+              expected_updated_at:r.aggiornato_il||null
+            };
+            try{
+              var result=await api("bandi/"+encodeURIComponent(code)+"/riferimenti",{
+                method:"PUT",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify(payload)
+              });
+              note(result.modificato?"Riferimenti del bando salvati. Rigenera i PDF.":"Nessuna modifica ai riferimenti.",false);
+              renderBandoReferences();
+            }catch(error){note(error.message,true);button.disabled=false;}
+          };
+        }catch(error){note("Impossibile leggere i riferimenti del bando: "+error.message,true);}
       }
       async function preview(){
         var file=$("pica-file").files[0];if(!file){note("Seleziona prima un file Excel.",true);return;}
