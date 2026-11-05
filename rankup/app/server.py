@@ -1370,6 +1370,7 @@ def _val_context(db: sqlite3.Connection, bando_id: int) -> tuple[list[dict], dic
     """, (bando_id,)).fetchall()
     return candidates, {
         "hashes": {r["sha256"] for r in pdf_rows},
+        "hash_owner": {r["sha256"]:r["candidatura_id"] for r in pdf_rows},
         "active": {r["candidatura_id"]: dict(r) for r in active}
     }
 
