@@ -695,10 +695,11 @@
             '</tbody></table></div></div>';
           if(report.archivio&&report.archivio.length){
             content+='<div class="card"><details><summary style="cursor:pointer;font-weight:700">Storico delle schede ricevute ('+
-              esc(report.archivio.length)+')</summary><div class="tablebox"><table><thead><tr><th>File</th><th>Stato</th><th>Versione</th><th>Totale</th><th>Motivo</th></tr></thead><tbody>'+
+              esc(report.archivio.length)+')</summary><div class="tablebox"><table><thead><tr><th>File</th><th>Stato</th><th>Versione</th><th>Totale</th><th>Motivo</th><th>Originale</th></tr></thead><tbody>'+
               report.archivio.map(function(r){return '<tr><td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+
                 '</td><td>'+esc(r.versione||"-")+'</td><td>'+esc(r.totale_calcolato==null?"-":r.totale_calcolato)+
-                '</td><td>'+esc(r.motivo)+'</td></tr>';}).join('')+
+                '</td><td>'+esc(r.motivo)+'</td><td><a href="api/bandi/'+encodeURIComponent(code)+
+                '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="display:inline-block;text-decoration:none">Scarica PDF</a></td></tr>';}).join('')+
               '</tbody></table></div></details></div>';
           }
           html(content);
