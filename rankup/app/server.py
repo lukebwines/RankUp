@@ -777,7 +777,7 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
                  CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
                       THEN NULL
                       WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
-                      ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd,
+                      ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd
           FROM candidature c
           JOIN incarichi i ON i.id=c.incarico_id
           JOIN bandi b ON b.id=c.bando_id
