@@ -143,3 +143,5 @@ Controlli da svolgere prima dell'uso ufficiale: PDF ordinario, PDF professionali
 **Non caricare ancora candidature reali senza il collaudo su HAOS.** Le schede generate rimangono facsimili da validare; verbali e graduatorie non sono ancora disponibili.
 
 **Novità 0.6.1:** dal riquadro Storico delle schede ricevute è possibile scaricare il PDF originale, anche quando è classificato «Da verificare». Non vengono modificati i PDF acquisiti.
+
+**0.6.2:** corretta la lettura del valore predefinito «-- Seleziona --» del campo esito: non viene confuso con una dichiarazione della commissione. Le schede a punteggio zero senza esito o nota restano «Da verificare». Test automatici: 18 superati sulla base funzionale; verificare nuovamente il pacchetto pubblicato e il comportamento in Home Assistant.
