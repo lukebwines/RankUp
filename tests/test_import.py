@@ -167,6 +167,20 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         assert len(client.get("/api/bandi/26-02/commissioni").json()["commissioni"]) == 2
         assignments=client.get("/api/bandi/26-02/incarichi").json()["incarichi"]
         assert sorted(x["ssd"] for x in assignments)==["SSD-A","SSD-B"]
+        enriched = [x for x in assignments if x["ssd"]=="SSD-A"][0]
+        assert enriched["anno_corso"]=="3"
+        assert enriched["ciclo"]=="annuale"
+        assert enriched["inizio_pica"]=="46394"
+        assert enriched["inizio_iso"]=="2027-01-07"
+        assert enriched["fine_iso"]=="2027-09-30"
+        assert enriched["codice_partizione"]=="ALTR"
+        assert enriched["partizione_studenti"]=="Matricole DISPARI"
+        assert enriched["peso_copertura"]=="2"
+        assert enriched["ore"]==""  # No inference from coverage weight
+        assert enriched["stato_coperture"]=="Nessuna assegnata"
+        acquisition=client.get("/api/bandi/26-02/incarichi").json()["acquisizione_metadati"]
+        assert acquisition["metodo"]=="importazione"
+        assert acquisition["incarichi_verificati"]==2
         unclassified=client.get("/api/bandi/26-02/schede/zip")
         assert unclassified.status_code == 400
         for sector,typ in [("SSD-A","ordinario"),("SSD-B","professionalizzante")]:
@@ -206,11 +220,26 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         db.execute("DELETE FROM ssd_import_migrations")
         db.execute("UPDATE incarichi SET ssd='SSD-PERSONALE' WHERE ssd='SSD-A'")
         db.execute("UPDATE incarichi SET ssd='' WHERE ssd='SSD-B'")
+        db.execute("DELETE FROM incarichi_metadata_migrations")
+        db.execute("UPDATE incarichi SET " + ", ".join(
+            field+"=''" for field in EXTRA_DB_FIELDS
+        ))
     importlib.reload(server)
     with server.connect() as db:
         sectors=[r["ssd"] for r in db.execute("SELECT DISTINCT ssd FROM incarichi ORDER BY ssd")]
         repaired=db.execute("SELECT incarichi_corretti FROM ssd_import_migrations").fetchone()
         changes=db.execute("SELECT COUNT(*) AS n FROM ssd_import_rettifiche").fetchone()
+        metadata=db.execute("SELECT * FROM incarichi_metadata_migrations").fetchone()
+        meta_audit=db.execute("SELECT COUNT(*) AS n FROM incarichi_metadata_audit").fetchone()
+        refreshed=db.execute("SELECT ssd,anno_corso,inizio_pica,inizio_iso,ore FROM incarichi WHERE ssd='SSD-A'").fetchone()
     assert sectors == ["SSD-A","SSD-B"]
     assert repaired["incarichi_corretti"] == 2
     assert changes["n"] == 2
+    assert metadata["metodo"] == "migrazione"
+    assert metadata["incarichi_verificati"] == 2
+    assert metadata["incarichi_aggiornati"] == 2
+    assert meta_audit["n"] == 2
+    assert refreshed["anno_corso"] == "3"
+    assert refreshed["inizio_pica"] == "46394"
+    assert refreshed["inizio_iso"] == "2027-01-07"
+    assert refreshed["ore"] == ""
