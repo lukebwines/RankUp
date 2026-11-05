@@ -57,7 +57,8 @@ def _setup(tmp_path,monkeypatch):
         files={"file":("commissioni.xlsx",commissioni_fixture(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert commissions.status_code==200,commissions.text
-    model=_post(client,"/api/ssd/MEDS-24%2FC/classificazione",
+    model=client.put("/api/ssd/MEDS-24%2FC/classificazione",
+        headers={"X-RankUp-Request":"1"},
         json={"tipo":"professionalizzante"})
     assert model.status_code==200,model.text
     response=client.get("/api/bandi/26-02/schede/zip")
