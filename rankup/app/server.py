@@ -18,6 +18,7 @@ import sqlite3
 import time
 import unicodedata
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -1582,6 +1583,122 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
         raise
     finally:
         shutil.rmtree(processing,ignore_errors=True)
+
+
+class ValutazioneManuale(BaseModel):
+    """Trascrizione di una valutazione esplicitamente documentata nel PDF."""
+    candidatura_id: int = Field(gt=0)
+    esito: str = Field(min_length=5,max_length=160)
+    punteggio: Decimal | None = None
+    nota_commissione: str = Field(default="",max_length=4000)
+    motivazione_tecnica: str = Field(min_length=10,max_length=600)
+    documento_verificato: bool
+    conferma_rettifica: bool = False
+
+
+@app.post("/api/bandi/{code}/valutazioni/{pdf_id}/manuale")
+def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManuale):
+    """Promuove una scheda 'Da verificare' in modo verificabile e versionato.
+
+    L'operatore trascrive soltanto ciò che appare nella valutazione della
+    commissione. Gli esiti negativi non ricevono un voto fittizio.
+    L'originale PDF è immutabile e rimane disponibile per il controllo.
+    """
+    code=valid_code(code)
+    if pdf_id<=0:fail("Documento PDF non valido")
+    if not body.documento_verificato:
+        fail("Verifica e attestazione del contenuto della scheda obbligatorie")
+    motivo=body.motivazione_tecnica.strip()
+    if len(motivo)<10:fail("Indicare il motivo tecnico dell'acquisizione manuale")
+    try:
+        decisione=classify_esito(body.esito)
+    except ValueError:
+        fail("Selezionare un esito previsto dalle schede RankUp")
+    nota=body.nota_commissione.strip()
+    if decisione in ("non_idoneo","escluso"):
+        if not nota:fail("Riportare la motivazione effettiva della commissione")
+        if body.punteggio is not None:
+            fail("Per non idoneo o escluso il punteggio deve rimanere non attribuito")
+        total=None
+    else:
+        score=body.punteggio
+        if score is None or not score.is_finite() or score<0 or score>60 or score.as_tuple().exponent< -2:
+            fail("Punteggio idoneo obbligatorio, compreso tra 0 e 60 con al massimo due decimali")
+        total=float(score)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        document=db.execute("""
+            SELECT * FROM valutazioni_pdf
+            WHERE bando_id=? AND id=?
+        """,(b["id"],pdf_id)).fetchone()
+        if not document:fail("Documento non trovato",404)
+        if document["stato"]!="Da verificare":
+            fail("Si possono acquisire manualmente solo le schede Da verificare. Per una nuova versione caricare un altro PDF.",409)
+        candidate=db.execute("""
+            SELECT c.id,c.stato,c.id_pica,i.cds,i.sede,i.key
+            FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+            WHERE c.id=? AND c.bando_id=? AND i.bando_id=?
+        """,(body.candidatura_id,b["id"],b["id"])).fetchone()
+        if not candidate or candidate["stato"]!="Attiva":
+            fail("Candidatura PICA non presente o non attiva nel bando",409)
+        if document["candidatura_id"] is not None and document["candidatura_id"]!=candidate["id"]:
+            fail("La scheda era già associata a un'altra candidatura: associazione manuale vietata",409)
+        # Verifica l'originale archiviato, senza fidarsi di percorsi scritti dal client.
+        base=(SOURCES/code/"schede_restituite").resolve()
+        original=(BASE/document["percorso"]).resolve()
+        if not original.is_relative_to(base) or not original.is_file():
+            fail("Originale della commissione non disponibile",409)
+        if hashlib.sha256(original.read_bytes()).hexdigest()!=document["sha256"]:
+            fail("Originale PDF non integro: acquisizione manuale bloccata",409)
+        previous=db.execute("""
+            SELECT id,versione,decisione,esito,note,totale_calcolato
+            FROM valutazioni_pdf
+            WHERE candidatura_id=? AND bando_id=?
+              AND stato='Acquisita' AND attiva=1
+        """,(candidate["id"],b["id"])).fetchone()
+        if previous and not body.conferma_rettifica:
+            fail("Esiste già una valutazione: per cambiarla confermare espressamente la rettifica",409)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        old=dict(document)
+        if previous:
+            db.execute("UPDATE valutazioni_pdf SET attiva=0 WHERE id=?",(previous["id"],))
+        version=(previous["versione"]+1) if previous else 1
+        db.execute("""
+            UPDATE valutazioni_pdf
+            SET candidatura_id=?,stato='Acquisita',attiva=1,versione=?,
+                modello=COALESCE(NULLIF(modello,''),'manuale'),
+                punteggi_json='{}',totale_calcolato=?,totale_pdf='',
+                esito=?,note=?,motivo=?,decisione=?,metodo='manuale',
+                motivazione_tecnica=?,confermata_da=?,confermata_il=?
+            WHERE id=? AND bando_id=?
+        """,(
+            candidate["id"],version,total,body.esito,nota,
+            "Acquisizione manuale da scheda verificata",decisione,
+            motivo,AUTH.username,now,pdf_id,b["id"]
+        ))
+        current=dict(db.execute("SELECT * FROM valutazioni_pdf WHERE id=?",(pdf_id,)).fetchone())
+        db.execute("""
+            INSERT INTO valutazioni_pdf_eventi
+                (bando_id,valutazione_pdf_id,candidatura_id,azione,
+                 precedente_json,successivo_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?,?)
+        """,(
+            b["id"],pdf_id,candidate["id"],
+            "Rettifica manuale" if previous else "Acquisizione manuale",
+            json.dumps({"documento_da_verificare":old,
+                        "versione_precedente":dict(previous) if previous else None},
+                       ensure_ascii=False),
+            json.dumps(current,ensure_ascii=False),AUTH.username,now
+        ))
+        db.commit()
+    return {
+        "ok":True,"valutazione_id":pdf_id,"versione":version,
+        "decisione":decisione,"metodo":"manuale",
+        "punteggio":total,
+        "avviso":"PDF originale conservato, esito acquisito e operazione registrata nello storico.",
+    }
 
 
 @app.get("/api/bandi/{code}/valutazioni/{pdf_id}/documento")
