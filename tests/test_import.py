@@ -1,5 +1,7 @@
 from io import BytesIO
 import json
+import zipfile
+from pypdf import PdfReader
 from openpyxl import Workbook
 import pytest
 from pica import extract_code, parse_pica
@@ -21,13 +23,13 @@ def pica_fixture():
         ["univr 26-02 - Esportazione dati"],
         ["ID domanda", "Stato", "Corso di Studio", "sede",
          "Nome insegnamento padre", "Descrizione Copertura",
-         "ID Copertura", "Cognome", "Nome", "Codice fiscale"],
+         "ID Copertura", "Cognome", "Nome", "Codice fiscale", "Settore scientifico disciplinare"],
         [1001, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno", "CODICEFISCALE"],
+         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno", "CODICEFISCALE", "SSD-A"],
         [1001, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno", "CODICEFISCALE"],
+         "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno", "CODICEFISCALE", "SSD-B"],
         [1002, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due", "CODICEFISCALE2"],
+         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due", "CODICEFISCALE2", "SSD-A"],
     ])
 
 
@@ -54,6 +56,7 @@ def test_multiple_assignments_for_same_candidate():
     assert result["summary"]["candidature"] == 3
     assert result["summary"]["incarichi"] == 2
     assert result["summary"]["cds"] == 1
+    assert result["summary"]["ssd_distinti"] == 2
     assert result["rows"][0]["id_pica"] == result["rows"][1]["id_pica"]
     assert result["rows"][0]["incarico"]["key"] != result["rows"][1]["incarico"]["key"]
 
@@ -111,6 +114,31 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert up.status_code == 200, up.text
         assert len(client.get("/api/bandi/26-02/commissioni").json()["commissioni"]) == 2
+        assignments=client.get("/api/bandi/26-02/incarichi").json()["incarichi"]
+        assert sorted(x["ssd"] for x in assignments)==["SSD-A","SSD-B"]
+        unclassified=client.get("/api/bandi/26-02/schede/zip")
+        assert unclassified.status_code == 400
+        for sector,typ in [("SSD-A","ordinario"),("SSD-B","professionalizzante")]:
+            res=client.put("/api/ssd/"+sector+"/classificazione",
+                headers={"X-RankUp-Request":"1"},
+                json={"tipo":typ,"riferimento":"Fonte documentale di prova"})
+            assert res.status_code == 200, res.text
+        exported=client.get("/api/bandi/26-02/schede/zip")
+        assert exported.status_code == 200, exported.text
+        with zipfile.ZipFile(BytesIO(exported.content)) as archive:
+            pdfs=archive.namelist()
+            assert len(pdfs)==3
+            types=[]
+            for name in pdfs:
+                pdf=PdfReader(BytesIO(archive.read(name)))
+                fields=pdf.get_fields()
+                assert fields["ID-DOMANDA"].value in ("1001","1002")
+                assert fields["P01"].value == "0"
+                assert fields["TOT"].value == "0"
+                assert fields["RANKUP-ID"].value.startswith("RU-26-02-")
+                types.append("P19" in fields)
+            assert types.count(True)==1
+            assert types.count(False)==2
         repeat = client.post("/api/pica/preview",
                              headers={"X-RankUp-Request": "1"},
                              files={"file": ("demo.xlsx", pica_fixture(),
