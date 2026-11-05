@@ -15,5 +15,4 @@ panel_icon: mdi:format-list-numbered
 panel_title: RankUp
 options: {}
 schema: {}
-map:
-  - data:rw
+stage: experimental
