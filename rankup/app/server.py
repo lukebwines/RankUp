@@ -1397,6 +1397,13 @@ def _pdf_batch_read(uploads: list[UploadFile]) -> list[tuple[str,bytes]]:
                     for info in package.infolist():
                         if info.is_dir():
                             continue
+                        # Gli ZIP prodotti da Finder su macOS possono contenere
+                        # metadati AppleDouble, che non sono schede della commissione.
+                        parts=info.filename.replace("\\","/").split("/")
+                        basename=parts[-1]
+                        if (parts[0].upper()=="__MACOSX" or
+                                basename in (".DS_Store","Thumbs.db")):
+                            continue
                         if not info.filename.lower().endswith(".pdf"):
                             fail("Lo ZIP deve contenere esclusivamente schede PDF")
                         if info.file_size > MAX_PDF_BYTES:
