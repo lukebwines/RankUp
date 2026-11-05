@@ -244,9 +244,11 @@ def initialize() -> None:
         # Il precedente parser poteva acquisire 15 punti senza una decisione
         # della commissione. Non si può dedurre "idoneo" dal solo totale.
         # L'originale, il totale, l'esito e il timestamp storici non cambiano.
+        # Anche le versioni non attive vengono riclassificate, per evitare
+        # uno stato 'Acquisita' ingannevole nello storico.
         legacy=db.execute("""
             SELECT * FROM valutazioni_pdf
-            WHERE stato='Acquisita' AND attiva=1 AND (
+            WHERE stato='Acquisita' AND (
                 decisione='da_verificare'
                 OR (decisione IN ('non_idoneo','escluso') AND TRIM(note)='')
                 OR (decisione='idoneo' AND totale_calcolato IS NULL)
@@ -264,7 +266,7 @@ def initialize() -> None:
                 db.execute("""
                     UPDATE valutazioni_pdf
                     SET stato='Da verificare',attiva=0,decisione='da_verificare',motivo=?
-                    WHERE id=? AND stato='Acquisita' AND attiva=1
+                    WHERE id=? AND stato='Acquisita'
                 """,(reason,old["id"]))
                 updated=dict(db.execute(
                     "SELECT * FROM valutazioni_pdf WHERE id=?",(old["id"],)
