@@ -733,12 +733,14 @@
                 '<th>Candidatura</th><th>File</th><th>Stato</th><th>Esito</th><th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
                 rows.map(function(r){
                   var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
-                    (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":"—");
+                    (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":
+                     r.totale_calcolato==null?"—":r.totale_calcolato+" (storico, da convalidare)");
                   return '<tr><td><div>'+esc(r.id_pica||"Da associare")+'</div>'+
                     '<span class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</span></td>'+
-                    '<td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+(r.stato==="Acquisita"?
+                    '<td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+(r.decisione==="da_verificare" && r.stato==="Acquisita"?
+                    '<div class="caption">Esito mancante: acquisizione storica non convalidata</div>':'')+(r.stato==="Acquisita"?
                     '<div class="caption">'+esc(r.metodo||"automatico")+' · v'+esc(r.versione)+'</div>':'')+'</td>'+
-                    '<td>'+esc(r.esito||"—")+'</td><td>'+esc(scoring)+'</td>'+
+                    '<td>'+esc(r.decisione==="da_verificare"?"Da verificare (esito assente)":r.esito||"—")+'</td><td>'+esc(scoring)+'</td>'+
                     '<td>'+esc(r.stato==="Da verificare"?r.motivo:(r.note||r.motivazione_tecnica||"—"))+'</td>'+
                     '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
                     '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
