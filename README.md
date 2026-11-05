@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.7.2 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.7.3 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -134,3 +134,9 @@ L'azione `Acquisisci manualmente` è disponibile soltanto per la sessione avente
 **Stato dei ruoli:** attualmente RankUp ha un unico account (l'amministratore configurato da Home Assistant); la gestione degli ulteriori utenti non è ancora implementata. Le verifiche di ruolo permetteranno di mantenere questa limitazione quando saranno introdotti altri profili. Consultare le valutazioni e i PDF non equivale ad avere il diritto di acquisirli manualmente.
 
 Questa versione include inoltre il riepilogo dei punti provvisori nei PDF con esito mancante (senza considerarli idonei) e la riclassificazione delle vecchie acquisizioni prive di decisione. Fare un backup prima dell'aggiornamento e collaudare in HAOS.
+
+### RankUp 0.7.3 — Riferimenti dell'avviso nella procedura attiva
+
+Il modulo **Riferimenti del bando** è stato spostato dalla pagina di gestione generale **Bandi** a una pagina autonoma sotto **Procedimento del bando attivo**, sopra **Incarichi**. Nella pagina Bandi rimangono elenco delle procedure e importazione del file PICA.
+
+Il modulo continua a leggere e salvare i quattro dati verificati dell'avviso (repertorio, protocollo, data e anno accademico) sul codice del bando attualmente selezionato. Gli endpoint `/api/bandi/{code}/riferimenti` e la struttura del database non sono stati modificati. I dati esistenti restano associati al rispettivo bando, senza recuperare valori da facsimile né introdurre valori predefiniti.
