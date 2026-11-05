@@ -23,13 +23,13 @@ def pica_fixture():
         ["univr 26-02 - Esportazione dati"],
         ["ID domanda", "Stato", "Corso di Studio", "sede",
          "Nome insegnamento padre", "Descrizione Copertura",
-         "ID Copertura", "Cognome", "Nome", "Codice fiscale", "Settore scientifico disciplinare"],
+         "ID Copertura", "Cognome", "Nome", "Codice fiscale", "ssd", "Settore scientifico disciplinare"],
         [1001, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno", "CODICEFISCALE", "SSD-A"],
+         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno", "CODICEFISCALE", "SSD-A", ""],
         [1001, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno", "CODICEFISCALE", "SSD-B"],
+         "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno", "CODICEFISCALE", "SSD-B", ""],
         [1002, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due", "CODICEFISCALE2", "SSD-A"],
+         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due", "CODICEFISCALE2", "SSD-A", "SSD-PERSONALE"],
     ])
 
 
@@ -57,6 +57,7 @@ def test_multiple_assignments_for_same_candidate():
     assert result["summary"]["incarichi"] == 2
     assert result["summary"]["cds"] == 1
     assert result["summary"]["ssd_distinti"] == 2
+    assert [x["incarico"]["ssd"] for x in result["rows"]] == ["SSD-A", "SSD-B", "SSD-A"]
     assert result["rows"][0]["id_pica"] == result["rows"][1]["id_pica"]
     assert result["rows"][0]["incarico"]["key"] != result["rows"][1]["incarico"]["key"]
 
@@ -145,13 +146,18 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert repeat.status_code == 409
 
-        # Simula il bando importato prima dell'introduzione dell'SSD.
+        # Simula il vecchio bug: un SSD era vuoto e un altro copiato
+        # impropriamente dall'autodichiarazione del candidato.
         with server.connect() as db:
-            db.execute("UPDATE incarichi SET ssd='' WHERE bando_id=(SELECT id FROM bandi WHERE codice='26-02')")
+            db.execute("DELETE FROM ssd_import_migrations")
+            db.execute("UPDATE incarichi SET ssd='SSD-PERSONALE' WHERE ssd='SSD-A'")
+            db.execute("UPDATE incarichi SET ssd='' WHERE ssd='SSD-B'")
         importlib.reload(server)
         with server.connect() as db:
             sectors=[r["ssd"] for r in db.execute("SELECT DISTINCT ssd FROM incarichi ORDER BY ssd")]
+            repaired=db.execute("SELECT incarichi_corretti FROM ssd_import_migrations").fetchone()
         assert sectors == ["SSD-A","SSD-B"]
+        assert repaired["incarichi_corretti"] == 2
         logout = client.post("/api/auth/logout", headers={"X-RankUp-Request": "1"})
         assert logout.status_code == 200
         assert client.get("/api/bandi").status_code == 401
