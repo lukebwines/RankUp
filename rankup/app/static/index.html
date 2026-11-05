@@ -302,21 +302,27 @@
           var rows=data[0].ssd, locations=data[1].cds_sedi||[];
           var unclassified=rows.filter(function(item){return !item.tipo;}).length;
           var statuses=rows.map(function(item){
-            var select='<select class="ssd-type" aria-label="Tipologia SSD '+esc(item.ssd)+'">'+
+            var missing=!item.ssd||item.ssd==="NN";
+            var select='<select class="ssd-type" aria-label="Tipologia SSD '+esc(item.ssd)+'"'+(missing?' disabled':'')+'>'+
+
                 '<option value="">Da classificare</option>'+
                 '<option value="ordinario"'+(item.tipo==="ordinario"?" selected":"")+'>Non professionalizzante</option>'+
                 '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?" selected":"")+'>Professionalizzante</option>'+
                 '</select>';
-            return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+esc(item.ssd||"[SSD mancante]")+'</td>'+
+            return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+esc(!item.ssd?"[SSD mancante]":(item.ssd==="NN"?"NN — SSD non specificato nel PICA":item.ssd))+'</td>'+
               '<td>'+esc(item.incarichi)+'</td><td>'+select+'</td>'+
               '<td><input class="ssd-reference" aria-label="Fonte per '+esc(item.ssd)+'" placeholder="Riferimento verificato" value="'+esc(item.riferimento||'')+'" style="width:100%;max-width:220px;padding:8px;border:1px solid #c4d2e1;border-radius:7px"></td>'+
-              '<td><button class="btn secondary save-ssd"'+(!item.ssd?' disabled':'')+'>Salva</button></td></tr>';
+              '<td><button class="btn secondary save-ssd"'+(missing?' disabled':'')+'>Salva</button></td></tr>';
           }).join('');
+          var migration=data[0].migrazione;
+          var infoMigration=migration&&migration.incarichi_corretti>0?
+             '<div class="notice" style="margin-top:10px">Correzione SSD da PICA completata: '+esc(migration.incarichi_corretti)+
+             ' incarichi aggiornati su '+esc(migration.incarichi_verificati)+' verificati, senza reimportare le candidature.</div>':'';
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
           html('<div class="card mb"><h3 class="section-heading">Classificazione SSD · Bando '+esc(code)+'</h3>'+
             '<p class="muted">La scheda professionalizzante è ammessa esclusivamente per gli SSD classificati come professionalizzanti. Nessuna classificazione è attribuita automaticamente.</p>'+
             '<div class="notice">'+unclassified+' SSD da classificare su '+rows.length+
-            '. La classificazione sarà riutilizzata negli altri bandi, ma richiede un riferimento documentale verificato.</div>'+
+            '. La classificazione sarà riutilizzata negli altri bandi, ma richiede un riferimento documentale verificato.</div>'+infoMigration+
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello</th><th>Fonte classificazione</th><th></th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
             '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+
