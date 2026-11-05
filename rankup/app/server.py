@@ -1434,12 +1434,19 @@ async def preview_valutazioni(code: str, files: list[UploadFile] = File(...)):
     except Exception:
         shutil.rmtree(staging,ignore_errors=True)
         raise
+    summary={status:sum(x["stato"]==status for x in items)
+             for status in ("regolare","rettifica","da_verificare","duplicato")}
+    summary["pdf_rilevati"]=len(uploads)
+    summary["pdf_analizzati"]=len(items)
+    summary["totale_classificati"]=sum(summary[status] for status in
+                                      ("regolare","rettifica","da_verificare","duplicato"))
+    if summary["pdf_rilevati"]!=summary["pdf_analizzati"] or summary["pdf_analizzati"]!=summary["totale_classificati"]:
+        fail("Conteggio PDF non coerente: l'anteprima non può essere confermata",409)
     return {
         "token":token,
         "schede":[{k:v for k,v in item.items() if k not in ("punteggi","temp_file")}
                   for item in items],
-        "riepilogo":{status:sum(x["stato"]==status for x in items)
-                     for status in ("regolare","rettifica","da_verificare","duplicato")},
+        "riepilogo":summary,
         "avvertenza":"Nessuna valutazione è stata acquisita. I PDF sono conservati soltanto nell'area temporanea in attesa di conferma.",
     }
 
