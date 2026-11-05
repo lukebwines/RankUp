@@ -155,10 +155,12 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
             raise ValueError("Il modello PDF non corrisponde allo SSD non professionalizzante")
         result["esito"] = field_value(fields, "STATUS").strip()
         result["note"] = field_value(fields, "NOTE-COMM").strip()
-        # Un punteggio non costituisce, da solo, giudizio di idoneità.
-        decisione = classify_esito(result["esito"])
-        result["decisione"] = decisione
-        if decisione in ("non_idoneo", "escluso"):
+        # L'assenza dell'esito NON deve impedire di leggere i punti:
+        # il totale viene estratto come valore provvisorio, ma la scheda
+        # rimane Da verificare finché la commissione non decide.
+        esito_negativo = result["esito"] in (ESITI_NON_IDONEI + ESITI_ESCLUSI)
+        if esito_negativo:
+            result["decisione"] = classify_esito(result["esito"])
             if not result["note"]:
                 raise ValueError("Motivazione della non idoneità o esclusione obbligatoria")
             # Le decisioni negative non ricevono un punteggio fittizio (0).
@@ -216,6 +218,9 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
             if dec(result["totale_pdf"]) != total:
                 raise ValueError("Totale PDF non aggiornato: ricalcolato " + str(total) +
                                  " contro " + result["totale_pdf"])
+            # Solo l'esito espresso nel PDF trasforma un numero in valutazione
+            # convalidabile. Un totale di 3 senza esito resta 3 provvisorio.
+            result["decisione"] = classify_esito(result["esito"])
         if digest in already.get("hashes", set()):
             result.update(stato="duplicato",motivo="PDF già acquisito o conservato in precedenza")
         elif candidate["id"] in already.get("active", {}):
