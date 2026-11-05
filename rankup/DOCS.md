@@ -184,3 +184,7 @@ RankUp dispone al momento soltanto dell'account amministratore definito nelle op
 Selezionare il codice nella casella **Bando attivo** a sinistra e poi aprire **Procedimento del bando attivo → Riferimenti del bando**. Compilare solo dati ricavati dall'avviso ufficiale: repertorio, numero di protocollo, data e anno accademico. Dopo il salvataggio, le eventuali schede già generate devono essere rigenerate. Cambiando il bando attivo, vengono mostrati i riferimenti specifici di quel bando; eventuali campi non compilati restano vuoti.
 
 La pagina **Gestione generale → Bandi** mostra soltanto l'elenco e l'importazione PICA. Questa modifica è esclusivamente di navigazione: nessun valore o collegamento del database viene cambiato.
+
+## v0.7.4 — Pulsante Admin per tutte le schede da verificare
+
+In **Bando → Valutazioni → Storico**, l'amministratore vede **Acquisisci manualmente** su ogni scheda `Da verificare`, anche se l'esito nel PDF è vuoto. L'operatore può aprire la maschera e consultare l'originale. Se la scheda editabile non contiene alcun esito né nota della commissione, il backend continua a rifiutare la conferma dell'idoneità: occorre una decisione documentata, non soltanto un totale provvisorio. Gli utenti privi del ruolo Admin non vedono il pulsante e non possono utilizzare l'endpoint.
