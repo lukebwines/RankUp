@@ -1367,6 +1367,15 @@ async def preview_valutazioni(code: str, files: list[UploadFile] = File(...)):
             fail("Bando non trovato",404)
         candidates, already = _val_context(db,b["id"])
     uploads = _pdf_batch_read(files)
+    # Le anteprime non confermate scadono dopo un'ora. La pulizia riguarda
+    # esclusivamente le directory temporanee del lettore PDF.
+    for previous in PENDING.glob("pdf_*"):
+        if previous.is_dir():
+            try:
+                if time.time()-previous.stat().st_mtime > 3600:
+                    shutil.rmtree(previous,ignore_errors=True)
+            except OSError:
+                pass
     token = secrets.token_urlsafe(30)
     staging = PENDING / ("pdf_" + token)
     staging.mkdir(mode=0o700)
