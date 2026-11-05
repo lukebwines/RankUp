@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.7.4 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.8.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -148,3 +148,15 @@ Nello storico Valutazioni, ogni documento in stato **Da verificare** mostra all'
 La modifica riguarda la visibilità e l'apertura del modulo: restano invariati il controllo del ruolo `admin` nel backend e il divieto di confermare un giudizio senza un esito o una motivazione documentati dalla commissione. Il totale numerico provvisorio, quando leggibile, resta visibile come **da convalidare** e non prova l'idoneità.
 
 La suite di test comprende un controllo di regressione specifico per il pulsante nelle schede prive di esito. Fare un backup prima dell'aggiornamento in Home Assistant.
+
+### RankUp 0.8.0 — Account operativi e gestione multiutente
+
+L'amministratore definito nelle opzioni di Home Assistant conserva la propria password, le proprie autorizzazioni e la politica di almeno 12 caratteri già prevista. Una nuova voce **Amministrazione → Gestione utenti** è disponibile esclusivamente per l'Admin. Da qui può creare account con username univoco (3–50 caratteri) e **password iniziale di almeno 8 caratteri**, consultarne lo stato, disattivarli o riattivarli e reimpostarne la password.
+
+Gli utenti operativi hanno accesso a Dashboard, Bandi, importazione PICA, Riferimenti del bando attivo, Incarichi, Candidature, Commissioni, Schede PDF, Valutazioni con importazione automatica, Verbali e Graduatorie quando disponibili. **Non possono eseguire Acquisisci manualmente**. Per evitare di assegnare privilegi agli stessi utenti, **Gestione utenti rimane riservata all'amministratore**. I permessi sono verificati nel server e non si basano unicamente sulla visibilità dei pulsanti.
+
+Le credenziali degli utenti vengono salvate nella tabella SQLite persistente `rankup_utenti` in `/data/rankup.sqlite3`; le password sono memorizzate solo come hash PBKDF2-HMAC-SHA256 con salt casuale individuale. I token di sessione (scadenza 8 ore) restano in memoria, non nel database. Disattivazione e reset della password revocano subito tutte le sessioni di quell'utente. Le azioni di amministrazione degli account sono registrate in `rankup_utenti_eventi`, senza registrare credenziali o hash nello storico.
+
+L'operatore effettivamente autenticato è utilizzato come autore nelle operazioni di bando e valutazione tracciate. Il nome dell'account e il ruolo sono visibili nel menu laterale. Le credenziali vanno comunicate tramite un canale riservato: RankUp non dispone di invio email automatico.
+
+**Aggiornamento:** eseguire un backup dell'add-on prima dell'installazione; la migrazione aggiunge soltanto due tabelle, senza cambiare quelle di bandi, candidature, commissioni o valutazioni. I nuovi account restano disponibili dopo il riavvio. Le sessioni invece vanno riaperte. Eseguire il collaudo della login attraverso Home Assistant e l'eventuale accesso esterno prima di distribuire credenziali a utenti reali.
