@@ -522,6 +522,7 @@ def auth_status(request: Request):
         "configured": AUTH.configured,
         "authenticated": AUTH.valid(request.cookies.get(COOKIE_NAME)),
         "username": AUTH.username if AUTH.valid(request.cookies.get(COOKIE_NAME)) else None,
+        "role": AUTH.role(request.cookies.get(COOKIE_NAME)),
     }
 
 
@@ -532,7 +533,7 @@ def auth_login(credentials: LoginRequest, request: Request):
     token = AUTH.authenticate(credentials.username, credentials.password)
     if token is None:
         fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
-    response = JSONResponse({"ok": True, "username": AUTH.username})
+    response = JSONResponse({"ok": True, "username": AUTH.username, "role": "admin"})
     response.set_cookie(
         key=COOKIE_NAME, value=token, path=cookie_path(request),
         max_age=SESSION_SECONDS, secure=secure_cookie(request),
@@ -1658,13 +1659,16 @@ class ValutazioneManuale(BaseModel):
 
 
 @app.post("/api/bandi/{code}/valutazioni/{pdf_id}/manuale")
-def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManuale):
-    """Promuove una scheda 'Da verificare' in modo verificabile e versionato.
+def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManuale,
+                                 request: Request):
+    """Promuove una scheda 'Da verificare' solo per un amministratore.
 
-    L'operatore trascrive soltanto ciò che appare nella valutazione della
-    commissione. Gli esiti negativi non ricevono un voto fittizio.
-    L'originale PDF è immutabile e rimane disponibile per il controllo.
+    L'autorizzazione è verificata nel server sulla sessione autenticata:
+    nascondere il comando nell'interfaccia non è una misura sufficiente.
+    L'originale PDF resta immutabile e le modifiche sono tracciate.
     """
+    if AUTH.role(request.cookies.get(COOKIE_NAME)) != "admin":
+        fail("Acquisizione manuale riservata all'amministratore", 403)
     code=valid_code(code)
     if pdf_id<=0:fail("Documento PDF non valido")
     if not body.documento_verificato:
