@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.7.0 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.7.1 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -118,3 +118,11 @@ Dallo **Storico delle schede** è disponibile il comando **Acquisisci manualment
 Gli ZIP generati da Finder (macOS) possono contenere `__MACOSX` e `.DS_Store`: sono riconosciuti come metadati e ignorati, mentre il caricamento continua a richiedere tutti i PDF effettivi.
 
 **Protezione dei dati:** l'aggiornamento usa una migrazione SQLite non distruttiva e non sovrascrive i PDF originali. Le valutazioni precedenti prive di un esito esplicito non vengono considerate idonee in via presuntiva. Eseguire un backup dell'add-on prima dell'aggiornamento. La suite automatica supera 24 test, ma resta necessario il collaudo in Home Assistant con PDF reali e la validazione amministrativa dei modelli.
+
+### RankUp 0.7.1 — Correzione valutazioni storiche senza esito
+
+Nelle versioni precedenti alcuni PDF con punteggio numerico valido ma senza esito della commissione potevano risultare `Acquisita`. Dalla 0.7.1 la migrazione SQLite, **non distruttiva e tracciata**, riclassifica soltanto queste acquisizioni precedenti come `Da verificare`, disattivandole dai conteggi delle valutazioni concluse. Conserva inalterati originali PDF, punteggi registrati, versioni, timestamp e riferimenti PICA; registra l'operazione nel log degli eventi. Il riesame non si ripete ai successivi riavvii.
+
+Lo **Storico delle schede** mostra comunque il punteggio originariamente memorizzato con l'avvertenza `(storico, da convalidare)`, anziché nasconderlo per l'esito assente. Una scheda con 15 punti e campo esito `-- Seleziona --` non viene interpretata come idoneità: è necessario che la commissione esprima la propria decisione. L'acquisizione manuale di un PDF editabile con esito e nota entrambi vuoti viene bloccata; occorre ricevere una scheda o un documento della commissione effettivamente completo.
+
+Collaudo CI con caso sintetico di 15 punti senza esito: 25 test superati. **Eseguire backup prima di installare la 0.7.1** e verificare il riesame sul sistema Home Assistant.
