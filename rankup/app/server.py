@@ -1420,7 +1420,8 @@ def _pdf_batch_read(uploads: list[UploadFile]) -> list[tuple[str,bytes]]:
 
 
 @app.post("/api/bandi/{code}/valutazioni/anteprima")
-async def preview_valutazioni(code: str, files: list[UploadFile] = File(...)):
+async def preview_valutazioni(code: str, files: list[UploadFile] = File(...),
+                             cds: str = "", sede: str = ""):
     code = valid_code(code)
     with connect() as db:
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
@@ -1446,6 +1447,12 @@ async def preview_valutazioni(code: str, files: list[UploadFile] = File(...)):
     try:
         for index,(filename,data) in enumerate(uploads):
             result = evaluate_pdf(data,code,candidates,already)
+            # Un filtro CdS/sede non deve consentire di acquisire per errore
+            # documenti riconosciuti come appartenenti a un altro corso.
+            if ((cds and result["cds"] and result["cds"]!=cds) or
+                    (sede and result["sede"] and result["sede"]!=sede)):
+                fail("Caricamento di "+filename+" riferito a CdS/sede diversi da quelli selezionati: "
+                     +str(result["cds"])+" / "+str(result["sede"]),400)
             result["nome_originale"] = filename
             result["temp_file"] = str(index)+".pdf"
             if result["sha256"] in seen_hashes:
