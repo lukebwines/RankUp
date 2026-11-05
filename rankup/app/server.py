@@ -590,6 +590,132 @@ def auth_logout(request: Request):
     return response
 
 
+# Account operativi: gestione riservata all'Admin, non delegabile agli utenti.
+def require_admin(request: Request) -> dict:
+    principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal or principal["role"] != "admin":
+        fail("Gestione degli utenti riservata all'amministratore",403)
+    return principal
+
+
+class CreaUtente(BaseModel):
+    username: str = Field(min_length=3,max_length=50)
+    password: str = Field(min_length=8,max_length=128)
+
+
+class CambiaStatoUtente(BaseModel):
+    attivo: bool
+
+
+class ReimpostaPasswordUtente(BaseModel):
+    password: str = Field(min_length=8,max_length=128)
+
+
+@app.get("/api/utenti")
+def elenco_utenti(request: Request):
+    require_admin(request)
+    with connect() as db:
+        rows=db.execute("""
+            SELECT id,username,attivo,creato_il,aggiornato_il,creato_da
+            FROM rankup_utenti ORDER BY username COLLATE NOCASE
+        """).fetchall()
+    return {"utenti":[dict(r) for r in rows],
+            "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
+            "password_minima":8}
+
+
+@app.post("/api/utenti")
+def crea_utente(body: CreaUtente,request: Request):
+    who=require_admin(request)
+    username=body.username.strip()
+    if not USER_RE.fullmatch(username):
+        fail("Username: 3-50 caratteri; sono ammessi lettere, numeri, punto, trattino e underscore")
+    if username.casefold()==AUTH.username.casefold():
+        fail("Nome utente già riservato all'amministratore",409)
+    try:
+        salt,digest=AUTH.password_record(body.password)
+    except ValueError as exc:
+        fail(str(exc))
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            cur=db.execute("""
+                INSERT INTO rankup_utenti
+                 (username,password_salt,password_hash,attivo,credenziali_versione,
+                  creato_il,aggiornato_il,creato_da)
+                VALUES(?,?,?,1,1,?,?,?)
+            """,(username,salt,digest,now,now,who["username"]))
+        except sqlite3.IntegrityError:
+            fail("Nome utente già presente; riattivalo o reimposta la sua password",409)
+        uid=cur.lastrowid
+        db.execute("""
+            INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
+            VALUES(?,?,?,?)
+        """,(uid,"Creato account operativo",who["username"],now))
+        db.commit()
+    return {"ok":True,"utente":{"id":uid,"username":username,"attivo":1}}
+
+
+@app.put("/api/utenti/{user_id}/stato")
+def stato_utente(user_id: int,body: CambiaStatoUtente,request: Request):
+    who=require_admin(request)
+    if user_id<=0:fail("Identificativo utente non valido")
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("SELECT id,username,attivo FROM rankup_utenti WHERE id=?",(user_id,)).fetchone()
+        if not row:fail("Utente non trovato",404)
+        changed=bool(row["attivo"])!=body.attivo
+        if changed:
+            db.execute("""
+                UPDATE rankup_utenti
+                   SET attivo=?,credenziali_versione=credenziali_versione+1,
+                       aggiornato_il=? WHERE id=?
+            """,(int(body.attivo),now,user_id))
+            db.execute("""
+                INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
+                VALUES(?,?,?,?)
+            """,(user_id,"Riattivato" if body.attivo else "Disattivato",who["username"],now))
+        db.commit()
+    if changed:
+        AUTH.revoke_user(user_id)
+    return {"ok":True,"id":user_id,"username":row["username"],
+            "attivo":body.attivo,"modificato":changed}
+
+
+@app.put("/api/utenti/{user_id}/password")
+def password_utente(user_id: int,body: ReimpostaPasswordUtente,request: Request):
+    who=require_admin(request)
+    if user_id<=0:fail("Identificativo utente non valido")
+    try:
+        salt,digest=AUTH.password_record(body.password)
+    except ValueError as exc:
+        fail(str(exc))
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("SELECT username FROM rankup_utenti WHERE id=?",(user_id,)).fetchone()
+        if not row:fail("Utente non trovato",404)
+        db.execute("""
+            UPDATE rankup_utenti SET
+                password_salt=?,password_hash=?,
+                credenziali_versione=credenziali_versione+1,
+                aggiornato_il=?
+            WHERE id=?
+        """,(salt,digest,now,user_id))
+        db.execute("""
+            INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
+            VALUES(?,?,?,?)
+        """,(user_id,"Password reimpostata",who["username"],now))
+        db.commit()
+    AUTH.revoke_user(user_id)
+    return {"ok":True,"id":user_id,"username":row["username"],
+            "avviso":"Password aggiornata. Tutte le sessioni precedenti dell'utente sono revocate."}
+
+
+
+
 
 def fail(message: str, status: int = 400):
     raise HTTPException(status_code=status, detail=message)
