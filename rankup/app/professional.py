@@ -208,14 +208,14 @@ def make_professional(record: dict) -> bytes:
     headings = [
         (50, 83, ["Titoli e Attività", "da esaminare"]),
         (134, 266, ["Indicatori relativi al curriculum"]),
-        (401, 44, ["Punti per", "titolo/attività"]),
+        (401, 44, ["Punti per", "titolo", "attività"]),
         (446, 53, ["Punti", "assegnati"]),
         (500, 50, ["Punteggio", "per area"]),
     ]
     for x, width, labels in headings:
         rect(x, 231, width, 34, MAGENTA)
         for j, label in enumerate(labels):
-            centered(x, 237+j*10, width, label, 7.6, True, white)
+            centered(x, 235+j*9, width, label, 6.3 if x==401 else 7.6, True, white)
 
     rect(50, 267, 83, 104, BLUE)
     multiline(53, 286, [
@@ -232,10 +232,10 @@ def make_professional(record: dict) -> bytes:
     area(500, 267, 50, 104, 15)
 
     rect(50, 373, 83, 85, BLUE)
-    multiline(53, 392, [
-        "Attività", "professionale", "svolta con",
-        "continuità", "(ultimi 5 anni)",
-    ], 7.3, leading=9)
+    multiline(53, 391, [
+        "Attività", "professionale svolta", "con continuità e in",
+        "settori pertinenti", "all’insegnamento", "(ultimi 5 anni)",
+    ], 6.6, leading=8.5)
     # L'unico quinquennio verificato nel modello fornito è il 2021-2025
     # per l'A.A. 2026-2027. Per altri bandi servono anni approvati.
     years = (
@@ -262,9 +262,9 @@ def make_professional(record: dict) -> bytes:
             rect(x, top, width, height-1, BLUE)
         if key == "P14":
             multiline(137, top+3, [
-                "Docenza in ambito accademico pertinente",
-                "all’insegnamento (non conteggiare più volte",
-                "la stessa docenza)",
+                "Docenza in ambito accademico pertinente all’insegnamento",
+                "(la stessa docenza va conteggiata una sola volta",
+                "anche se svolta in più corsi di studio)",
             ], 6.8, leading=7.6)
         else:
             txt(137, top+5, label, 6.9)
@@ -290,8 +290,8 @@ def make_professional(record: dict) -> bytes:
             rect(x, top, width, height, BLUE)
         if key == "P19":
             multiline(137, top+4, [
-                "Valorizzazione dell’esperienza e competenza",
-                "nel settore specifico richiesto",
+                "Valorizzazione dell’esperienza e della competenza",
+                "nel settore specifico richiesto dall’insegnamento del corso di laurea",
             ], 7, leading=9)
         else:
             txt(137, top+8, label, 7.1)
