@@ -16,6 +16,7 @@ import secrets
 import shutil
 import sqlite3
 import time
+import unicodedata
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
@@ -1170,6 +1171,26 @@ def _safe_filename(value: str, maxlen=65) -> str:
     return result[:maxlen] or "non_indicato"
 
 
+def _candidate_pdf_filename(record: dict) -> str:
+    """Nome leggibile per la commissione; l'identità tecnica resta nel PDF.
+
+    La chiave finale identifica l'incarico: uno stesso ID PICA può
+    partecipare a più insegnamenti nel medesimo bando.
+    """
+    def readable(value: str, limit: int) -> str:
+        plain = unicodedata.normalize("NFKD", str(value or ""))
+        plain = "".join(char for char in plain if not unicodedata.combining(char))
+        return _safe_filename(plain, limit)
+
+    return ("_".join((
+        readable(record["id_pica"], 48),
+        readable(record["cognome"], 26),
+        readable(record["nome"], 26),
+        record["key"][:10],
+    )) + ".pdf")
+
+
+
 @app.get("/api/bandi/{code}/schede/zip")
 def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
     """Genera gli AcroForm singoli e lo ZIP, solo se i settori sono classificati.
@@ -1271,7 +1292,7 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
                 fail("Errore generazione PDF per ID PICA "+record["id_pica"]+": "+str(exc))
             path=(_safe_filename(record["cds"])+"/"+
                   _safe_filename(record["sede"])+"/"+
-                  _safe_filename(record["id_pica"])+"_"+record["key"][:10]+".pdf")
+                  _candidate_pdf_filename(record))
             archive.writestr(path,pdf)
     filename = "RankUp_"+code+"_schede"
     if cds:
