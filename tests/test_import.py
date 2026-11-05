@@ -2,7 +2,8 @@ from io import BytesIO
 import json
 import zipfile
 from pypdf import PdfReader
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from incarichi_fields import EXTRA_DB_FIELDS, normalize_excel_date
 import pytest
 from pica import extract_code, parse_pica
 from commissioni import parse_commissioni
@@ -19,19 +20,40 @@ def make_excel(rows):
 
 
 def pica_fixture():
+    columns = [
+        "ID domanda", "Stato", "Corso di Studio", "sede",
+        "Nome insegnamento padre", "Descrizione Copertura",
+        "ID Copertura", "Cognome", "Nome", "Codice fiscale",
+        "ssd", "Settore scientifico disciplinare",
+    ]
+    extra_columns = [
+        "Anno del Corso", "Tipo Corso", "Tipo CDS", "Ciclo",
+        "INIZIO", "FINE", "Codice Partizione Studenti",
+        "Partizione Studenti", "Peso Copertura", "Ore", "Stato coperture",
+    ]
+    extra_a = [
+        3, "L", "contratto esterno oneroso CSA", "annuale",
+        46394, 46660, "ALTR", "Matricole DISPARI",
+        2, None, "Nessuna assegnata",
+    ]
+    extra_b = [
+        2, "L", "contratto esterno oneroso CSA", "primo semestre",
+        46394, 46485, None, None,
+        3, None, "Nessuna assegnata",
+    ]
     return make_excel([
         ["univr 26-02 - Esportazione dati"],
-        ["ID domanda", "Stato", "Corso di Studio", "sede",
-         "Nome insegnamento padre", "Descrizione Copertura",
-         "ID Copertura", "Cognome", "Nome", "Codice fiscale", "ssd", "Settore scientifico disciplinare"],
+        columns + extra_columns,
         [1001, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno", "CODICEFISCALE", "SSD-A", ""],
+         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno",
+         "CODICEFISCALE", "SSD-A", ""] + extra_a,
         [1001, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno", "CODICEFISCALE", "SSD-B", ""],
+         "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno",
+         "CODICEFISCALE", "SSD-B", ""] + extra_b,
         [1002, "presentata", "CDS DEMO", "SEDE A",
-         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due", "CODICEFISCALE2", "SSD-A", "SSD-PERSONALE"],
+         "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due",
+         "CODICEFISCALE2", "SSD-A", "SSD-PERSONALE"] + extra_a,
     ])
-
 
 def commissioni_fixture():
     return make_excel([
@@ -57,9 +79,37 @@ def test_multiple_assignments_for_same_candidate():
     assert result["summary"]["incarichi"] == 2
     assert result["summary"]["cds"] == 1
     assert result["summary"]["ssd_distinti"] == 2
+    assert result["rows"][0]["incarico"]["anno_corso"] == "3"
+    assert result["rows"][0]["incarico"]["tipo_cds"] == "contratto esterno oneroso CSA"
+    assert result["rows"][0]["incarico"]["inizio"] == "46394"
+    assert result["rows"][0]["incarico"]["fine"] == "46660"
+    assert result["rows"][0]["incarico"]["codice_partizione"] == "ALTR"
+    assert result["rows"][0]["incarico"]["partizione_studenti"] == "Matricole DISPARI"
+    assert result["rows"][0]["incarico"]["peso_copertura"] == "2"
+    assert result["rows"][0]["incarico"]["ore"] == ""
+    assert result["rows"][0]["incarico"]["stato_coperture"] == "Nessuna assegnata"
     assert [x["incarico"]["ssd"] for x in result["rows"]] == ["SSD-A", "SSD-B", "SSD-A"]
     assert result["rows"][0]["id_pica"] == result["rows"][1]["id_pica"]
     assert result["rows"][0]["incarico"]["key"] != result["rows"][1]["incarico"]["key"]
+
+
+def test_date_conversion_does_not_change_source():
+    assert normalize_excel_date("46394") == "2027-01-07"
+    assert normalize_excel_date("46660") == "2027-09-30"
+    assert normalize_excel_date("") == ""
+    assert normalize_excel_date("testo non valido") == ""
+
+
+def test_conflicting_assignment_metadata_requires_verification():
+    wb = load_workbook(BytesIO(pica_fixture()))
+    ws = wb.active
+    headers = [cell.value for cell in ws[2]]
+    column = headers.index("Peso Copertura") + 1
+    ws.cell(row=5, column=column).value = 99
+    output = BytesIO()
+    wb.save(output)
+    with pytest.raises(ValueError, match="peso_copertura"):
+        parse_pica("demo.xlsx", output.getvalue())
 
 
 def test_commissions_per_cds_multiple_seats():
