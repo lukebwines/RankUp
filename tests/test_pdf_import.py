@@ -112,6 +112,11 @@ def test_preview_does_not_update_database_and_confirm_preserves_anomalies(tmp_pa
             assert values[1]["totale_calcolato"] is None
             assert (tmp_path/values[0]["percorso"]).is_file()
             assert (tmp_path/values[1]["percorso"]).is_file()
+            ids=[r["id"] for r in db.execute("SELECT id FROM valutazioni_pdf ORDER BY id")]
+        for index,original in zip(ids,(regular,anomalous)):
+            downloaded=client.get("/api/bandi/26-02/valutazioni/"+str(index)+"/documento")
+            assert downloaded.status_code==200
+            assert downloaded.content==original
         duplicate=_preview(client,[("regolare.pdf",regular),("incompleta.pdf",anomalous)])
         assert duplicate["riepilogo"]["duplicato"]==2
 
