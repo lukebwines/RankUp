@@ -377,7 +377,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.4.4", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.5.0", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -459,7 +459,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.4.4"}
+    return {"status": "ok", "version": "0.5.0"}
 
 
 @app.get("/api/bandi")
