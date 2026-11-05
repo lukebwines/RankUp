@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#142840">
   <title>RankUp — Gestione bandi di docenza</title>
+  <link rel="icon" type="image/png" href="static/rankup-icon.png">
+  <link rel="apple-touch-icon" href="static/rankup-icon.png">
+  <script>
+    (function(){
+      var preference=localStorage.getItem("rankup_theme");
+      var dark=preference==="dark" || (!preference && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.setAttribute("data-theme",dark?"dark":"light");
+    })();
+  </script>
   <style>
     :root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#192b3b;background:#f4f7fb}
     *{box-sizing:border-box} body{margin:0} button,input,select{font:inherit}
@@ -62,9 +71,62 @@
     @media(max-width:540px){.assignment-metadata{grid-template-columns:1fr}}
     @media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.sidebar{width:210px}main{padding:22px}}
     @media(max-width:690px){.layout{display:block}.sidebar{width:auto;gap:12px;padding:13px}.brand img{width:40px;height:40px}.sidebar nav{flex-direction:row;overflow:auto;white-space:nowrap}.sidebar nav button{padding:9px 12px}.active-panel{padding:10px}.active-panel strong{font-size:18px}.sidebar-footer{display:none}main{padding:18px}.grid{gap:9px}.card{padding:14px}.topbar h2{font-size:22px}}
+    /* Tema scuro: stessi contenuti e stesse indicazioni del tema chiaro. */
+    html[data-theme="dark"]{color-scheme:dark;background:#0c1522;color:#eaf2fb}
+    html[data-theme="dark"] body{background:#0c1522;color:#eaf2fb}
+    html[data-theme="dark"] main{background:#0c1522;color:#eaf2fb}
+    html[data-theme="dark"] .card,html[data-theme="dark"] .auth-card{
+      background:#152539;color:#eaf2fb;border-color:#36506a;box-shadow:none}
+    html[data-theme="dark"] .topbar h2,html[data-theme="dark"] .section-heading,
+    html[data-theme="dark"] .auth-card h1,html[data-theme="dark"] .band-row strong{color:#f2f7fc}
+    html[data-theme="dark"] .muted,html[data-theme="dark"] .caption,
+    html[data-theme="dark"] .crumb,html[data-theme="dark"] .kpi span,
+    html[data-theme="dark"] .band-row small{color:#b5c8da}
+    html[data-theme="dark"] .kpi strong,html[data-theme="dark"] .summary strong{color:#d9eaff}
+    html[data-theme="dark"] .notice,html[data-theme="dark"] .upload,
+    html[data-theme="dark"] .assignment-metadata{
+      background:#1b334c;color:#e5f0fc;border-color:#537fa7}
+    html[data-theme="dark"] .badge,html[data-theme="dark"] .active-pill,
+    html[data-theme="dark"] .btn.secondary{background:#254868;color:#dceaff}
+    html[data-theme="dark"] .btn.ghost{color:#9dc9f4}
+    html[data-theme="dark"] th{background:#1c334b;color:#e4f0fc}
+    html[data-theme="dark"] td,html[data-theme="dark"] th,
+    html[data-theme="dark"] .band-row{border-color:#32485e;color:#e5eef8}
+    html[data-theme="dark"] input,html[data-theme="dark"] textarea,
+    html[data-theme="dark"] #content select,html[data-theme="dark"] .auth-card input{
+      background:#0d1d2e !important;color:#eaf2fb !important;border-color:#55708c !important}
+    html[data-theme="dark"] input::placeholder,
+    html[data-theme="dark"] textarea::placeholder{color:#9bb3c9}
+    html[data-theme="dark"] .empty,html[data-theme="dark"] .empty strong,
+    html[data-theme="dark"] .assignment-detail,html[data-theme="dark"] .assignment-detail summary{
+      color:#d6e6f6}
+    html[data-theme="dark"] .error{background:#461e2b;color:#ffd5df}
+    html[data-theme="dark"] .success{background:#184437;color:#c5f6dd}
+    html[data-theme="dark"] .data-missing{color:#b7c4d1}
+    .navicon{width:18px;height:18px;flex:none;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    .nav-separator{font-size:10px;letter-spacing:.1em;color:#9cb8d5;font-weight:800;padding:12px 12px 4px}
+    .brand-hero{display:flex;gap:15px;align-items:center;margin:0 0 17px}
+    .brand-hero img{width:59px;height:59px;object-fit:contain;border-radius:13px;background:#254b73}
+    .brand-hero h3{margin:0;font-size:18px}
+    .brand-hero p{margin:4px 0 0}
+    .theme-toggle{display:flex;gap:8px;align-items:center;white-space:nowrap}
+    .theme-toggle .navicon{width:17px;height:17px}
+    @media(max-width:690px){.topbar{flex-wrap:wrap}.theme-toggle{font-size:12px}}
   </style>
 </head>
 <body>
+  <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
+    <symbol id="ri-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="ri-folders" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 11h18"/></symbol>
+    <symbol id="ri-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+    <symbol id="ri-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M2 21v-2a7 7 0 0 1 14 0v2"/><path d="M17 5a3 3 0 0 1 0 6m1 4a5 5 0 0 1 4 5v1"/></symbol>
+    <symbol id="ri-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></symbol>
+    <symbol id="ri-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></symbol>
+    <symbol id="ri-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12"/><path d="M3 6h2M3 12h2M3 18h2"/></symbol>
+    <symbol id="ri-archive" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="5" rx="1"/><path d="M5 8v13h14V8M10 12h4"/></symbol>
+    <symbol id="ri-moon" viewBox="0 0 24 24"><path d="M20.9 13a9 9 0 1 1-9.9-9.9A7.5 7.5 0 0 0 20.9 13z"/></symbol>
+    <symbol id="ri-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></symbol>
+  </svg>
   <section class="auth-screen" id="auth-screen">
     <form id="login-form" class="auth-card" autocomplete="on">
       <div class="auth-brand">
@@ -92,23 +154,31 @@
         <select id="band-select" aria-label="Seleziona bando"></select>
       </div>
       <nav id="nav">
-        <button data-page="dashboard" class="active"><span class="navdot"></span> Dashboard</button>
-        <button data-page="bandi"><span class="navdot"></span> Bandi</button>
-        <button data-page="incarichi"><span class="navdot"></span> Incarichi</button>
-        <button data-page="candidature"><span class="navdot"></span> Candidature</button>
-        <button data-page="commissioni"><span class="navdot"></span> Commissioni</button>
-        <button data-page="schede"><span class="navdot"></span> Schede PDF</button>
-        <button data-page="valutazioni"><span class="navdot"></span> Valutazioni</button>
-        <button data-page="verbali"><span class="navdot"></span> Verbali</button>
-        <button data-page="graduatorie"><span class="navdot"></span> Graduatorie</button>
-        <button data-page="archivio"><span class="navdot"></span> Archivio</button>
+        <div class="nav-separator">GESTIONE GENERALE</div>
+        <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
+        <button data-page="bandi"><svg class="navicon" aria-hidden="true"><use href="#ri-folders"></use></svg> Bandi</button>
+        <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
+        <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
+        <button data-page="candidature"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Candidature</button>
+        <button data-page="commissioni"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Commissioni</button>
+        <button data-page="schede"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Schede PDF</button>
+        <button data-page="valutazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Valutazioni</button>
+        <button data-page="verbali"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Verbali</button>
+        <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
+        <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
       <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.5.0 · Prototipo tecnico<br>Accesso protetto con account amministratore</p></div>
     </aside>
     <main>
       <header class="topbar">
         <div><div class="crumb" id="crumb">RankUp / Dashboard</div><h2 id="page-title">Dashboard generale</h2></div>
-        <div class="active-pill" id="top-code">Bando: nessuno</div>
+        <div class="actions" style="align-items:center">
+          <button class="btn secondary theme-toggle" id="theme-toggle" type="button" aria-label="Cambia tema colore">
+            <svg class="navicon" aria-hidden="true"><use href="#ri-moon"></use></svg>
+            <span id="theme-label">Tema scuro</span>
+          </button>
+          <div class="active-pill" id="top-code">Bando: nessuno</div>
+        </div>
       </header>
       <div id="notification" aria-live="polite"></div>
       <div id="content"></div>
@@ -119,6 +189,23 @@
       "use strict";
       var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null};
       var $ = function(id){return document.getElementById(id);};
+      function setTheme(theme){
+        document.documentElement.setAttribute("data-theme",theme);
+        var label=$("theme-label"),btn=$("theme-toggle");
+        if(label)label.textContent=theme==="dark"?"Tema chiaro":"Tema scuro";
+        if(btn){
+          btn.setAttribute("aria-label",theme==="dark"?"Attiva tema chiaro":"Attiva tema scuro");
+          btn.querySelector("use").setAttribute("href",theme==="dark"?"#ri-sun":"#ri-moon");
+        }
+        document.querySelector('meta[name="theme-color"]').content=theme==="dark"?"#0c1522":"#142840";
+      }
+      setTheme(document.documentElement.getAttribute("data-theme")||"light");
+      $("theme-toggle").onclick=function(){
+        var next=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
+        localStorage.setItem("rankup_theme",next);
+        setTheme(next);
+      };
+
       var esc = function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});};
       var api = async function(path,options){
         var opts=options||{};
@@ -202,7 +289,7 @@
       }
       function bindBandButtons(){document.querySelectorAll("[data-choose]").forEach(function(button){button.onclick=function(){state.page="incarichi";setActive(button.dataset.choose);};});}
       function dashboard(){
-        html(cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
+        html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Panoramica dei bandi e delle procedure didattiche.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
           (state.bandi.length?state.bandi.map(row).join(''):'<div class="empty"><strong>Non ci sono ancora bandi</strong>Importa un file PICA per creare la prima procedura.</div>')+
           '<button class="btn" id="dash-import">Importa candidature PICA</button></div>'+
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
