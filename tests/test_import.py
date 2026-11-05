@@ -252,6 +252,9 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                     assert fields["extraField0"].value=="0"
                     assert fields["attivita0"].value=="0"
                     assert fields["plus0"].value=="0"
+                    assert list(fields["plus0"].get("/Opt")[1]) == ["0.5", "Tutor dedicato (0.5 pt)"]
+                    assert list(fields["plus0"].get("/Opt")[2]) == ["0.5", "Guida/supervis. tirocin. (0.5 pt)"]
+                    assert fields["attivita0"].get("/Opt")[1][0] == "1.5"
                     assert fields["REQUISITI"].value=="Testo prova"
                     assert fields["NOTE-COMM"].get("/Ff",0) & 4096
                     assert "60" in pdf.pages[0].extract_text()
