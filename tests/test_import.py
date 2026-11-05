@@ -146,18 +146,21 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert repeat.status_code == 409
 
-        # Simula il vecchio bug: un SSD era vuoto e un altro copiato
-        # impropriamente dall'autodichiarazione del candidato.
-        with server.connect() as db:
-            db.execute("DELETE FROM ssd_import_migrations")
-            db.execute("UPDATE incarichi SET ssd='SSD-PERSONALE' WHERE ssd='SSD-A'")
-            db.execute("UPDATE incarichi SET ssd='' WHERE ssd='SSD-B'")
-        importlib.reload(server)
-        with server.connect() as db:
-            sectors=[r["ssd"] for r in db.execute("SELECT DISTINCT ssd FROM incarichi ORDER BY ssd")]
-            repaired=db.execute("SELECT incarichi_corretti FROM ssd_import_migrations").fetchone()
-        assert sectors == ["SSD-A","SSD-B"]
-        assert repaired["incarichi_corretti"] == 2
         logout = client.post("/api/auth/logout", headers={"X-RankUp-Request": "1"})
         assert logout.status_code == 200
         assert client.get("/api/bandi").status_code == 401
+
+    # Simula il vecchio bug: un SSD era vuoto e un altro copiato
+    # impropriamente dall'autodichiarazione del candidato.
+    with server.connect() as db:
+        db.execute("DELETE FROM ssd_import_migrations")
+        db.execute("UPDATE incarichi SET ssd='SSD-PERSONALE' WHERE ssd='SSD-A'")
+        db.execute("UPDATE incarichi SET ssd='' WHERE ssd='SSD-B'")
+    importlib.reload(server)
+    with server.connect() as db:
+        sectors=[r["ssd"] for r in db.execute("SELECT DISTINCT ssd FROM incarichi ORDER BY ssd")]
+        repaired=db.execute("SELECT incarichi_corretti FROM ssd_import_migrations").fetchone()
+    assert sectors == ["SSD-A","SSD-B"]
+    assert repaired["incarichi_corretti"] == 2
+        changes=db.execute("SELECT COUNT(*) AS n FROM ssd_import_rettifiche").fetchone()
+    assert changes["n"] == 2
