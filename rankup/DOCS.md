@@ -41,3 +41,14 @@ Il DNS e l'hostname pubblico sono configurati **su Cloudflare**, non in RankUp. 
 3. Avviare RankUp, aprire Ingress e verificare login/logout.
 4. Provare con i file PICA/commissioni di esempio, non con dati reali.
 5. Solo dopo i controlli di sicurezza, valutare la porta host e Cloudflare Tunnel.
+
+## Schede PDF (v0.3.0, facsimile tecnico)
+La prima importazione PICA acquisisce la colonna **Settore scientifico disciplinare**. Per i bandi precedenti la versione 0.3.0, RankUp recupera automaticamente l'SSD dal file PICA originale memorizzato nell'add-on, senza reimportare le candidature.
+
+Nel menu **Schede PDF** classificare ogni SSD, indicando se è professionalizzante oppure non professionalizzante e un **riferimento documentale verificato**. Nessun SSD viene classificato per supposizione. Le impostazioni si riutilizzano fra bandi.
+
+Dopo aver importato le commissioni, selezionare un CdS, eventualmente una sede, e premere **Genera e scarica ZIP**. La selezione generale produce uno ZIP con cartelle per CdS/sede. La procedura si arresta se mancano tipologie SSD o commissioni.
+
+**Importante:** le due schede attualmente prodotte sono **facsimili tecnici**, ricostruiti come PDF editabili. Il calcolo del totale dipende dal lettore PDF (preferibilmente Adobe Acrobat); RankUp dovrà ricalcolarlo autonomamente quando sarà implementata la lettura delle schede restituite. Prima di un uso ufficiale occorre validare criteri, massimali, anni di attività professionale e layout sulla base della documentazione approvata, non soltanto degli esempi.
+
+Il caricamento di modelli PDF neutralizzati da parte dell'amministratore, con mapping dei campi e versionamento, sarà sviluppato nella prossima fase; i PDF già compilati non devono essere caricati come template neutri.
