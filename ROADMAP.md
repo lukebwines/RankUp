@@ -112,3 +112,5 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [ ] Anagrafica annuale commissioni e propagazione manuale per bando.
 
 - [x] 0.6.1: Download dell'originale PDF dal registro delle valutazioni, comprese le anomalie.
+
+- [x] 0.6.2: Protezione contro i segnaposto del menu esito nelle valutazioni con totale zero, 18 test automatici superati.
