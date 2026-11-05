@@ -166,6 +166,12 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert up.status_code == 200, up.text
         assert len(client.get("/api/bandi/26-02/commissioni").json()["commissioni"]) == 2
+        mapping=client.get("/api/bandi/26-02/commissioni/associazioni")
+        assert mapping.status_code == 200
+        assert mapping.json()["associate"] == 1
+        assert mapping.json()["mancanti"] == 0
+        assert mapping.json()["associazioni"][0]["cds_commissione"] == "CDS DEMO"
+        assert mapping.json()["associazioni"][0]["sede_commissione"] == "SEDE A"
         assignments=client.get("/api/bandi/26-02/incarichi").json()["incarichi"]
         assert sorted(x["ssd"] for x in assignments)==["MEDS-24/C","SSD-A"]
         enriched = [x for x in assignments if x["ssd"]=="SSD-A"][0]
