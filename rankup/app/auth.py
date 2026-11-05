@@ -83,6 +83,15 @@ class Authentication:
                 return False
             return True
 
+    def role(self, cookie: str | None) -> str | None:
+        """Ruolo della sessione autenticata, mai derivato da dati del client.
+
+        RankUp attualmente prevede un unico account configurato nell'add-on:
+        tale account è l'amministratore. Eventuali utenti futuri dovranno
+        ottenere un ruolo per sessione, non tramite il parametro di una API.
+        """
+        return "admin" if self.valid(cookie) else None
+
     def revoke(self, cookie: str | None) -> None:
         if not cookie:
             return
