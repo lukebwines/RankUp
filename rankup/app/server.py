@@ -115,6 +115,15 @@ def initialize() -> None:
             incarichi_verificati INTEGER NOT NULL,
             incarichi_corretti INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS ssd_import_rettifiche (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            key_incarico TEXT NOT NULL,
+            ssd_precedente TEXT NOT NULL,
+            ssd_corretto TEXT NOT NULL,
+            corretto_il TEXT NOT NULL,
+            UNIQUE(bando_id,key_incarico)
+        );
         CREATE INDEX IF NOT EXISTS ix_comm_bando ON commissioni(bando_id);
         CREATE INDEX IF NOT EXISTS ix_inc_bando ON incarichi(bando_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
@@ -178,6 +187,14 @@ def backfill_ssd_from_saved_pica() -> None:
             for row in current:
                 correct = expected[row["key"]]
                 if (row["ssd"] or "").strip().upper() != correct:
+                    db.execute("""
+                        INSERT INTO ssd_import_rettifiche
+                        (bando_id,key_incarico,ssd_precedente,ssd_corretto,corretto_il)
+                        VALUES(?,?,?,?,?)
+                    """, (
+                        b["id"], row["key"], row["ssd"] or "", correct,
+                        datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    ))
                     db.execute(
                         "UPDATE incarichi SET ssd=? WHERE bando_id=? AND key=?",
                         (correct, b["id"], row["key"])
@@ -510,7 +527,14 @@ def elenco_ssd_bando(code: str):
         """, (code,)).fetchall()
         if not db.execute("SELECT 1 FROM bandi WHERE codice=?", (code,)).fetchone():
             fail("Bando non trovato", 404)
-    return {"ssd": [dict(x) for x in rows]}
+        migration = db.execute("""
+            SELECT m.incarichi_verificati,m.incarichi_corretti,m.aggiornato_il
+            FROM ssd_import_migrations m
+            JOIN bandi b ON b.id=m.bando_id
+            WHERE b.codice=?
+        """, (code,)).fetchone()
+    return {"ssd": [dict(x) for x in rows],
+            "migrazione": dict(migration) if migration else None}
 
 
 @app.put("/api/ssd/{ssd}/classificazione")
@@ -518,6 +542,8 @@ def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
     sector = ssd.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]+(?:[-/][A-Z0-9]+)*", sector) or len(sector)>32:
         fail("Codice SSD non valido")
+    if sector in ("NN", "ND", "N-D", "NON-INDICATO"):
+        fail("PICA non attribuisce un SSD specifico a questo incarico: verificare la copertura prima di associare un modello PDF")
     if body.tipo not in ("professionalizzante", "ordinario"):
         fail("Selezionare professionalizzante oppure ordinario")
     reference = body.riferimento.strip()
