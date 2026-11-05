@@ -178,3 +178,9 @@ Prima dell'aggiornamento effettuare un backup dei dati dell'add-on. Dopo la 0.7.
 Il pulsante `Acquisisci manualmente` compare solo per la sessione `admin` e solo quando la scheda consente un recupero manuale documentato. Per ogni altro ruolo l'interfaccia mostra `Acquisizione manuale riservata all'amministratore`. Il server effettua una verifica indipendente della sessione, impedendo richieste POST non autorizzate con risposta 403. L'identità dell'operatore che conferma rimane registrata nello storico.
 
 RankUp dispone al momento soltanto dell'account amministratore definito nelle opzioni Home Assistant. Non sono ancora disponibili account collaboratore/utente registrato; l'autorizzazione è già predisposta per tali evoluzioni.
+
+## v0.7.3 — Riferimenti per la procedura del bando attivo
+
+Selezionare il codice nella casella **Bando attivo** a sinistra e poi aprire **Procedimento del bando attivo → Riferimenti del bando**. Compilare solo dati ricavati dall'avviso ufficiale: repertorio, numero di protocollo, data e anno accademico. Dopo il salvataggio, le eventuali schede già generate devono essere rigenerate. Cambiando il bando attivo, vengono mostrati i riferimenti specifici di quel bando; eventuali campi non compilati restano vuoti.
+
+La pagina **Gestione generale → Bandi** mostra soltanto l'elenco e l'importazione PICA. Questa modifica è esclusivamente di navigazione: nessun valore o collegamento del database viene cambiato.
