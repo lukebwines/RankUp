@@ -571,25 +571,36 @@ def test_only_admin_can_manually_acquire_a_pdf(tmp_path, monkeypatch):
             "motivazione_tecnica":"Il totale Acrobat non e' stato aggiornato nel PDF.",
             "documento_verificato":True,
         }
-        original_role=server.AUTH.role
-        monkeypatch.setattr(server.AUTH, "role", lambda cookie: (
-            "user" if server.AUTH.valid(cookie) else None
-        ))
-        status=client.get("/api/auth/status")
-        assert status.status_code==200
-        assert status.json()["role"]=="user"
-        # L'utente regolarmente autenticato può leggere il documento.
-        readable=client.get(
-            f"/api/bandi/26-02/valutazioni/{record['id']}/documento"
-        )
-        assert readable.status_code==200
-        assert readable.content==document
-        # Non può invocare il POST riservato attraverso una chiamata diretta.
-        denied=_post(client,
-            f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
-            json=payload)
-        assert denied.status_code==403,denied.text
-        assert "riservata all'amministratore" in denied.text
+        # Non simulare il ruolo con monkeypatch: entra con un vero account
+        # operativo, in una sessione indipendente dall'Admin.
+        created=_post(client,"/api/utenti",json={
+            "username":"operatore_test",
+            "password":"Password8!"
+        })
+        assert created.status_code==200,created.text
+        other_client=TestClient(server.app)
+        with other_client:
+            login=_post(other_client,"/api/auth/login",json={
+                "username":"operatore_test","password":"Password8!"
+            })
+            assert login.status_code==200,login.text
+            assert login.json()["role"]=="user"
+            status=other_client.get("/api/auth/status")
+            assert status.status_code==200
+            assert status.json()["role"]=="user"
+            # Utente autorizzato alla lettura del PDF.
+            readable=other_client.get(
+                f"/api/bandi/26-02/valutazioni/{record['id']}/documento"
+            )
+            assert readable.status_code==200
+            assert readable.content==document
+            # La chiamata diretta al POST manuale è comunque proibita.
+            denied=_post(other_client,
+                f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+                json=payload)
+            assert denied.status_code==403,denied.text
+            assert "riservata all'amministratore" in denied.text
+            assert other_client.get("/api/utenti").status_code==403
         with server.connect() as db:
             row=db.execute(
                 "SELECT stato,totale_calcolato FROM valutazioni_pdf WHERE id=?",
@@ -597,7 +608,6 @@ def test_only_admin_can_manually_acquire_a_pdf(tmp_path, monkeypatch):
             ).fetchone()
             assert row["stato"]=="Da verificare"
             assert row["totale_calcolato"] is None
-        monkeypatch.setattr(server.AUTH,"role",original_role)
         assert client.get("/api/auth/status").json()["role"]=="admin"
         approved=_post(client,
             f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
