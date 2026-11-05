@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pica import MAX_FILE_BYTES, parse_pica
+from commissioni import MAX_COMMISSION_FILE, parse_commissioni
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -86,6 +87,19 @@ def initialize() -> None:
             source_json TEXT NOT NULL,
             UNIQUE(bando_id, incarico_id, id_pica)
         );
+        CREATE TABLE IF NOT EXISTS commissioni (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            cds TEXT NOT NULL,
+            sede TEXT NOT NULL,
+            presidente TEXT NOT NULL,
+            componenti TEXT NOT NULL,
+            requisiti TEXT,
+            anno TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(bando_id, cds, sede)
+        );
+        CREATE INDEX IF NOT EXISTS ix_comm_bando ON commissioni(bando_id);
         CREATE INDEX IF NOT EXISTS ix_inc_bando ON incarichi(bando_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
         """)
@@ -274,3 +288,50 @@ def commit_pica(body: CommitRequest):
     metadata_path.unlink(missing_ok=True)
     source_path.unlink(missing_ok=True)
     return {"ok": True, "codice_bando": code, "riepilogo": parsed["summary"]}
+
+
+@app.get("/api/bandi/{code}/commissioni")
+def list_commissioni(code: str):
+    code = valid_code(code)
+    with connect() as db:
+        rows = db.execute("""
+            SELECT cm.cds, cm.sede, cm.presidente, cm.componenti, cm.anno
+            FROM commissioni cm JOIN bandi b ON cm.bando_id=b.id
+            WHERE b.codice=? ORDER BY cm.cds COLLATE NOCASE, cm.sede COLLATE NOCASE
+        """, (code,)).fetchall()
+    return {"commissioni": [dict(x) for x in rows]}
+
+
+@app.post("/api/bandi/{code}/commissioni/import")
+async def import_commissioni(code: str, file: UploadFile = File(...)):
+    code = valid_code(code)
+    filename = (file.filename or "").split("/")[-1].split("\\")[-1]
+    content = await file.read(MAX_COMMISSION_FILE + 1)
+    try:
+        parsed = parse_commissioni(filename, content, code)
+    except ValueError as error:
+        fail(str(error))
+    except Exception:
+        fail("Impossibile leggere l'Excel delle commissioni")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if b is None:
+            db.rollback()
+            fail("Bando non trovato", 404)
+        exists = db.execute("SELECT 1 FROM commissioni WHERE bando_id=? LIMIT 1", (b["id"],)).fetchone()
+        if exists:
+            db.rollback()
+            fail("Commissioni già importate: la modifica guidata sarà disponibile in una fase successiva", 409)
+        for row in parsed["rows"]:
+            db.execute("""
+              INSERT INTO commissioni(bando_id,cds,sede,presidente,componenti,requisiti,anno,updated_at)
+              VALUES(?,?,?,?,?,?,?,?)
+            """, (b["id"],row["cds"],row["sede"],row["presidente"],row["componenti"],
+                  row["requisiti"],row["anno"],now))
+        db.commit()
+    destination=SOURCES / code
+    destination.mkdir(parents=True,exist_ok=True)
+    (destination / "commissioni_originali.xlsx").write_bytes(content)
+    return {"ok":True,"commissioni":parsed["numero_sedi"],"cds":parsed["numero_cds"]}
