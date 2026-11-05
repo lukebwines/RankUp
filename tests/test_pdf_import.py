@@ -90,7 +90,7 @@ def test_preview_does_not_update_database_and_confirm_preserves_anomalies(tmp_pa
         originals=list(sheets.values())
         ordinary=[doc for doc in originals if "P19" not in PdfReader(BytesIO(doc)).get_fields()]
         assert len(ordinary)==2
-        regular=_edit(ordinary[0],{"P01":"2","TOT":"2"})
+        regular=_edit(ordinary[0],{"P01":"2","TOT":"2","STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
         anomalous=ordinary[1]  # Tutti zero senza esito e nota
         result=_preview(client,[("regolare.pdf",regular),("incompleta.pdf",anomalous)])
         assert result["riepilogo"]["regolare"]==1, result["schede"]
@@ -127,11 +127,11 @@ def test_total_mismatch_requires_corrected_pdf(tmp_path,monkeypatch):
     with client:
         ordinary=next(data for data in sheets.values()
                       if "P19" not in PdfReader(BytesIO(data)).get_fields())
-        wrong=_edit(ordinary,{"P01":"2","TOT":"0"})
+        wrong=_edit(ordinary,{"P01":"2","TOT":"0","STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
         result=_preview(client,[("errata.pdf",wrong)])
         assert result["riepilogo"]["da_verificare"]==1
         assert "Totale PDF non aggiornato" in result["schede"][0]["motivo"]
-        proper=_edit(ordinary,{"P01":"2","TOT":"2"})
+        proper=_edit(ordinary,{"P01":"2","TOT":"2","STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
         corrected=_preview(client,[("corretta.pdf",proper)])
         assert corrected["riepilogo"]["regolare"]==1
         assert corrected["schede"][0]["punteggio"]==2
@@ -143,7 +143,7 @@ def test_professional_activity_values_are_numeric_without_tracking_labels(tmp_pa
         pdf=next(data for data in sheets.values()
                  if "P19" in PdfReader(BytesIO(data)).get_fields())
         updated=_edit(pdf,{"attivita0":"1.5","plus0":"0.5",
-                           "extraField0":"2","TOT":"2"})
+                           "extraField0":"2","TOT":"2","STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
         result=_preview(client,[("professional.pdf",updated)])
         assert result["riepilogo"]["regolare"]==1
         assert result["schede"][0]["punteggio"]==2
@@ -155,10 +155,10 @@ def test_revision_requires_explicit_consent_and_preserves_old_version(tmp_path,m
     with client:
         ordinary=next(data for data in sheets.values()
                       if "P19" not in PdfReader(BytesIO(data)).get_fields())
-        initial=_edit(ordinary,{"P01":"2","TOT":"2"})
+        initial=_edit(ordinary,{"P01":"2","TOT":"2","STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
         first=_preview(client,[("prima.pdf",initial)])
         _confirm(client,first["token"])
-        new=_edit(ordinary,{"P02":"2","TOT":"2"})
+        new=_edit(ordinary,{"P02":"2","TOT":"2","STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
         correction=_preview(client,[("nuova.pdf",new)])
         assert correction["riepilogo"]["rettifica"]==1
         _confirm(client,correction["token"],expected=409)
