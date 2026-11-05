@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from pica import MAX_FILE_BYTES, parse_pica
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni
+from commission_match import commission_index, resolve_commission
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
@@ -777,22 +778,19 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
                       THEN NULL
                       WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
                       ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd,
-                 cm.presidente,cm.componenti,cm.anno,cm.requisiti
           FROM candidature c
           JOIN incarichi i ON i.id=c.incarico_id
           JOIN bandi b ON b.id=c.bando_id
           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
-          LEFT JOIN commissioni cm ON cm.id=(
-              SELECT cm2.id FROM commissioni cm2
-              WHERE cm2.bando_id=b.id
-                AND LOWER(TRIM(cm2.cds))=LOWER(TRIM(i.cds))
-              ORDER BY cm2.id LIMIT 1
-          )
           WHERE """+" AND ".join(conditions)+"""
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                    i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
                    c.cognome COLLATE NOCASE,c.nome COLLATE NOCASE
         """,params).fetchall()
+        commission_rows = db.execute("""
+            SELECT cds,sede,presidente,componenti,anno,requisiti
+            FROM commissioni WHERE bando_id=?
+        """, (bando["id"],)).fetchall()
     if not rows:
         fail("Nessuna candidatura attiva trovata per la selezione")
     if len(rows)>5000:
@@ -800,13 +798,40 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
     unclassified=sorted({r["ssd"] or "(SSD mancante)" for r in rows if not r["tipo_ssd"]})
     if unclassified:
         fail("SSD non identificato nel PICA; verificare l'incarico prima della generazione: "+", ".join(unclassified[:20]))
-    without_commission=sorted({r["cds"]+" / "+r["sede"] for r in rows if not r["presidente"]})
-    if without_commission:
-        fail("Commissioni non associate per: "+", ".join(without_commission[:12]))
+    # Il file PICA usa spesso la denominazione estesa "(ABILITANTE ...)".
+    # Usare soltanto il nome canonico CdS + sede. Non applicare somiglianze
+    # parziali e non ereditare una commissione da un'altra sede.
+    index = commission_index(commission_rows)
+    associated = []
+    missing = set()
+    ambiguous = set()
+    for row in rows:
+        status, commission = resolve_commission(index, row["cds"], row["sede"])
+        if status != "associata" or not commission or not commission.get("presidente"):
+            label = row["cds"] + " / " + row["sede"]
+            (ambiguous if status == "ambigua" else missing).add(label)
+            continue
+        record = dict(row)
+        record.update({
+            "presidente": commission["presidente"],
+            "componenti": commission["componenti"],
+            "anno": commission["anno"],
+            "requisiti": commission["requisiti"],
+        })
+        associated.append(record)
+    if missing or ambiguous:
+        messages = []
+        if missing:
+            messages.append("Commissioni assenti o non corrispondenti per CdS/sede: " +
+                            "; ".join(sorted(missing)[:15]))
+        if ambiguous:
+            messages.append("Commissioni con associazione ambigua: " +
+                            "; ".join(sorted(ambiguous)[:15]))
+        fail(" | ".join(messages))
     buffer=BytesIO()
     with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,
                          compresslevel=6) as archive:
-        for row in rows:
+        for row in associated:
             record=dict(row)
             record["bando"]=code
             record["scheda_id"]="RU-"+code+"-"+record["id_pica"]+"-"+record["key"][:10]
