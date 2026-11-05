@@ -76,3 +76,16 @@ Il recupero e le verifiche vanno collaudati sull'installazione HAOS prima di uti
 Per ciascun SSD effettivamente identificato, RankUp presenta e usa automaticamente il modello non professionalizzante. **Non bisogna premere Salva né inserire un riferimento** per lasciare questa scelta. Se un SSD è professionalizzante, cambiare il menu della riga su Professionalizzante: RankUp registra immediatamente la selezione e la mantiene al riavvio. Per ripristinare il modello ordinario basta selezionarlo nuovamente. Le scelte manuali hanno effetto sui bandi che condividono lo stesso SSD.
 
 La classificazione non viene dichiarata come fatto accademico ufficiale: è una scelta dell'operatore per individuare il modello PDF da applicare. Gli incarichi con SSD non determinato (`NN` o vuoto) rimangono bloccati e vanno verificati individualmente.
+
+## Scheda professionalizzante A4 — v0.4.2
+
+1. Aggiornare il componente, verificare che in basso nell'interfaccia compaia **0.4.2**.
+2. Nel bando, aprire **Schede PDF** e generare lo ZIP di **un solo CdS** con incarichi professionalizzanti.
+3. Aprire la scheda con **Adobe Acrobat Reader** o un altro visualizzatore che esegua gli script dei moduli PDF.
+4. Verificare la struttura **su una pagina** e le sei aree: titoli e aggiornamento (15), attività professionale (10), attività didattica (15), attività scientifica (7), questionario studenti (3), esperienze e competenze (10).
+5. Provare i due menu per una delle cinque annualità, controllare il subtotale annuale e il totale, salvare e riaprire. Confermare che esito e note rimangano modificabili.
+6. Controllare la corrispondenza dei dati anagrafici, requisiti e commissione con le fonti del bando. Non confermare dati **[DA VERIFICARE]** senza la relativa fonte ufficiale.
+
+Gli anni 2025-2021 sono previsti **solo** per l'A.A. 2026-2027 perché presenti nel modello fornito. Per altri periodi è necessario acquisire il modello di riferimento e riconfigurare il quinquennio. Il PDF restituito è ancora un facsimile tecnico: il layout e le regole di conteggio devono essere validati prima dell'uso amministrativo. La firma digitale e la protocollazione avvengono successivamente, all'esterno di RankUp.
+
+L'esportazione ZIP produce nuovi PDF: **i file scaricati prima della 0.4.2 non vengono cancellati dal computer**. Sostituirli manualmente e usare soltanto la versione corretta. I template ufficiali editabili caricabili senza modifiche al codice restano una funzione da implementare.
