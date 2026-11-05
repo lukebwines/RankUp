@@ -131,3 +131,8 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [ ] Collaudo interattivo su Home Assistant OS e con schede realmente compilate.
 - [ ] Produzione graduatorie e verbali a partire dalle sole valutazioni con esito idoneo/concluso, previa verifica dei criteri ufficiali.
 - [ ] Anagrafica annuale delle commissioni con importazione indipendente dai singoli bandi.
+
+- [x] v0.7.1: Riclassifica tracciata delle acquisizioni storiche prive di decisione, totale preservato e visualizzato come non convalidato.
+- [x] v0.7.1: Protezione contro l'inserimento manuale di idoneità/esclusioni senza esito né nota sul PDF editabile.
+- [x] v0.7.1: Test di migrazione idempotente (caso sintetico 15 punti senza esito), 25 test automatici superati.
+- [ ] Collaudo su dati già presenti in Home Assistant dopo backup.
