@@ -27,6 +27,7 @@ from pica import MAX_FILE_BYTES, parse_pica
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
+from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -124,6 +125,24 @@ def initialize() -> None:
             corretto_il TEXT NOT NULL,
             UNIQUE(bando_id,key_incarico)
         );
+        CREATE TABLE IF NOT EXISTS incarichi_metadata_migrations (
+            bando_id INTEGER PRIMARY KEY REFERENCES bandi(id) ON DELETE CASCADE,
+            source_sha256 TEXT NOT NULL,
+            metodo TEXT NOT NULL,
+            incarichi_verificati INTEGER NOT NULL,
+            incarichi_aggiornati INTEGER NOT NULL,
+            campi_compilati INTEGER NOT NULL,
+            aggiornato_il TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS incarichi_metadata_audit (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            key_incarico TEXT NOT NULL,
+            prima_json TEXT NOT NULL,
+            dopo_json TEXT NOT NULL,
+            aggiornato_il TEXT NOT NULL,
+            UNIQUE(bando_id, key_incarico)
+        );
         CREATE INDEX IF NOT EXISTS ix_comm_bando ON commissioni(bando_id);
         CREATE INDEX IF NOT EXISTS ix_inc_bando ON incarichi(bando_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
@@ -131,6 +150,10 @@ def initialize() -> None:
         columns = {row["name"] for row in db.execute("PRAGMA table_info(incarichi)")}
         if "ssd" not in columns:
             db.execute("ALTER TABLE incarichi ADD COLUMN ssd TEXT NOT NULL DEFAULT ''")
+        for field in EXTRA_DB_FIELDS:
+            if field not in columns:
+                db.execute("ALTER TABLE incarichi ADD COLUMN " + field +
+                           " TEXT NOT NULL DEFAULT ''")
 
 
 def backfill_ssd_from_saved_pica() -> None:
