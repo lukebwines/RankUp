@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.7.1 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.7.2 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -126,3 +126,11 @@ Nelle versioni precedenti alcuni PDF con punteggio numerico valido ma senza esit
 Lo **Storico delle schede** mostra comunque il punteggio originariamente memorizzato con l'avvertenza `(storico, da convalidare)`, anziché nasconderlo per l'esito assente. Una scheda con 15 punti e campo esito `-- Seleziona --` non viene interpretata come idoneità: è necessario che la commissione esprima la propria decisione. L'acquisizione manuale di un PDF editabile con esito e nota entrambi vuoti viene bloccata; occorre ricevere una scheda o un documento della commissione effettivamente completo.
 
 Collaudo CI con caso sintetico di 15 punti senza esito: 25 test superati. **Eseguire backup prima di installare la 0.7.1** e verificare il riesame sul sistema Home Assistant.
+
+### RankUp 0.7.2 — Acquisizione manuale riservata all'Admin
+
+L'azione `Acquisisci manualmente` è disponibile soltanto per la sessione avente ruolo `admin`. Il server verifica il ruolo autenticato prima di accettare qualunque trascrizione o modifica: una chiamata HTTP diretta di un utente con ruolo diverso riceve `403` e non altera il database. L'interfaccia non presenta il pulsante agli utenti non amministratori. Il ruolo è fornito dall'endpoint autenticazione, non dal client.
+
+**Stato dei ruoli:** attualmente RankUp ha un unico account (l'amministratore configurato da Home Assistant); la gestione degli ulteriori utenti non è ancora implementata. Le verifiche di ruolo permetteranno di mantenere questa limitazione quando saranno introdotti altri profili. Consultare le valutazioni e i PDF non equivale ad avere il diritto di acquisirli manualmente.
+
+Questa versione include inoltre il riepilogo dei punti provvisori nei PDF con esito mancante (senza considerarli idonei) e la riclassificazione delle vecchie acquisizioni prive di decisione. Fare un backup prima dell'aggiornamento e collaudare in HAOS.
