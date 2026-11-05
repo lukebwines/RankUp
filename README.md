@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.6.0 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.6.1 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -94,3 +94,5 @@ La prima fase non registra punteggi nel database: i PDF restano in una sessione 
 Il prospetto per CdS/sede considera soltanto le candidature attive. Il logo RankUp è visibile in Dashboard, con favicon e icone SVG locali per la navigazione. Il tema scuro è selezionabile in alto e ricordato dal browser. Nel pannello Home Assistant è utilizzata l'icona del podio.
 
 **Stato sperimentale:** collaudare su Raspberry/HAOS, verificare i PDF compilati e salvati in Adobe Acrobat Reader ed eseguire un backup prima dell'aggiornamento. La generazione di verbali e graduatorie resta una fase successiva.
+
+**Aggiornamento 0.6.1:** aggiunto il download autenticato degli originali PDF anche per le schede da verificare. Sono parte dello storico e rimangono disponibili per un controllo o per richiedere una nuova scheda alla commissione.
