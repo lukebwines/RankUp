@@ -187,7 +187,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""}};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},role:null};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -219,12 +219,14 @@
         return data;
       };
       function showLogin(message){
+        state.role=null;
         $("app-layout").style.display="none";
         $("auth-screen").style.display="grid";
         $("login-error").textContent=message||"";
         $("login-pass").value="";
       }
-      async function authenticatedBoot(){
+      async function authenticatedBoot(role){
+        state.role=role==="admin"?"admin":"user";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -238,7 +240,7 @@
             showLogin("L'amministratore non è configurato. Imposta username e password nella scheda Configurazione dell'add-on e riavvialo.");
             $("login-submit").disabled=true;
           }else if(status.authenticated){
-            await authenticatedBoot();
+            await authenticatedBoot(status.role);
           }else{
             showLogin("");
           }
@@ -249,10 +251,10 @@
         var button=$("login-submit");
         button.disabled=true;$("login-error").textContent="";
         try{
-          await api("auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
+          var login=await api("auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({username:$("login-user").value,password:$("login-pass").value})});
           $("login-pass").value="";
-          await authenticatedBoot();
+          await authenticatedBoot(login.role);
         }catch(error){showLogin(error.message);}
         finally{button.disabled=false;}
       };
@@ -746,7 +748,9 @@
                     '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
                     '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
                     (r.stato==="Da verificare"?(r.manuale_possibile?
-                    '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>':
+                    (state.role==="admin"?
+                      '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>':
+                      '<span class="caption">Acquisizione manuale riservata all’amministratore</span>'):
                     '<span class="caption">Esito della commissione mancante: richiedere scheda completata</span>'):'')+
                     '</div></td></tr>';
                 }).join('')+'</tbody></table></div></details>';
@@ -793,6 +797,10 @@
       }
 
       async function renderManualEvaluation(code, record, manualScope){
+        if(state.role!=="admin"){
+          note("Acquisizione manuale riservata all'amministratore",true);
+          return;
+        }
         var holder=$("manual-eval-panel");
         if(!holder)return;
         var filter=manualScope||state.valFilter;
