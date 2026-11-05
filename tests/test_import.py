@@ -45,13 +45,13 @@ def pica_fixture():
     return make_excel([
         ["univr 26-02 - Esportazione dati"],
         columns + extra_columns,
-        [1001, "presentata", "CDS DEMO", "SEDE A",
+        [1001, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno",
          "CODICEFISCALE", "SSD-A", ""] + extra_a,
-        [1001, "presentata", "CDS DEMO", "SEDE A",
+        [1001, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno",
          "CODICEFISCALE", "MEDS-24/C", ""] + extra_b,
-        [1002, "presentata", "CDS DEMO", "SEDE A",
+        [1002, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due",
          "CODICEFISCALE2", "SSD-A", "SSD-PERSONALE"] + extra_a,
     ])
