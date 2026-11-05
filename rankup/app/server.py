@@ -116,6 +116,22 @@ def initialize() -> None:
             quando TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS ix_comm_eventi_bando ON commissioni_eventi(bando_id);
+        CREATE TABLE IF NOT EXISTS bandi_riferimenti (
+            bando_id INTEGER PRIMARY KEY REFERENCES bandi(id) ON DELETE CASCADE,
+            repertorio TEXT NOT NULL DEFAULT '',
+            protocollo TEXT NOT NULL DEFAULT '',
+            data_avviso TEXT NOT NULL DEFAULT '',
+            anno_accademico TEXT NOT NULL DEFAULT '',
+            aggiornato_il TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bandi_riferimenti_eventi (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            prima_json TEXT NOT NULL,
+            dopo_json TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS ssd_classificazioni (
             ssd TEXT PRIMARY KEY,
             tipo TEXT NOT NULL CHECK(tipo IN ('professionalizzante','ordinario')),
