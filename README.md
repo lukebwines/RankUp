@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.6.4 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.7.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -106,3 +106,15 @@ Il PDF di ciascuna candidatura ora include nel nome **ID PICA, cognome e nome**,
 Il caricamento di un archivio ZIP non deve confondere il numero di PDF effettivamente presenti con il numero di candidature attive PICA. L'anteprima mostra tre conteggi distinti: **PDF trovati**, **PDF analizzati**, **PDF classificati** (somma di regolari, rettifiche, da verificare e duplicati). In presenza di un'incongruenza disabilita la conferma. La sezione di avanzamento CdS/sede continua a mostrare separatamente le sole candidature attive attese.
 La verifica sull'archivio ricevuto per Osteopatia / Verona ha individuato 21 file PDF distinti, tutti editabili, con punteggio iniziale zero, esito non selezionato e note vuote: senza valutazione della commissione devono risultare «Da verificare» e non essere acquisiti con punteggio zero.
 Test sintetico con ZIP contenente 21 PDF: controllo automatico superato. Rimane da verificare il dato «15» visualizzato sul sistema Home Assistant, che potrebbe riferirsi a un contatore diverso.
+
+### RankUp 0.7.0 — Valutazioni separate per CdS e recupero manuale
+
+**Valutazioni** è organizzata per CdS e sede: i menu in alto consentono di scegliere un corso e una sede, mentre l'avanzamento e lo storico PDF mostrano solo le schede del filtro selezionato. Ogni riga CdS/sede nel prospetto apre il relativo dettaglio. La vista complessiva raggruppa lo storico per CdS/sede e mantiene visibili anche le schede senza candidatura associata. Se si carica un PDF riconosciuto per un CdS diverso da quello selezionato, l'importazione viene bloccata e non lo scarta silenziosamente.
+
+Le schede vengono distinte in **idoneo**, **non idoneo** ed **escluso** solo sulla base dell'esito espresso dalla commissione. Le decisioni negative sono acquisibili automaticamente quando la scheda contiene un esito ammesso e una nota motivazionale: il punteggio resta `NULL`, non viene assegnato uno zero artificiale e la candidatura risulta conclusa. Per gli idonei occorre un esito esplicito e un punteggio verificabile.
+
+Dallo **Storico delle schede** è disponibile il comando **Acquisisci manualmente** soltanto per i PDF `Da verificare`. È possibile trascrivere il punteggio per gli idonei o l'esito con la motivazione della commissione per non idonei ed esclusi. La trascrizione richiede l'identificazione della candidatura PICA, la motivazione tecnica, l'attestazione dell'operatore di aver verificato il PDF, la conferma esplicita e il PDF originale integro. Le rettifiche richiedono una conferma aggiuntiva e conservano il precedente valore; le variazioni manuali vengono registrate in `valutazioni_pdf_eventi`. Se un PDF non è riconosciuto automaticamente, l'operatore deve selezionare esplicitamente CdS/sede e candidato PICA, senza deduzioni dal nome del file.
+
+Gli ZIP generati da Finder (macOS) possono contenere `__MACOSX` e `.DS_Store`: sono riconosciuti come metadati e ignorati, mentre il caricamento continua a richiedere tutti i PDF effettivi.
+
+**Protezione dei dati:** l'aggiornamento usa una migrazione SQLite non distruttiva e non sovrascrive i PDF originali. Le valutazioni precedenti prive di un esito esplicito non vengono considerate idonee in via presuntiva. Eseguire un backup dell'add-on prima dell'aggiornamento. La suite automatica supera 24 test, ma resta necessario il collaudo in Home Assistant con PDF reali e la validazione amministrativa dei modelli.
