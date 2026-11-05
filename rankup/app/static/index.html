@@ -278,9 +278,11 @@
       function cards(){
         var candidates=state.bandi.reduce(function(n,b){return n+b.candidature;},0);
         var jobs=state.bandi.reduce(function(n,b){return n+b.incarichi;},0);
+        var evaluations=state.bandi.reduce(function(n,b){return n+(b.valutazioni_acquisite||0);},0);
         return '<div class="grid">'+
-          [[''+state.bandi.length,'Bandi importati'],[''+candidates,'Candidature PICA'],[''+jobs,'Incarichi individuati'],['—','Valutazioni (fase successiva)']].map(function(c){
-            return '<div class="card kpi"><strong>'+esc(c[0])+'</strong><span>'+esc(c[1])+'</span></div>';
+          [[''+state.bandi.length,'Bandi importati'],[''+candidates,'Candidature PICA'],[''+jobs,'Incarichi individuati'],[''+evaluations,'Valutazioni acquisite']].map(function(c,i){
+            var icons=['ri-folders','ri-users','ri-book','ri-clipboard'];
+            return '<div class="card kpi"><svg class="navicon" aria-hidden="true" style="color:#397fb9;margin-bottom:10px"><use href="#'+icons[i]+'"></use></svg><strong>'+esc(c[0])+'</strong><span>'+esc(c[1])+'</span></div>';
           }).join('')+'</div>';
       }
       function row(b){
@@ -293,8 +295,8 @@
           (state.bandi.length?state.bandi.map(row).join(''):'<div class="empty"><strong>Non ci sono ancora bandi</strong>Importa un file PICA per creare la prima procedura.</div>')+
           '<button class="btn" id="dash-import">Importa candidature PICA</button></div>'+
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
-          ['Importazione PICA e incarichi','Commissioni e schede PDF (prossima fase)','Valutazione e restituzione schede','Verbali per CdS','Graduatoria generale e approvazione'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
-          '</div><p class="caption">Le funzioni indicate come prossima fase non sono ancora operative.</p></div></div>');
+          ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
+          '</div><p class="caption">Verbali e graduatorie saranno introdotti nelle fasi successive.</p></div></div>');
         $("dash-import").onclick=function(){go("bandi");};bindBandButtons();
       }
       function go(page){state.page=page;clearNote();render();}
