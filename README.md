@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.4.2 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.4.3 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -54,3 +54,10 @@ Il generatore per gli SSD professionalizzanti usa ora un layout A4 ricostruito *
 Per l'A.A. **2026-2027** si utilizzano i cinque anni 2025-2021 risultanti dal modello fornito. Per anni accademici diversi, in assenza di un modello approvato, gli anni riportano **[DA VER.]**. I requisiti sono letti dal file delle commissioni; se non acquisiti, il PDF indica **[DA VERIFICARE]**. Non vengono mai introdotti estremi di bando/protocollo o nominativi dall'esempio compilato.
 
 Le schede generate prima dell'aggiornamento devono essere **rigenerate**. Il calcolo interattivo va provato in un lettore che supporta JavaScript PDF (es. Adobe Acrobat), perché alcuni visualizzatori non eseguono le formule. Rimane un **facsimile tecnico da validare** prima dell'invio alle commissioni. La scheda ordinaria non è stata modificata.
+
+### Scheda non professionalizzante, inclusi gli SSD NN (v0.4.3)
+La scheda ordinaria è stata ricostruita su **una sola pagina A4** usando come riferimento il modello PDF non professionalizzante fornito. Mantiene le sei aree e i relativi massimali **15 + 10 + 15 + 10 + 3 + 7 = 60**, la tabella verde e azzurra, i campi punteggio `P01`-`P15` inizializzati a zero, un unico punteggio `P13` per le cinque tipologie di pubblicazioni, esito, note e commissione. Requisiti mancanti: **[DA VERIFICARE]**. Le firme vengono apposte fuori da RankUp.
+
+**NN** è mantenuto nel dato originale PICA ma utilizza **automaticamente il modello non professionalizzante**, senza intervento dell'operatore. Il menu di selezione è disabilitato per NN per impedire un'attribuzione professionalizzante impropria. La decisione non modifica il valore dell'SSD né altre candidature. I campi effettivamente vuoti o gli altri codici non determinati restano da verificare.
+
+I PDF già scaricati non sono sostituiti automaticamente: **rigenerare lo ZIP** dopo l'aggiornamento. La scheda resta un facsimile tecnico da validare e i totali calcolati via JavaScript richiedono lettori PDF compatibili.
