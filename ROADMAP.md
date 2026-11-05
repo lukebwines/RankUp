@@ -110,3 +110,5 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [ ] Collaudo completo Home Assistant OS e Adobe Acrobat.
 - [ ] Verbali e graduatorie.
 - [ ] Anagrafica annuale commissioni e propagazione manuale per bando.
+
+- [x] 0.6.1: Download dell'originale PDF dal registro delle valutazioni, comprese le anomalie.
