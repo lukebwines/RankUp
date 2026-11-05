@@ -1,7 +1,7 @@
 name: RankUp
 slug: rankup
 description: Gestione candidature e graduatorie per bandi di docenza
-version: "0.4.4"
+version: "0.5.0"
 url: https://github.com/lukebwines/RankUp
 arch:
   - aarch64
