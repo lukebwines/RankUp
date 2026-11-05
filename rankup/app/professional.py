@@ -69,6 +69,20 @@ def _calculations(content: bytes) -> bytes:
         raise ValueError("Campi PDF non generati")
     form = acro.get_object()
     names = {str(ref.get_object().get("/T", "")): ref for ref in form["/Fields"]}
+    # ReportLab serializza le coppie opzione in ordine inverso rispetto
+    # al modello ufficiale: il visualizzatore mostrava "0.5" due volte
+    # invece di "Tutor dedicato" e "Guida/supervisione tirocinio".
+    # Conserviamo il valore esportato numerico per la somma JS e
+    # ripristiniamo l'etichetta leggibile, come nel PDF fornito.
+    for i in range(5):
+        for name, options in ((f"attivita{i}", PRO_ACTIVITY), (f"plus{i}", PRO_PLUS)):
+            choice_field = names[name].get_object()
+            choice_field[NameObject("/Opt")] = ArrayObject([
+                ArrayObject([TextStringObject(number), TextStringObject(label)])
+                for number, label in options
+            ])
+            choice_field[NameObject("/V")] = TextStringObject("0")
+            choice_field[NameObject("/DV")] = TextStringObject("0")
     order = []
     for i in range(5):
         key = f"extraField{i}"
