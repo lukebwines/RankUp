@@ -161,6 +161,10 @@ def make_scheda(record: dict, tipo: str) -> bytes:
     score_names=[]
     def score_row(name,label,allowed):
         nonlocal yy
+        if yy < 65:
+            pdf.showPage()
+            yy = page_h - 75
+            txt(36, yy+22, "VALUTAZIONE - CONTINUAZIONE", 12, True)
         rect(36, yy-5, 523, 25, bg)
         txt(43, yy+4, label,8,False)
         vals=[(str(x),str(x)) for x in allowed]
