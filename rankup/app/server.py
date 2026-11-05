@@ -695,8 +695,10 @@ def elenco_ssd_bando(code: str):
     with connect() as db:
         rows = db.execute("""
            SELECT UPPER(TRIM(i.ssd)) AS ssd,
-                  CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'NN', 'ND', 'N-D', 'NON-INDICATO')
-                       THEN NULL ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo,
+                  CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
+                       THEN NULL
+                       WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
+                       ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo,
                   cl.tipo AS tipo_salvato, cl.riferimento,
                   COUNT(i.id) AS incarichi,
                   COUNT(DISTINCT i.cds) AS cds
@@ -771,8 +773,10 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
         rows=db.execute("""
           SELECT c.id_pica,c.cognome,c.nome,c.codice_fiscale,c.stato,
                  i.key,i.cds,i.sede,i.insegnamento,i.modulo,i.ul,i.ssd,
-                 CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'NN', 'ND', 'N-D', 'NON-INDICATO')
-                      THEN NULL ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd,
+                 CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
+                      THEN NULL
+                      WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
+                      ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd,
                  cm.presidente,cm.componenti,cm.anno,cm.requisiti
           FROM candidature c
           JOIN incarichi i ON i.id=c.incarico_id
