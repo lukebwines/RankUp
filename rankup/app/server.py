@@ -499,6 +499,7 @@ class RiferimentiBando(BaseModel):
     protocollo: str = Field(default="", max_length=90)
     data_avviso: str = Field(default="", max_length=20)
     anno_accademico: str = Field(default="", max_length=20)
+    expected_updated_at: str | None = None
 
 
 @app.get("/api/bandi/{code}/riferimenti")
@@ -520,7 +521,8 @@ def get_riferimenti_bando(code: str):
 def save_riferimenti_bando(code: str, body: RiferimentiBando):
     """Solo dati comunicati dall'operatore, non estratti dagli esempi PDF."""
     code = valid_code(code)
-    values = {k: str(v or "").strip() for k, v in body.model_dump().items()}
+    values = {k: str(v or "").strip() for k, v in body.model_dump().items()
+              if k != "expected_updated_at"}
     data = values["data_avviso"]
     if data:
         try:
@@ -547,6 +549,11 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
           FROM bandi_riferimenti WHERE bando_id=?
         """, (b["id"],)).fetchone()
         previous = dict(current) if current else {key: "" for key in values}
+        version = db.execute("SELECT aggiornato_il FROM bandi_riferimenti WHERE bando_id=?",
+                             (b["id"],)).fetchone()
+        current_time = version["aggiornato_il"] if version else None
+        if current_time != body.expected_updated_at:
+            fail("I riferimenti sono stati modificati: ricarica la pagina", 409)
         if previous != values:
             db.execute("""
               INSERT INTO bandi_riferimenti(bando_id,repertorio,protocollo,data_avviso,
