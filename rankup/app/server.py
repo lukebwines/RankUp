@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from pica import MAX_FILE_BYTES, parse_pica
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni
@@ -133,8 +133,8 @@ async def require_rankup_login(request: Request, call_next):
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=50)
+    password: str = Field(min_length=1, max_length=128)
 
 
 @app.get("/api/auth/status")
