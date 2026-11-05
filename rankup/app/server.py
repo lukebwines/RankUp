@@ -1519,6 +1519,29 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
         shutil.rmtree(processing,ignore_errors=True)
 
 
+@app.get("/api/bandi/{code}/valutazioni/{pdf_id}/documento")
+def download_valutazione_pdf(code: str, pdf_id: int):
+    """Scarica l'originale ricevuto, anche quando è «Da verificare»."""
+    code=valid_code(code)
+    if pdf_id<=0:
+        fail("Identificativo documento non valido")
+    with connect() as db:
+        row=db.execute("""
+            SELECT v.percorso,v.nome_originale FROM valutazioni_pdf v
+            JOIN bandi b ON b.id=v.bando_id
+            WHERE b.codice=? AND v.id=?
+        """,(code,pdf_id)).fetchone()
+    if not row:
+        fail("Documento non trovato",404)
+    base=(SOURCES/code/"schede_restituite").resolve()
+    file=(BASE/row["percorso"]).resolve()
+    if not file.is_relative_to(base) or not file.is_file():
+        fail("Originale PDF non disponibile",404)
+    filename=_safe_filename(Path(row["nome_originale"]).stem,80)+".pdf"
+    return FileResponse(file,media_type="application/pdf",
+                        filename=filename,headers={"Cache-Control":"no-store"})
+
+
 @app.get("/api/bandi/{code}/valutazioni")
 def stato_valutazioni(code: str,cds: str="",sede: str=""):
     code=valid_code(code)
