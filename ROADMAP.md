@@ -38,3 +38,12 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] Migrazione una tantum e audit degli SSD dei bandi precedenti.
 - [x] Segnalare `NN` come SSD non specificato e impedire la classificazione automatica.
 - [ ] Verifica funzionale su Home Assistant e conferma dei risultati del bando esistente.
+
+## Milestone v0.4.0 — Anagrafica incarichi
+- [x] Acquisire campi PICA I, K, L, P, Q, R, S, T, U, V, BU.
+- [x] Salvare separatamente codice partizione, descrizione, Peso Copertura e Ore.
+- [x] Preservare date originali e visualizzare date normalizzate.
+- [x] Migrazione una tantum dei bandi esistenti dal PICA originale verificato, senza reimportazioni.
+- [x] Audit delle integrazioni e indicazione dello stato nell'interfaccia Incarichi.
+- [x] Test sintetici per importazione, coerenza campi e migrazione.
+- [ ] Collaudo dell'aggiornamento reale su Home Assistant OS.
