@@ -49,7 +49,7 @@ def _read_rows(filename: str, content: bytes):
         book = load_workbook(BytesIO(content), read_only=True, data_only=True)
         try:
             sheet = book.worksheets[0]
-            if sheet.max_row > MAX_ROWS or sheet.max_column > MAX_COLUMNS:
+            if (sheet.max_row or 0) > MAX_ROWS or (sheet.max_column or 0) > MAX_COLUMNS:
                 raise ValueError("File PICA oltre i limiti di righe o colonne")
             for row in sheet.iter_rows(values_only=True):
                 yield list(row)
