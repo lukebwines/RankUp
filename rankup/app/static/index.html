@@ -369,7 +369,7 @@
         try{
           var result=await api("bandi/"+encodeURIComponent(code)+"/"+page);
           if(state.page!==page||state.active!==code)return;
-          var rows=result[page];if(page==="incarichi"){renderIncarichi(rows,code,result.acquisizione_metadati);return;}if(!rows.length){html((page==="commissioni"?commissionUpload():"")+panel(page,"Nessun dato disponibile."));if(page==="commissioni")bindCommissionUpload();return;}
+          var rows=result[page];if(page==="incarichi"){renderIncarichi(rows,code,result.acquisizione_metadati);return;}if(page==="commissioni"){await renderCommissioni(rows,code);return;}if(!rows.length){html((page==="commissioni"?commissionUpload():"")+panel(page,"Nessun dato disponibile."));if(page==="commissioni")bindCommissionUpload();return;}
           var fields=page==="incarichi"?["cds","sede","insegnamento","modulo","id_copertura","candidature"]:(page==="commissioni"?["cds","sede","presidente","componenti","anno"]:["id_pica","cognome","nome","cds","sede","modulo","stato"]);
           var labels={cds:"Corso di Studio",sede:"Sede",insegnamento:"Insegnamento",modulo:"Modulo",id_copertura:"ID copertura",candidature:"Domande",presidente:"Presidente",componenti:"Componenti",anno:"Anno accademico",id_pica:"ID PICA",cognome:"Cognome",nome:"Nome",stato:"Stato"};
           html((page==="commissioni"?commissionUpload():"")+'<div class="card"><h3 class="section-heading">'+esc(page==="incarichi"?"Incarichi ricavati da PICA":(page==="commissioni"?"Commissioni del bando":"Domande PICA"))+' · Bando '+esc(code)+'</h3>'+
@@ -383,6 +383,147 @@
           }
         }catch(error){note(error.message,true);html('');}
       }
+      async function renderCommissioni(rows,code){
+        var report=await api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni");
+        if(state.page!=="commissioni"||state.active!==code)return;
+        var pairs=report.associazioni||[];
+        var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){return x.item.stato!=="associata";});
+        var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
+          '<div class="notice">'+esc(report.associate)+' su '+esc(report.totale)+' CdS/sedi associati · '+
+          esc(report.mancanti)+' mancanti · '+esc(report.ambigue)+' ambigui.</div>'+
+          (unmatched.length?'<div class="tablebox"><table><thead><tr><th>CdS PICA</th><th>Sede</th><th>Incarichi</th><th>Stato</th><th></th></tr></thead><tbody>'+
+          unmatched.map(function(x){return '<tr><td>'+esc(x.item.cds)+'</td><td>'+esc(x.item.sede)+
+            '</td><td>'+esc(x.item.incarichi)+'</td><td>'+esc(x.item.stato==="ambigua"?"Ambigua":"Commissione da inserire")+
+            '</td><td><button class="btn secondary cm-add-missing" data-pair="'+x.index+'" type="button">Inserisci</button></td></tr>';}).join('')+
+          '</tbody></table></div>':'<p class="caption">Tutti i CdS/sedi presenti nelle candidature sono associati.</p>')+'</div>';
+
+        var upload='<div class="card"><h3 class="section-heading">Importazione massiva delle commissioni · Bando '+esc(code)+'</h3>'+
+          '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">'+
+          '<label for="cm-template-kind">Modello Excel</label><select id="cm-template-kind" style="padding:9px;border:1px solid #bdcddd;border-radius:7px">'+
+          '<option value="cds_sedi">Con CdS e sedi PICA</option><option value="vuoto">Formato vuoto</option>'+
+          '<option value="esistenti">Con commissioni già registrate</option></select>'+
+          '<button class="btn secondary" type="button" id="cm-download-model">Scarica modello Excel</button></div>'+
+          '<label for="commission-file"><strong>Carica Excel compilato (.xlsx)</strong></label>'+
+          '<input type="file" id="commission-file" accept=".xlsx" style="display:block;margin:8px 0 12px">'+
+          '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">'+
+          '<select id="cm-import-mode" aria-label="Modalità importazione" style="padding:9px;border:1px solid #bdcddd;border-radius:7px">'+
+          '<option value="solo_nuove">Aggiungi solo le commissioni mancanti</option>'+
+          '<option value="aggiorna">Aggiorna anche le commissioni già presenti</option></select>'+
+          '<button class="btn" id="commission-import" type="button">Importa commissioni</button></div>'+
+          '<p class="caption">L’importazione non elimina le commissioni assenti dal file. Per modificare quelle presenti devi selezionare esplicitamente Aggiorna. Le modifiche restano nel singolo bando.</p></div>';
+
+        var options=pairs.map(function(p,i){
+          return '<option value="'+i+'">'+esc(p.cds)+' / '+esc(p.sede)+'</option>';
+        }).join("");
+        var editor='<div class="card" id="commission-editor" style="display:none">'+
+          '<h3 class="section-heading" id="cm-editor-title">Nuova commissione</h3>'+
+          '<p class="caption">Le opzioni CdS/sede provengono esclusivamente dagli incarichi PICA del bando attivo. Non inserire componenti o riferimenti non verificati.</p>'+
+          '<form id="cm-manual-form"><label for="cm-pair">CdS e sede</label>'+
+          '<select id="cm-pair" required style="display:block;width:100%;padding:10px;margin:7px 0 12px;border:1px solid #bdcddd;border-radius:8px">'+options+'</select>'+
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">'+
+          '<label>Presidente (obbligatorio)<input id="cm-presidente" required maxlength="250" style="display:block;width:100%;padding:10px;margin-top:5px;border:1px solid #bdcddd;border-radius:8px"></label>'+
+          '<label>Anno accademico<input id="cm-anno" maxlength="30" placeholder="Solo se verificato" style="display:block;width:100%;padding:10px;margin-top:5px;border:1px solid #bdcddd;border-radius:8px"></label></div>'+
+          '<label style="display:block;margin-top:12px">Componenti della commissione<textarea id="cm-componenti" rows="2" maxlength="2000" style="display:block;width:100%;margin-top:5px;border:1px solid #bdcddd;border-radius:8px;padding:10px"></textarea></label>'+
+          '<label style="display:block;margin-top:12px">Requisiti specifici, se presenti nella fonte<textarea id="cm-requisiti" rows="2" maxlength="2000" style="display:block;width:100%;margin-top:5px;border:1px solid #bdcddd;border-radius:8px;padding:10px"></textarea></label>'+
+          '<div style="display:flex;gap:10px;margin-top:14px"><button class="btn" id="cm-save" type="submit">Salva commissione</button>'+
+          '<button class="btn secondary" id="cm-cancel" type="button">Annulla</button></div></form></div>';
+
+        var listing='<div class="card"><h3 class="section-heading">Commissioni del bando · '+esc(code)+'</h3>'+
+          '<p class="caption">'+rows.length+' commissioni registrate. Ogni modifica resta circoscritta a questo bando e richiede la rigenerazione dei PDF interessati.</p>'+
+          '<button class="btn" type="button" id="cm-new" style="margin-bottom:14px">Nuova commissione</button>'+
+          '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Presidente</th><th>Componenti</th><th>Anno accademico</th><th></th></tr></thead><tbody>'+
+          rows.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td><td>'+esc(r.presidente)+
+             '</td><td>'+esc(r.componenti)+'</td><td>'+esc(r.anno)+'</td><td><button type="button" class="btn secondary cm-edit" data-id="'+
+             esc(r.id)+'">Modifica</button></td></tr>';}).join('')+
+          '</tbody></table></div></div>';
+        html(summary+upload+editor+listing);
+
+        var selected=null;
+        function openEditor(row, pairIndex){
+          selected=row||null;
+          var found=-1;
+          if(row){
+            found=pairs.findIndex(function(p){
+              return p.cds_commissione===row.cds && p.sede_commissione===row.sede;
+            });
+          }
+          if(found<0)found=typeof pairIndex==="number"?pairIndex:(unmatched.length?unmatched[0].index:0);
+          $("cm-pair").value=String(found);
+          $("cm-presidente").value=row?row.presidente||"":"";
+          $("cm-componenti").value=row?row.componenti||"":"";
+          $("cm-requisiti").value=row?row.requisiti||"":"";
+          $("cm-anno").value=row?row.anno||"":"";
+          $("cm-editor-title").textContent=row?"Modifica commissione":"Nuova commissione";
+          $("commission-editor").style.display="block";
+          $("commission-editor").scrollIntoView({behavior:"smooth",block:"start"});
+        }
+        $("cm-new").onclick=function(){openEditor(null);};
+        document.querySelectorAll(".cm-add-missing").forEach(function(button){
+          button.onclick=function(){openEditor(null,Number(button.dataset.pair));};
+        });
+        document.querySelectorAll(".cm-edit").forEach(function(button){
+          button.onclick=function(){openEditor(rows.find(function(r){return String(r.id)===button.dataset.id;}));};
+        });
+        $("cm-cancel").onclick=function(){$("commission-editor").style.display="none";selected=null;};
+        $("cm-manual-form").onsubmit=async function(event){
+          event.preventDefault();
+          var pair=pairs[Number($("cm-pair").value)];
+          if(!pair){note("Seleziona il CdS/sede corretto",true);return;}
+          // Mantiene la denominazione importata se la commissione resta nello stesso CdS/sede.
+          var same=selected && pair.cds_commissione===selected.cds && pair.sede_commissione===selected.sede;
+          var payload={
+            cds:same?selected.cds:pair.cds,
+            sede:same?selected.sede:pair.sede,
+            presidente:$("cm-presidente").value.trim(),
+            componenti:$("cm-componenti").value.trim(),
+            requisiti:$("cm-requisiti").value.trim(),
+            anno:$("cm-anno").value.trim()
+          };
+          if(selected)payload.expected_updated_at=selected.updated_at;
+          var button=$("cm-save");button.disabled=true;
+          try{
+            var endpoint="bandi/"+encodeURIComponent(code)+"/commissioni/"+
+                  (selected?selected.id:"manuale");
+            var outcome=await api(endpoint,{method:selected?"PUT":"POST",
+              headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+            note("Commissione salvata. "+(outcome.avviso||"Rigenera le schede PDF interessate."),false);
+            renderList("commissioni");
+          }catch(error){note(error.message,true);button.disabled=false;}
+        };
+        $("cm-download-model").onclick=async function(){
+          var button=this;button.disabled=true;
+          var tipo=$("cm-template-kind").value;
+          try{
+            var response=await fetch("api/bandi/"+encodeURIComponent(code)+
+                "/commissioni/modello?tipo="+encodeURIComponent(tipo),{cache:"no-store"});
+            if(!response.ok)throw new Error((await response.json()).detail||"Errore durante il download");
+            var link=document.createElement("a"),url=URL.createObjectURL(await response.blob());
+            link.href=url;link.download="RankUp_"+code+"_commissioni_"+tipo+".xlsx";
+            document.body.appendChild(link);link.click();link.remove();
+            setTimeout(function(){URL.revokeObjectURL(url);},60000);
+          }catch(err){note(err.message,true);}finally{button.disabled=false;}
+        };
+        $("commission-import").onclick=async function(){
+          var file=$("commission-file").files[0];
+          if(!file){note("Seleziona un Excel delle commissioni (.xlsx)",true);return;}
+          var mode=$("cm-import-mode").value;
+          if(!confirm(mode==="aggiorna"
+              ?"Aggiornare le commissioni già presenti nel bando "+code+"? I campi vuoti dell’Excel non cancelleranno quelli salvati."
+              :"Importare solo le nuove commissioni nel bando "+code+"?"))return;
+          var button=this;button.disabled=true;
+          try{
+            var fd=new FormData();fd.append("file",file);fd.append("mode",mode);
+            var outcome=await api("bandi/"+encodeURIComponent(code)+"/commissioni/import",{
+              method:"POST",body:fd
+            });
+            note("Importate "+outcome.aggiunte+" nuove; aggiornate "+outcome.aggiornate+
+              "; inalterate "+outcome.gia_presenti_o_inalterate+
+              "; righe non compilate omesse "+outcome.righe_da_compilare_omesse+".",false);
+            renderList("commissioni");
+          }catch(err){note(err.message,true);button.disabled=false;}
+        };
+      }
+
       async function renderCommissionMatches(code){
         try{
           var data=await api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni");
