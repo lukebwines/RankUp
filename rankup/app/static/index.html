@@ -371,16 +371,17 @@
           var ordinary=rows.filter(function(item){return item.tipo==="ordinario";}).length;
           var statuses=rows.map(function(item){
             var missing=!item.tipo;
+            var nn=item.ssd==="NN";
             var select='<select class="ssd-type" aria-label="Modello PDF per SSD '+esc(item.ssd)+'"'+
-                (missing?' disabled':'')+'>'+
+                ((missing||nn)?' disabled':'')+'>'+
                 (missing?'<option value="" selected>SSD da verificare</option>':'')+
                 '<option value="ordinario"'+(item.tipo==="ordinario"?' selected':'')+'>Non professionalizzante</option>'+
                 '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?' selected':'')+'>Professionalizzante</option>'+
                 '</select>';
-            var stato=missing?'SSD non specificato':
-                (item.tipo_salvato?'Scelta salvata':'Predefinito');
+            var stato=nn?'NN: modello ordinario predefinito':(missing?'SSD da verificare':
+                (item.tipo_salvato?'Scelta salvata':'Predefinito'));
             return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+
-              esc(!item.ssd?'[SSD mancante]':(item.ssd==="NN"?'NN — SSD non specificato nel PICA':item.ssd))+
+              esc(!item.ssd?'[SSD mancante]':(item.ssd==="NN"?'NN — modello ordinario':item.ssd))+
               '</td><td>'+esc(item.incarichi)+'</td><td>'+select+
               '</td><td><span class="caption">'+esc(stato)+'</span></td></tr>';
           }).join('');
