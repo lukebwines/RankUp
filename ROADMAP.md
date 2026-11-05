@@ -32,3 +32,9 @@
 - [ ] Hardening e verifica conformità ai requisiti dell'Ateneo
 
 Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenco incarichi senza candidature.
+
+## Fix 0.3.1 — SSD PICA
+- [x] Mappare la colonna `ssd` dell'incarico, senza confonderla con il settore dichiarato dal candidato.
+- [x] Migrazione una tantum e audit degli SSD dei bandi precedenti.
+- [x] Segnalare `NN` come SSD non specificato e impedire la classificazione automatica.
+- [ ] Verifica funzionale su Home Assistant e conferma dei risultati del bando esistente.
