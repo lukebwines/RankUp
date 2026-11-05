@@ -104,7 +104,7 @@ def make_commission_template(code: str, current: list[dict] | None = None) -> by
     ws.append(HEADERS)
     for row in (current or []):
         ws.append((
-            row["cds"], row["sede"], row["presidente"],
+            row["cds"], row["sede"], row.get("presidente", ""),
             row.get("componenti", ""), "Bando " + code,
             row.get("requisiti", ""), row.get("anno", ""),
         ))
@@ -124,6 +124,10 @@ def make_commission_template(code: str, current: list[dict] | None = None) -> by
     ws.row_dimensions[1].height = 30
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=7):
         for cell in row:
+            # I testi provenienti da PICA e dall'operatore restano stringhe,
+            # anche se iniziano con '=': non creare formule involontarie.
+            if cell.data_type == "f":
+                cell.data_type = "s"
             cell.font = Font(name="Aptos", size=10)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         for col in (1, 2, 3):
