@@ -55,3 +55,14 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] Supporto nei percorsi API per SSD contenenti `/`.
 - [x] Segnalazione distinta per SSD `NN` o non indicati.
 - [ ] Collaudo del salvataggio sul Raspberry Pi e conferma dell'esito del CI.
+
+## v0.4.2 — Valutazione professionalizzante
+- [x] Modello professionale A4 su una sola pagina (non più due).
+- [x] Riprodotte sei aree e massimali 15/10/15/7/3/10 (60 punti).
+- [x] Menu originali per ruolo e attività integrativa per cinque annualità; subtotal annuale e totale PDF.
+- [x] Requisiti dalla fonte commissioni o **[DA VERIFICARE]**; nessun dato personale del facsimile incorporato.
+- [x] Sezioni note, esito e composizione commissione nella stessa pagina.
+- [x] Test strutturali PDF aggiunti.
+- [ ] Verifica funzionale interattiva in Adobe Acrobat Reader e revisione formale da parte dell'operatore.
+- [ ] Modelli PDF caricabili e versionati, senza intervento sul codice.
+- [ ] Revisione del modello **non professionalizzante** secondo il suo originale ufficiale.
