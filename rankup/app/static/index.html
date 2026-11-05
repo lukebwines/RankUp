@@ -366,30 +366,35 @@
           ]);
           if(state.active!==code||state.page!=="schede")return;
           var rows=data[0].ssd, locations=data[1].cds_sedi||[];
-          var unclassified=rows.filter(function(item){return !item.tipo;}).length;
+          var unresolved=rows.filter(function(item){return !item.tipo;}).length;
+          var professional=rows.filter(function(item){return item.tipo==="professionalizzante";}).length;
+          var ordinary=rows.filter(function(item){return item.tipo==="ordinario";}).length;
           var statuses=rows.map(function(item){
-            var missing=!item.ssd||item.ssd==="NN";
-            var select='<select class="ssd-type" aria-label="Tipologia SSD '+esc(item.ssd)+'"'+(missing?' disabled':'')+'>'+
-
-                '<option value="">Da classificare</option>'+
-                '<option value="ordinario"'+(item.tipo==="ordinario"?" selected":"")+'>Non professionalizzante</option>'+
-                '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?" selected":"")+'>Professionalizzante</option>'+
+            var missing=!item.tipo;
+            var select='<select class="ssd-type" aria-label="Modello PDF per SSD '+esc(item.ssd)+'"'+
+                (missing?' disabled':'')+'>'+
+                (missing?'<option value="" selected>SSD da verificare</option>':'')+
+                '<option value="ordinario"'+(item.tipo==="ordinario"?' selected':'')+'>Non professionalizzante</option>'+
+                '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?' selected':'')+'>Professionalizzante</option>'+
                 '</select>';
-            return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+esc(!item.ssd?"[SSD mancante]":(item.ssd==="NN"?"NN — SSD non specificato nel PICA":item.ssd))+'</td>'+
-              '<td>'+esc(item.incarichi)+'</td><td>'+select+'</td>'+
-              '<td><input class="ssd-reference" aria-label="Fonte per '+esc(item.ssd)+'" placeholder="Riferimento verificato" value="'+esc(item.riferimento||'')+'" style="width:100%;max-width:220px;padding:8px;border:1px solid #c4d2e1;border-radius:7px"></td>'+
-              '<td><button class="btn secondary save-ssd"'+(missing?' disabled':'')+'>Salva</button></td></tr>';
+            var stato=missing?'SSD non specificato':
+                (item.tipo_salvato?'Scelta salvata':'Predefinito');
+            return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+
+              esc(!item.ssd?'[SSD mancante]':(item.ssd==="NN"?'NN — SSD non specificato nel PICA':item.ssd))+
+              '</td><td>'+esc(item.incarichi)+'</td><td>'+select+
+              '</td><td><span class="caption">'+esc(stato)+'</span></td></tr>';
           }).join('');
           var migration=data[0].migrazione;
           var infoMigration=migration&&migration.incarichi_corretti>0?
              '<div class="notice" style="margin-top:10px">Correzione SSD da PICA completata: '+esc(migration.incarichi_corretti)+
              ' incarichi aggiornati su '+esc(migration.incarichi_verificati)+' verificati, senza reimportare le candidature.</div>':'';
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
-          html('<div class="card mb"><h3 class="section-heading">Classificazione SSD · Bando '+esc(code)+'</h3>'+
-            '<p class="muted">La scheda professionalizzante è ammessa esclusivamente per gli SSD classificati come professionalizzanti. Nessuna classificazione è attribuita automaticamente.</p>'+
-            '<div class="notice">'+unclassified+' SSD da classificare su '+rows.length+
-            '. La classificazione sarà riutilizzata negli altri bandi, ma richiede un riferimento documentale verificato.</div>'+infoMigration+
-            '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello</th><th>Fonte classificazione</th><th></th></tr></thead>'+
+          html('<div class="card mb"><h3 class="section-heading">Modelli PDF per SSD · Bando '+esc(code)+'</h3>'+
+            '<p class="muted">Ogni SSD identificato utilizza di default il modello non professionalizzante. Seleziona Professionalizzante soltanto per gli SSD interessati: la modifica viene salvata automaticamente.</p>'+
+            '<div class="notice">'+ordinary+' SSD non professionalizzanti · '+professional+
+            ' professionalizzanti · '+unresolved+' SSD da verificare. Non è necessario salvare le scelte predefinite.</div>'+
+            (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
+            '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
             '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+
             '<p class="caption">Modelli tecnici facsimile. Criteri, massimali e layout devono essere verificati rispetto alle schede ufficiali prima dell’impiego amministrativo.</p>'+
@@ -398,22 +403,26 @@
             '</select><select id="sheet-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutte le sedi</option></select>'+
             '<button class="btn" id="sheet-download">Genera e scarica ZIP</button></div>'+
             '<p class="caption">Per generare un singolo CdS scegli il corso; lasciando tutti i CdS selezionati otterrai lo ZIP completo.</p></div>');
-          document.querySelectorAll(".save-ssd").forEach(function(button){
-            button.onclick=async function(){
-              var tr=button.closest("tr"),sector=tr.dataset.sector;
-              var tipo=tr.querySelector(".ssd-type").value;
-              var riferimento=tr.querySelector(".ssd-reference").value.trim();
-              if(!tipo||riferimento.length<3){note("Seleziona il modello e indica una fonte verificata per l'SSD "+sector,true);return;}
-              button.disabled=true;
+          document.querySelectorAll(".ssd-type").forEach(function(select){
+            select.onchange=async function(){
+              var sector=select.closest("tr").dataset.sector;
+              var oldType=select.dataset.saved||"ordinario";
+              var tipo=select.value;
+              select.disabled=true;
               try{
                 await api("ssd/"+encodeURIComponent(sector)+"/classificazione",{
                   method:"PUT",headers:{"Content-Type":"application/json"},
-                  body:JSON.stringify({tipo:tipo,riferimento:riferimento})
+                  body:JSON.stringify({tipo:tipo})
                 });
-                note("Classificazione salvata per SSD "+sector,false);
-                renderSchede();
-              }catch(error){note(error.message,true);button.disabled=false;}
+                note("Modello per SSD "+sector+" salvato: "+
+                  (tipo==="professionalizzante"?"Professionalizzante":"Non professionalizzante"),false);
+                await renderSchede();
+              }catch(error){
+                select.value=oldType;
+                note("Impossibile salvare SSD "+sector+": "+error.message,true);
+              }finally{select.disabled=false;}
             };
+            select.dataset.saved=select.value;
           });
           $("sheet-cds").onchange=function(){
             var relevant=locations.filter(function(x){return !$("sheet-cds").value||x.cds===$("sheet-cds").value;});
