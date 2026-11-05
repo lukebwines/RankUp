@@ -97,3 +97,16 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] Test sintetici API, persistenza, importazione, audit e produzione PDF aggiunti.
 - [ ] Verifica di GitHub Actions e collaudo manuale su HAOS con database esistente.
 - [ ] Avviso persistente di invalidazione dei PDF già generati dopo variazioni.
+
+## Milestone 0.6.0
+- [x] Anteprima massiva PDF/ZIP e conferma distinta dall'acquisizione.
+- [x] Riconoscimento candidato/assegnazione e controllo modello.
+- [x] Calcolo indipendente e validazione massimali.
+- [x] Conservazione delle schede anomale senza acquisirne i punteggi.
+- [x] Duplicati e nuove versioni con rettifica esplicita.
+- [x] Avanzamento CdS/sede riferito alle sole candidature attive.
+- [x] Icona Dashboard, favicon, icone menu e tema scuro persistente.
+- [x] Test sintetici di importazione e rettifica aggiunti.
+- [ ] Collaudo completo Home Assistant OS e Adobe Acrobat.
+- [ ] Verbali e graduatorie.
+- [ ] Anagrafica annuale commissioni e propagazione manuale per bando.
