@@ -331,8 +331,33 @@
             '<div class="tablebox"><table><thead><tr>'+fields.map(function(k){return '<th>'+esc(labels[k]||k)+'</th>';}).join('')+'</tr></thead><tbody>'+
             rows.map(function(r){return '<tr>'+fields.map(function(k){return '<td>'+esc(r[k])+'</td>';}).join('')+'</tr>';}).join('')+
             '</tbody></table></div></div>');
-          if(page==="commissioni")bindCommissionUpload();
+          if(page==="commissioni"){
+            bindCommissionUpload();
+            renderCommissionMatches(code);
+          }
         }catch(error){note(error.message,true);html('');}
+      }
+      async function renderCommissionMatches(code){
+        try{
+          var data=await api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni");
+          if(state.page!=="commissioni"||state.active!==code)return;
+          var issues=data.associazioni.filter(function(r){return r.stato!=="associata";});
+          var message='<div class="card mb"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
+            '<div class="notice">'+esc(data.associate)+' su '+esc(data.totale)+
+            ' CdS/sedi associati · '+esc(data.mancanti)+' mancanti · '+
+            esc(data.ambigue)+' ambigui. Il confronto riconosce la dicitura PICA (ABILITANTE...), senza confondere sedi diverse.</div>';
+          if(issues.length){
+            message+='<p class="caption">I seguenti CdS/sedi non hanno ancora una corrispondenza certa con l’Excel delle commissioni. Puoi generare nel frattempo le schede dei CdS già associati.</p>'+
+              '<div class="tablebox"><table><thead><tr><th>CdS PICA</th><th>Sede PICA</th><th>Incarichi</th><th>Stato</th></tr></thead><tbody>'+
+              issues.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td>'+
+                '<td>'+esc(r.incarichi)+'</td><td>'+esc(r.stato==="ambigua"?"Associazione ambigua":"Commissione non trovata")+'</td></tr>';}).join('')+
+              '</tbody></table></div>';
+          }else{
+            message+='<p class="caption">Tutte le sedi con incarichi PICA hanno una commissione associata.</p>';
+          }
+          message+='</div>';
+          $("content").insertAdjacentHTML("afterbegin",message);
+        }catch(err){note("Impossibile verificare le associazioni commissioni: "+err.message,true);}
       }
       function commissionUpload(){
         return '<div class="card" style="margin-bottom:16px"><h3 class="section-heading">Importa commissioni · Bando '+esc(state.active)+'</h3>'+
