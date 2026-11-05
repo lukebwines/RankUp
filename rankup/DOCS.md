@@ -164,3 +164,11 @@ Per il caso di prova con 21 PDF vergini di Osteopatia, il conteggio atteso è 21
 **Attenzione:** RankUp non può attestare autonomamente che il testo trascritto coincida con un PDF illeggibile: la verifica documentale è responsabilità dell'operatore. Non usare questa funzione per attribuire punteggi o giudizi non deliberati dalla commissione. Le schede non ancora compilate non devono essere acquisite manualmente. Prima dell'uso amministrativo effettuare backup e collaudo con PDF autentici.
 
 **Mac:** lo ZIP può includere metadati di Finder, ignorati dal lettore. Il contenuto delle schede resta da verificare rispetto al programma usato per compilare il PDF.
+
+## v0.7.1 — Scheda storica con 15 punti ma nessun esito
+
+Caso: lo storico mostra `Acquisita · automatico v1`, ma il PDF originale visualizza il totale e un esito non selezionato. Il precedente importatore poteva registrare un valore prima di richiedere una decisione esplicita della commissione. Aggiornando alla 0.7.1, solo queste acquisizioni storiche incomplete vengono riclassificate automaticamente in `Da verificare`, senza eliminare originali o punteggi. Il totale già salvato resta nello storico come `15 (storico, da convalidare)` se vale effettivamente 15; non viene utilizzato come prova di idoneità. L'evento di compatibilità è registrato e non ripetuto al riavvio.
+
+Il comando di acquisizione manuale deve rifiutare un documento PDF i cui campi sono leggibili e che non contiene né l'esito della commissione né una nota: non è autorizzato a trasformare un punteggio in idoneità. Richiedere alla commissione la scheda completata con l'esito effettivo. La nuova scheda corretta potrà essere caricata e verificata; la precedente rimarrà nello storico.
+
+Prima dell'aggiornamento effettuare un backup dei dati dell'add-on. Dopo la 0.7.1 aprire **Valutazioni → Osteopatia**, verificare lo stato della scheda interessata, il valore storico, il PDF scaricabile e il conteggio delle candidature concluse. Non confermare valutazioni prive dell'esito.
