@@ -233,8 +233,122 @@ def backfill_ssd_from_saved_pica() -> None:
             ))
             db.commit()
 
+
+def backfill_incarichi_metadata() -> None:
+    """Integra una sola volta gli incarichi precedenti dalla fonte PICA verificata.
+
+    Non modifica candidature, chiavi degli incarichi, SSD o campi già
+    valorizzati. Se fonte, record o valori non corrispondono, non interviene.
+    """
+    with connect() as db:
+        bandi = db.execute("""
+            SELECT b.id,b.codice,b.source_hash
+            FROM bandi b
+            LEFT JOIN incarichi_metadata_migrations m ON m.bando_id=b.id
+            WHERE m.bando_id IS NULL
+        """).fetchall()
+
+    for b in bandi:
+        source = None
+        for extension in (".xls", ".xlsx"):
+            candidate = SOURCES / b["codice"] / ("pica_originale" + extension)
+            if candidate.is_file():
+                source = candidate
+                break
+        if source is None:
+            continue
+
+        try:
+            raw = source.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != b["source_hash"]:
+                continue  # File diverso da quello confermato all'importazione.
+            parsed = parse_pica(source.name, raw)
+        except (OSError, ValueError):
+            continue
+        if parsed["code"] != b["codice"]:
+            continue
+
+        expected = {}
+        consistent = True
+        for row in parsed["rows"]:
+            key = row["incarico"]["key"]
+            values = incarico_extra_db(row["incarico"])
+            previous = expected.get(key)
+            if previous is not None and values != previous:
+                consistent = False
+                break
+            expected[key] = values
+        if not consistent or not expected:
+            continue
+
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            exists = db.execute(
+                "SELECT 1 FROM incarichi_metadata_migrations WHERE bando_id=?",
+                (b["id"],)
+            ).fetchone()
+            if exists:
+                db.rollback()
+                continue
+            current = db.execute(
+                "SELECT id,key," + ",".join(EXTRA_DB_FIELDS) +
+                " FROM incarichi WHERE bando_id=?", (b["id"],)
+            ).fetchall()
+            if (len(current) != len(expected)
+                    or any(row["key"] not in expected for row in current)):
+                db.rollback()
+                continue
+
+            # Rifiuta l'intera migrazione se un campo già acquisito differisce
+            # dalla fonte: non sovrascrivere mai integrazioni o rettifiche.
+            incompatible = any(
+                row[field] and row[field] != expected[row["key"]][field]
+                for row in current for field in EXTRA_DB_FIELDS
+            )
+            if incompatible:
+                db.rollback()
+                continue
+
+            changed_items = 0
+            field_count = 0
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            for row in current:
+                before = {field: row[field] for field in EXTRA_DB_FIELDS}
+                target = expected[row["key"]]
+                changes = {field: target[field] for field in EXTRA_DB_FIELDS
+                           if not row[field] and target[field]}
+                if not changes:
+                    continue
+                db.execute(
+                    "UPDATE incarichi SET " +
+                    ", ".join(field + "=?" for field in changes) +
+                    " WHERE id=?", (*changes.values(), row["id"])
+                )
+                after = dict(before)
+                after.update(changes)
+                db.execute("""
+                    INSERT INTO incarichi_metadata_audit
+                    (bando_id,key_incarico,prima_json,dopo_json,aggiornato_il)
+                    VALUES(?,?,?,?,?)
+                """, (b["id"], row["key"],
+                      json.dumps(before, ensure_ascii=False),
+                      json.dumps(after, ensure_ascii=False), now))
+                changed_items += 1
+                field_count += len(changes)
+
+            db.execute("""
+                INSERT INTO incarichi_metadata_migrations
+                (bando_id,source_sha256,metodo,incarichi_verificati,
+                 incarichi_aggiornati,campi_compilati,aggiornato_il)
+                VALUES(?,?,?,?,?,?,?)
+            """, (b["id"], b["source_hash"], "migrazione",
+                  len(current), changed_items, field_count, now))
+            db.commit()
+
+
 initialize()
 backfill_ssd_from_saved_pica()
+backfill_incarichi_metadata()
 app = FastAPI(title="RankUp", version="0.3.1", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
