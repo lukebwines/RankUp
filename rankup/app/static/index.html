@@ -732,9 +732,10 @@
                 ' · '+rows.length+' schede</summary><div class="tablebox"><table><thead><tr>'+
                 '<th>Candidatura</th><th>File</th><th>Stato</th><th>Esito</th><th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
                 rows.map(function(r){
+                  var provisional=r.totale_calcolato==null?r.punteggio_rilevato:r.totale_calcolato;
                   var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
                     (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":
-                     r.totale_calcolato==null?"—":r.totale_calcolato+" (storico, da convalidare)");
+                     provisional==null?"—":provisional+" (da convalidare)");
                   return '<tr><td><div>'+esc(r.id_pica||"Da associare")+'</div>'+
                     '<span class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</span></td>'+
                     '<td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+(r.decisione==="da_verificare" && r.stato==="Acquisita"?
@@ -744,7 +745,9 @@
                     '<td>'+esc(r.stato==="Da verificare"?r.motivo:(r.note||r.motivazione_tecnica||"—"))+'</td>'+
                     '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
                     '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
-                    (r.stato==="Da verificare"?'<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>':'')+
+                    (r.stato==="Da verificare"?(r.manuale_possibile?
+                    '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>':
+                    '<span class="caption">Esito della commissione mancante: richiedere scheda completata</span>'):'')+
                     '</div></td></tr>';
                 }).join('')+'</tbody></table></div></details>';
             }).join('');
@@ -914,7 +917,7 @@
           (data.schede||[]).map(function(item){
             var labels={regolare:"Regolare",rettifica:"Nuova versione",da_verificare:"Da verificare",duplicato:"Duplicato"};
             var score=item.decisione==="non_idoneo"||item.decisione==="escluso"?"Non attribuito":
-              item.punteggio==null?"—":item.punteggio;
+              item.punteggio==null?"—":item.punteggio+(item.decisione==="da_verificare"?" (da convalidare)":"");
             return '<tr><td>'+esc(item.nome_originale)+'<div class="caption">ID PICA: '+esc(item.id_pica||"non identificato")+'</div></td>'+
               '<td>'+esc(item.cds||"—")+' / '+esc(item.sede||"—")+'</td>'+
               '<td><span class="badge '+(item.stato==="regolare"?"":"gray")+'">'+esc(labels[item.stato]||item.stato)+'</span></td>'+
