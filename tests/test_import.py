@@ -1,4 +1,5 @@
 from io import BytesIO
+from urllib.parse import quote
 import json
 import zipfile
 from pypdf import PdfReader
@@ -49,7 +50,7 @@ def pica_fixture():
          "CODICEFISCALE", "SSD-A", ""] + extra_a,
         [1001, "presentata", "CDS DEMO", "SEDE A",
          "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno",
-         "CODICEFISCALE", "SSD-B", ""] + extra_b,
+         "CODICEFISCALE", "MEDS-24/C", ""] + extra_b,
         [1002, "presentata", "CDS DEMO", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due",
          "CODICEFISCALE2", "SSD-A", "SSD-PERSONALE"] + extra_a,
@@ -88,7 +89,7 @@ def test_multiple_assignments_for_same_candidate():
     assert result["rows"][0]["incarico"]["peso_copertura"] == "2"
     assert result["rows"][0]["incarico"]["ore"] == ""
     assert result["rows"][0]["incarico"]["stato_coperture"] == "Nessuna assegnata"
-    assert [x["incarico"]["ssd"] for x in result["rows"]] == ["SSD-A", "SSD-B", "SSD-A"]
+    assert [x["incarico"]["ssd"] for x in result["rows"]] == ["SSD-A", "MEDS-24/C", "SSD-A"]
     assert result["rows"][0]["id_pica"] == result["rows"][1]["id_pica"]
     assert result["rows"][0]["incarico"]["key"] != result["rows"][1]["incarico"]["key"]
 
@@ -166,7 +167,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         assert up.status_code == 200, up.text
         assert len(client.get("/api/bandi/26-02/commissioni").json()["commissioni"]) == 2
         assignments=client.get("/api/bandi/26-02/incarichi").json()["incarichi"]
-        assert sorted(x["ssd"] for x in assignments)==["SSD-A","SSD-B"]
+        assert sorted(x["ssd"] for x in assignments)==["MEDS-24/C","SSD-A"]
         enriched = [x for x in assignments if x["ssd"]=="SSD-A"][0]
         assert enriched["anno_corso"]=="3"
         assert enriched["ciclo"]=="annuale"
@@ -181,13 +182,28 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         acquisition=client.get("/api/bandi/26-02/incarichi").json()["acquisizione_metadati"]
         assert acquisition["metodo"]=="importazione"
         assert acquisition["incarichi_verificati"]==2
-        unclassified=client.get("/api/bandi/26-02/schede/zip")
-        assert unclassified.status_code == 400
-        for sector,typ in [("SSD-A","ordinario"),("SSD-B","professionalizzante")]:
-            res=client.put("/api/ssd/"+sector+"/classificazione",
-                headers={"X-RankUp-Request":"1"},
-                json={"tipo":typ,"riferimento":"Fonte documentale di prova"})
-            assert res.status_code == 200, res.text
+        # I settori identificati sono ordinari per impostazione predefinita.
+        defaults=client.get("/api/bandi/26-02/ssd").json()["ssd"]
+        assert len(defaults)==2
+        assert all(x["tipo"]=="ordinario" and x["tipo_salvato"] is None for x in defaults)
+        pdf_default=client.get("/api/bandi/26-02/schede/zip")
+        assert pdf_default.status_code==200, pdf_default.text
+        with zipfile.ZipFile(BytesIO(pdf_default.content)) as archive:
+            assert all("P19" not in PdfReader(BytesIO(archive.read(name))).get_fields()
+                       for name in archive.namelist())
+
+        # La selezione professionalizzante salva anche SSD con '/' e senza fonte.
+        res=client.put("/api/ssd/"+quote("MEDS-24/C",safe="")+"/classificazione",
+            headers={"X-RankUp-Request":"1"},
+            json={"tipo":"professionalizzante"})
+        assert res.status_code==200, res.text
+        saved=client.get("/api/bandi/26-02/ssd").json()["ssd"]
+        selected=next(x for x in saved if x["ssd"]=="MEDS-24/C")
+        assert selected["tipo"]=="professionalizzante"
+        assert selected["tipo_salvato"]=="professionalizzante"
+        assert selected["riferimento"]==""
+        other=next(x for x in saved if x["ssd"]=="SSD-A")
+        assert other["tipo"]=="ordinario" and other["tipo_salvato"] is None
         exported=client.get("/api/bandi/26-02/schede/zip")
         assert exported.status_code == 200, exported.text
         with zipfile.ZipFile(BytesIO(exported.content)) as archive:
@@ -204,6 +220,15 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                 types.append("P19" in fields)
             assert types.count(True)==1
             assert types.count(False)==2
+        # Un codice PICA 'NN' non viene classificato automaticamente.
+        with server.connect() as db:
+            db.execute("UPDATE incarichi SET ssd='NN' WHERE ssd='SSD-A'")
+        unresolved=client.get("/api/bandi/26-02/ssd").json()["ssd"]
+        assert any(x["ssd"]=="NN" and x["tipo"] is None for x in unresolved)
+        assert client.get("/api/bandi/26-02/schede/zip").status_code==400
+        with server.connect() as db:
+            db.execute("UPDATE incarichi SET ssd='SSD-A' WHERE ssd='NN'")
+
         repeat = client.post("/api/pica/preview",
                              headers={"X-RankUp-Request": "1"},
                              files={"file": ("demo.xlsx", pica_fixture(),
@@ -219,7 +244,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
     with server.connect() as db:
         db.execute("DELETE FROM ssd_import_migrations")
         db.execute("UPDATE incarichi SET ssd='SSD-PERSONALE' WHERE ssd='SSD-A'")
-        db.execute("UPDATE incarichi SET ssd='' WHERE ssd='SSD-B'")
+        db.execute("UPDATE incarichi SET ssd='' WHERE ssd='MEDS-24/C'")
         db.execute("DELETE FROM incarichi_metadata_migrations")
         db.execute("UPDATE incarichi SET " + ", ".join(
             field+"=''" for field in EXTRA_DB_FIELDS
@@ -232,7 +257,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         metadata=db.execute("SELECT * FROM incarichi_metadata_migrations").fetchone()
         meta_audit=db.execute("SELECT COUNT(*) AS n FROM incarichi_metadata_audit").fetchone()
         refreshed=db.execute("SELECT ssd,anno_corso,inizio_pica,inizio_iso,ore FROM incarichi WHERE ssd='SSD-A'").fetchone()
-    assert sectors == ["SSD-A","SSD-B"]
+    assert sectors == ["SSD-A","MEDS-24/C"]
     assert repaired["incarichi_corretti"] == 2
     assert changes["n"] == 2
     assert metadata["metodo"] == "migrazione"
