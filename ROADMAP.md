@@ -143,3 +143,6 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 
 - [x] v0.7.3: Riferimenti dell'avviso trasferiti alla pagina autonoma della procedura attiva; elenco bandi riservato a importazione ed elenco PICA.
 - [x] v0.7.3: Test del menu e dell'isolamento dei riferimenti per codice bando.
+
+- [x] v0.7.4: Ripristinato per Admin il comando `Acquisisci manualmente` in tutte le schede `Da verificare`, incluse quelle con esito assente. Controlli al salvataggio e autorizzazione backend invariati.
+- [x] v0.7.4: Test di regressione per presenza del comando nella vista Admin.
