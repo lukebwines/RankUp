@@ -1847,6 +1847,7 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
             archive_args.append(sede)
         archives=db.execute("""
           SELECT v.id,v.nome_originale,v.stato,v.motivo,v.totale_calcolato,v.versione,
+                 v.percorso,v.sha256,
                  v.confermata_il,v.candidatura_id,v.decisione,v.metodo,v.attiva,
                  v.esito,v.note,v.motivazione_tecnica,
                  c.id_pica,c.cognome,c.nome,i.cds,i.sede,i.insegnamento,i.modulo
@@ -1859,6 +1860,45 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
           SELECT COUNT(*) FROM valutazioni_pdf
           WHERE bando_id=? AND candidatura_id IS NULL AND stato='Da verificare'
         """,(b["id"],)).fetchone()[0]
+        candidates,_=_val_context(db,b["id"])
+    # Calcolo in sola lettura: recupera punteggi provvisori delle schede
+    # archiviate da versioni precedenti, senza modificarle o convalidarle.
+    # Nessun percorso del database viene esposto al client.
+    archivio=[]
+    safe_dir=(SOURCES/code/"schede_restituite").resolve()
+    for source in archives:
+        item=dict(source)
+        original_path=item.pop("percorso","")
+        stored_sha=item.pop("sha256","")
+        item["punteggio_rilevato"]=None
+        item["manuale_possibile"]=False
+        if item["stato"]=="Da verificare":
+            filename=(BASE/original_path).resolve()
+            if filename.is_relative_to(safe_dir) and filename.is_file() and filename.stat().st_size<=MAX_PDF_BYTES:
+                try:
+                    data=filename.read_bytes()
+                    if hashlib.sha256(data).hexdigest()==stored_sha:
+                        fields=PdfReader(BytesIO(data),strict=False).get_fields() or {}
+                        if fields:
+                            selected=str((fields.get("STATUS") or {}).get("/V") or "").strip()
+                            note=str((fields.get("NOTE-COMM") or {}).get("/V") or "").strip()
+                            blank_status=selected.casefold() in ("","-","-- seleziona --","seleziona","--seleziona--")
+                            # Un PDF con punteggio ma senza decisione né note
+                            # non può essere convalidato manualmente.
+                            item["manuale_possibile"]=not(blank_status and not note)
+                        else:
+                            # PDF appiattito: la commissione potrebbe avere
+                            # scritto esito e punteggio come contenuto visivo.
+                            item["manuale_possibile"]=True
+                        if item["totale_calcolato"] is None and fields:
+                            detail=evaluate_pdf(data,code,candidates,{"hashes":set(),"active":{}})
+                            points=detail.get("punteggio")
+                            if (detail.get("candidatura_id")==item["candidatura_id"]
+                                    and points is not None and points>0):
+                                item["punteggio_rilevato"]=points
+                except (ValueError, OSError, TypeError, KeyError):
+                    pass
+        archivio.append(item)
     detail=[dict(row) for row in rows]
     return {
         "cds_sedi":[dict(row,complete=(row["attese"]==row["acquisite"]))
@@ -1869,7 +1909,7 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
         "totale_non_idonee":sum(row["non_idonee"] for row in detail),
         "totale_escluse":sum(row["escluse"] for row in detail),
         "pdf_non_associati":unmatched,
-        "archivio":[dict(r) for r in archives],
+        "archivio":archivio,
     }
 
 
