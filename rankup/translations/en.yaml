@@ -1,0 +1,9 @@
+configuration:
+  admin_username:
+    name: Administrator username
+    description: Administrator account used to sign in to RankUp
+  admin_password:
+    name: Administrator password
+    description: Required password of at least 12 characters for both Ingress and tunnel access
+network:
+  8095/TCP: RankUp HTTP port for Cloudflare Tunnel (disabled by default)
