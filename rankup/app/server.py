@@ -100,13 +100,53 @@ def initialize() -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(bando_id, cds, sede)
         );
+        CREATE TABLE IF NOT EXISTS ssd_classificazioni (
+            ssd TEXT PRIMARY KEY,
+            tipo TEXT NOT NULL CHECK(tipo IN ('professionalizzante','ordinario')),
+            riferimento TEXT NOT NULL,
+            aggiornato_il TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS ix_comm_bando ON commissioni(bando_id);
         CREATE INDEX IF NOT EXISTS ix_inc_bando ON incarichi(bando_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
         """)
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(incarichi)")}
+        if "ssd" not in columns:
+            db.execute("ALTER TABLE incarichi ADD COLUMN ssd TEXT NOT NULL DEFAULT ''")
+
+
+def backfill_ssd_from_saved_pica() -> None:
+    """Aggiorna i bandi gia importati usando solo l'Excel originale salvato."""
+    with connect() as db:
+        candidates = db.execute(
+            "SELECT b.id,b.codice FROM bandi b "
+            "WHERE EXISTS (SELECT 1 FROM incarichi i WHERE i.bando_id=b.id AND i.ssd='')"
+        ).fetchall()
+        for b in candidates:
+            for extension in (".xls", ".xlsx"):
+                source = SOURCES / b["codice"] / ("pica_originale" + extension)
+                if source.is_file():
+                    break
+            else:
+                continue
+            try:
+                parsed = parse_pica(source.name, source.read_bytes())
+            except (ValueError, OSError):
+                continue
+            if parsed["code"] != b["codice"]:
+                continue
+            mapped = {}
+            for item in parsed["rows"]:
+                inc = item["incarico"]
+                if inc.get("ssd"):
+                    mapped[inc["key"]] = inc["ssd"].strip().upper()
+            for key, ssd in mapped.items():
+                db.execute("UPDATE incarichi SET ssd=? WHERE bando_id=? AND key=? "
+                           "AND ssd=''", (ssd, b["id"], key))
 
 
 initialize()
+backfill_ssd_from_saved_pica()
 app = FastAPI(title="RankUp", version="0.2.1", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
@@ -229,11 +269,13 @@ def list_incarichi(code: str):
     with connect() as db:
         rows = db.execute("""
           SELECT i.cds, i.sede, i.insegnamento, i.modulo, i.ul,
-                 i.id_copertura, i.codice_copertura,
+                 i.id_copertura, i.codice_copertura, i.ssd,
+                 cl.tipo AS modello_ssd,
                  COUNT(c.id) AS candidature
           FROM incarichi i
           JOIN bandi b ON b.id=i.bando_id
           LEFT JOIN candidature c ON c.incarico_id=i.id
+          LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
           WHERE b.codice=?
           GROUP BY i.id
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
@@ -323,10 +365,11 @@ def commit_pica(body: CommitRequest):
                 if key not in assignment_ids:
                     cur = db.execute("""
                        INSERT INTO incarichi(bando_id,key,cds,sede,insegnamento,modulo,ul,
-                                            codice_copertura,id_copertura)
-                       VALUES(?,?,?,?,?,?,?,?,?)
+                                            codice_copertura,id_copertura,ssd)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)
                     """, (bando_id, key, item["cds"], item["sede"], item["insegnamento"],
-                          item["modulo"], item["ul"], item["codice_copertura"], item["id_copertura"]))
+                          item["modulo"], item["ul"], item["codice_copertura"], item["id_copertura"],
+                          item.get("ssd","").strip().upper()))
                     assignment_ids[key] = cur.lastrowid
                 db.execute("""
                     INSERT INTO candidature(bando_id,incarico_id,id_pica,nome,cognome,
@@ -396,3 +439,50 @@ async def import_commissioni(code: str, file: UploadFile = File(...)):
     destination.mkdir(parents=True,exist_ok=True)
     (destination / "commissioni_originali.xlsx").write_bytes(content)
     return {"ok":True,"commissioni":parsed["numero_sedi"],"cds":parsed["numero_cds"]}
+
+
+class ClassificazioneSSD(BaseModel):
+    tipo: str
+    riferimento: str
+
+
+@app.get("/api/bandi/{code}/ssd")
+def elenco_ssd_bando(code: str):
+    code = valid_code(code)
+    with connect() as db:
+        rows = db.execute("""
+           SELECT UPPER(TRIM(i.ssd)) AS ssd, cl.tipo, cl.riferimento,
+                  COUNT(i.id) AS incarichi,
+                  COUNT(DISTINCT i.cds) AS cds
+           FROM incarichi i JOIN bandi b ON b.id=i.bando_id
+           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+           WHERE b.codice=?
+           GROUP BY UPPER(TRIM(i.ssd))
+           ORDER BY UPPER(TRIM(i.ssd))
+        """, (code,)).fetchall()
+        if not db.execute("SELECT 1 FROM bandi WHERE codice=?", (code,)).fetchone():
+            fail("Bando non trovato", 404)
+    return {"ssd": [dict(x) for x in rows]}
+
+
+@app.put("/api/ssd/{ssd}/classificazione")
+def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
+    sector = ssd.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]+(?:[-/][A-Z0-9]+)*", sector) or len(sector)>32:
+        fail("Codice SSD non valido")
+    if body.tipo not in ("professionalizzante", "ordinario"):
+        fail("Selezionare professionalizzante oppure ordinario")
+    reference = body.riferimento.strip()
+    if len(reference)<3 or len(reference)>400:
+        fail("Inserire il riferimento documentale verificato che giustifica la classificazione")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as db:
+        if not db.execute("SELECT 1 FROM incarichi WHERE UPPER(TRIM(ssd))=? LIMIT 1",(sector,)).fetchone():
+            fail("SSD non trovato nei bandi importati", 404)
+        db.execute("""
+            INSERT INTO ssd_classificazioni(ssd,tipo,riferimento,aggiornato_il)
+            VALUES(?,?,?,?)
+            ON CONFLICT(ssd) DO UPDATE SET tipo=excluded.tipo,
+                riferimento=excluded.riferimento, aggiornato_il=excluded.aggiornato_il
+        """, (sector, body.tipo, reference, now))
+    return {"ssd": sector, "tipo": body.tipo, "riferimento": reference}
