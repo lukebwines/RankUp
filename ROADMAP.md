@@ -10,9 +10,11 @@
 
 ## Milestone 2 — Commissioni e PDF
 - [ ] Gestione anagrafica annuale e propagazione selettiva degli aggiornamenti delle commissioni
+- [x] Rilevazione SSD PICA e classificazione verificata non professionalizzante/professionalizzante
+- [x] Generazione di facsimili compilabili ZIP per singolo CdS o bando
 - [ ] Caricamento e configurazione modelli PDF compilabili (SSD professionalizzanti e altri)
-- [ ] Scheda PDF per candidatura e incarico; punteggi preimpostati a 0
-- [ ] ZIP schede per CdS e per intero bando
+- [x] Scheda PDF per candidatura e incarico, con punteggi inizializzati a zero (facsimile da validare)
+- [x] ZIP schede per CdS e per intero bando
 - [ ] Acquisizione PDF restituiti, controlli e sostituzioni
 
 ## Milestone 3 — Elaborazione
