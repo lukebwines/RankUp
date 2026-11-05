@@ -14,6 +14,7 @@ from reportlab.lib.colors import HexColor, white, black
 from reportlab.lib.pagesizes import A4
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, DictionaryObject, TextStringObject, ArrayObject
+from professional import make_professional
 
 ORDINARI = [
  ("P01", "Altra laurea (titolo aggiuntivo)", 2),
@@ -98,6 +99,8 @@ def make_scheda(record: dict, tipo: str) -> bytes:
     if tipo not in ("professionalizzante", "ordinario"):
         raise ValueError("Tipologia SSD non classificata: scheda non generabile")
     professional = tipo == "professionalizzante"
+    if professional:
+        return make_professional(record)
     rows = PROFESSIONALIZZANTI if professional else ORDINARI
     primary = HexColor("#d0009a" if professional else "#00bc1f")
     bg = HexColor("#edf3fa")
