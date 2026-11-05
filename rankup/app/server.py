@@ -239,6 +239,48 @@ def initialize() -> None:
             END
             WHERE decisione='da_verificare' AND stato='Acquisita'
         """, ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI)
+        # Riesame UNA VOLTA delle acquisizioni delle vecchie versioni.
+        # Il precedente parser poteva acquisire 15 punti senza una decisione
+        # della commissione. Non si può dedurre "idoneo" dal solo totale.
+        # L'originale, il totale, l'esito e il timestamp storici non cambiano.
+        legacy=db.execute("""
+            SELECT * FROM valutazioni_pdf
+            WHERE stato='Acquisita' AND attiva=1 AND (
+                decisione='da_verificare'
+                OR (decisione IN ('non_idoneo','escluso') AND TRIM(note)='')
+                OR (decisione='idoneo' AND totale_calcolato IS NULL)
+            )
+        """).fetchall()
+        if legacy:
+            now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+            for old in legacy:
+                prior=dict(old)
+                reason=(
+                    "Riesame di compatibilità: valutazione acquisita in una versione precedente "
+                    "senza esito o requisiti di validazione completi. "
+                    "Punteggio storico conservato, ma non convalidato."
+                )
+                db.execute("""
+                    UPDATE valutazioni_pdf
+                    SET stato='Da verificare',attiva=0,decisione='da_verificare',motivo=?
+                    WHERE id=? AND stato='Acquisita' AND attiva=1
+                """,(reason,old["id"]))
+                updated=dict(db.execute(
+                    "SELECT * FROM valutazioni_pdf WHERE id=?",(old["id"],)
+                ).fetchone())
+                if old["candidatura_id"] is not None:
+                    db.execute("""
+                        INSERT INTO valutazioni_pdf_eventi
+                        (bando_id,valutazione_pdf_id,candidatura_id,azione,
+                         precedente_json,successivo_json,autore,quando)
+                        VALUES(?,?,?,?,?,?,?,?)
+                    """,(
+                        old["bando_id"],old["id"],old["candidatura_id"],
+                        "Riesame automatico acquisizione precedente",
+                        json.dumps(prior,ensure_ascii=False),
+                        json.dumps(updated,ensure_ascii=False),
+                        "migrazione-applicativa",now
+                    ))
         columns = {row["name"] for row in db.execute("PRAGMA table_info(incarichi)")}
         if "ssd" not in columns:
             db.execute("ALTER TABLE incarichi ADD COLUMN ssd TEXT NOT NULL DEFAULT ''")
