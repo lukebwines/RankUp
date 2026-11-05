@@ -650,6 +650,48 @@ def list_commissioni(code: str):
     return {"commissioni": [dict(x) for x in rows]}
 
 
+@app.get("/api/bandi/{code}/commissioni/associazioni")
+def associazioni_commissioni(code: str):
+    """Report per CdS/sede: confronto verificabile, nessuna modifica ai dati."""
+    code = valid_code(code)
+    with connect() as db:
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if b is None:
+            fail("Bando non trovato", 404)
+        assignments = db.execute("""
+            SELECT cds,sede,COUNT(*) AS incarichi
+            FROM incarichi WHERE bando_id=?
+            GROUP BY cds,sede
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE
+        """, (b["id"],)).fetchall()
+        commissions = db.execute("""
+            SELECT cds,sede,presidente,componenti,anno,requisiti
+            FROM commissioni WHERE bando_id=?
+        """, (b["id"],)).fetchall()
+    index = commission_index(commissions)
+    result=[]
+    for item in assignments:
+        status, commission = resolve_commission(index, item["cds"], item["sede"])
+        if status == "associata" and not commission.get("presidente"):
+            status = "mancante"
+            commission = None
+        result.append({
+            "cds": item["cds"],
+            "sede": item["sede"],
+            "incarichi": item["incarichi"],
+            "stato": status,
+            "cds_commissione": commission["cds"] if commission else None,
+            "sede_commissione": commission["sede"] if commission else None,
+        })
+    return {
+        "totale": len(result),
+        "associate": sum(x["stato"] == "associata" for x in result),
+        "mancanti": sum(x["stato"] == "mancante" for x in result),
+        "ambigue": sum(x["stato"] == "ambigua" for x in result),
+        "associazioni": result,
+    }
+
+
 @app.post("/api/bandi/{code}/commissioni/import")
 async def import_commissioni(code: str, file: UploadFile = File(...)):
     code = valid_code(code)
