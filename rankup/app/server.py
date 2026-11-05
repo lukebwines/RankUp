@@ -535,7 +535,8 @@ def list_bandi():
                  (SELECT COUNT(*) FROM incarichi i WHERE i.bando_id=b.id) AS incarichi,
                  (SELECT COUNT(DISTINCT i.cds) FROM incarichi i WHERE i.bando_id=b.id) AS cds,
                  (SELECT COUNT(*) FROM valutazioni_pdf v
-                   WHERE v.bando_id=b.id AND v.stato='Acquisita' AND v.attiva=1)
+                   WHERE v.bando_id=b.id AND v.stato='Acquisita' AND v.attiva=1
+                     AND v.decisione IN ('idoneo','non_idoneo','escluso'))
                    AS valutazioni_acquisite
           FROM bandi b ORDER BY b.import_at DESC, b.id DESC
         """).fetchall()
