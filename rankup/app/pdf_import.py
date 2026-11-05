@@ -170,7 +170,10 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
             raise ValueError("Totale PDF non aggiornato: ricalcolato " + str(total) +
                              " contro " + result["totale_pdf"])
         result["esito"] = field_value(fields, "STATUS").strip()
-        if result["esito"] == "-":
+        # ReportLab può salvare il testo visualizzato della voce iniziale
+        # anziché il valore di esportazione "-". In entrambi i casi non è
+        # un esito deliberato dalla commissione.
+        if norm(result["esito"]) in ("-", "-- seleziona --", "seleziona", "--seleziona--"):
             result["esito"] = ""
         result["note"] = field_value(fields, "NOTE-COMM").strip()
         if any(k in result["esito"].upper() for k in REASONS_REQUIRE_NOTES) and not result["note"]:
