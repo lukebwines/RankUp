@@ -51,6 +51,15 @@
     .success{color:#17583c;background:#eaf8f1;padding:13px;border-radius:8px;font-size:13px}.hidden{display:none}
     .flow{display:flex;flex-direction:column;gap:10px}.flow-step{display:flex;align-items:center;gap:10px;font-size:13px;color:#566f85}
     .flow-step span{border-radius:50%;width:24px;height:24px;display:grid;place-items:center;background:#e7eff8;font-size:11px;font-weight:750;color:#376b9f}
+    .assignment-detail{font-size:13px;color:#24445d;max-width:100%}
+    .assignment-detail summary{cursor:pointer;color:#2767a8;font-weight:700;padding:7px 0}
+    .assignment-detail summary:focus-visible{outline:2px solid #2767a8;outline-offset:3px}
+    .assignment-metadata{display:grid;grid-template-columns:repeat(4,minmax(155px,1fr));gap:12px;padding:14px 8px 18px;background:#f8fbff;border-radius:9px}
+    .assignment-metadata dt{font-size:11px;font-weight:700;color:#647d94;margin-bottom:5px}
+    .assignment-metadata dd{margin:0;overflow-wrap:anywhere;font-size:13px}
+    .data-missing{color:#7d8791;font-style:italic}
+    @media(max-width:920px){.assignment-metadata{grid-template-columns:repeat(2,minmax(130px,1fr))}}
+    @media(max-width:540px){.assignment-metadata{grid-template-columns:1fr}}
     @media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.sidebar{width:210px}main{padding:22px}}
     @media(max-width:690px){.layout{display:block}.sidebar{width:auto;gap:12px;padding:13px}.brand img{width:40px;height:40px}.sidebar nav{flex-direction:row;overflow:auto;white-space:nowrap}.sidebar nav button{padding:9px 12px}.active-panel{padding:10px}.active-panel strong{font-size:18px}.sidebar-footer{display:none}main{padding:18px}.grid{gap:9px}.card{padding:14px}.topbar h2{font-size:22px}}
   </style>
@@ -251,13 +260,70 @@
           updateHeader();render();note("Bando "+result.codice_bando+" importato correttamente.",false);
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
+      function renderIncarichi(rows,code,acquisition){
+        function value(v){
+          return v===null||v===undefined||String(v).trim()===""
+              ? '<span class="data-missing">Non presente in PICA</span>'
+              : esc(v);
+        }
+        function dateValue(raw,iso){
+          if(!raw&&!iso)return value("");
+          if(!iso)return value(raw)+' <span class="caption">(formato originale)</span>';
+          var p=iso.split("-");
+          return esc(p[2]+"/"+p[1]+"/"+p[0])+
+              ' <span class="caption">(valore Excel: '+esc(raw)+')</span>';
+        }
+        function field(title,content){
+          return '<div><dt>'+esc(title)+'</dt><dd>'+content+'</dd></div>';
+        }
+        var explanation=acquisition
+          ?(acquisition.metodo==="migrazione"
+            ?'Dati recuperati dal PICA originale: '+esc(acquisition.incarichi_verificati)+
+             ' incarichi verificati, '+esc(acquisition.incarichi_aggiornati)+
+             ' aggiornati. Nessuna candidatura reimportata.'
+            :'Dati aggiuntivi acquisiti direttamente dall’esportazione PICA durante l’importazione.')
+          :'Acquisizione aggiuntiva da PICA non ancora verificata: controllare il file originale e lo stato dell’add-on.';
+        var content=rows.map(function(r){
+          var extra=[
+            field("Anno del Corso (I)",value(r.anno_corso)),
+            field("Tipo Corso (K)",value(r.tipo_corso)),
+            field("Tipo CDS (L)",value(r.tipo_cds)),
+            field("Ciclo (P)",value(r.ciclo)),
+            field("INIZIO (Q)",dateValue(r.inizio_pica,r.inizio_iso)),
+            field("FINE (R)",dateValue(r.fine_pica,r.fine_iso)),
+            field("Codice Partizione Studenti (S)",value(r.codice_partizione)),
+            field("Partizione Studenti (T)",value(r.partizione_studenti)),
+            field("Peso Copertura (U)",value(r.peso_copertura)),
+            field("Ore (V)",value(r.ore)),
+            field("Stato coperture (BU)",value(r.stato_coperture)),
+            field("Codice Copertura (G)",value(r.codice_copertura)),
+            field("ID Copertura (N)",value(r.id_copertura)),
+            field("SSD (O)",value(r.ssd))
+          ].join("");
+          return '<tr><td>'+value(r.cds)+'</td><td>'+value(r.sede)+
+            '</td><td>'+value(r.insegnamento)+'</td><td>'+value(r.modulo)+
+            '</td><td class="code">'+value(r.ssd)+'</td><td>'+value(r.anno_corso)+
+            '</td><td>'+value(r.candidature)+'</td></tr>'+
+            '<tr><td colspan="7"><details class="assignment-detail"><summary>Mostra tutti i dati dell’incarico'+
+            (r.id_copertura?' · ID '+esc(r.id_copertura):'')+
+            '</summary><dl class="assignment-metadata">'+extra+'</dl>'+
+            '<p class="caption">Il Peso Copertura è conservato come dato autonomo e non viene interpretato come numero di ore.</p>'+
+            '</details></td></tr>';
+        }).join("");
+        html('<div class="card"><h3 class="section-heading">Anagrafica incarichi · Bando '+esc(code)+
+          '</h3><p class="caption">'+rows.length+' incarichi, ordinati per CdS, sede, insegnamento e modulo.</p>'+
+          '<div class="notice mb">'+explanation+'</div>'+
+          '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
+          '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Anno corso</th><th>Candidature</th></tr>'+
+          '</thead><tbody>'+content+'</tbody></table></div></div>');
+      }
       async function renderList(page){
         if(!cur()){html('<div class="card empty"><strong>Seleziona un bando</strong>Importa o apri un bando dalla sezione Bandi.</div>');return;}
         var code=state.active;html('<div class="card"><p class="muted">Caricamento '+esc(page)+'...</p></div>');
         try{
           var result=await api("bandi/"+encodeURIComponent(code)+"/"+page);
           if(state.page!==page||state.active!==code)return;
-          var rows=result[page];if(!rows.length){html((page==="commissioni"?commissionUpload():"")+panel(page,"Nessun dato disponibile."));if(page==="commissioni")bindCommissionUpload();return;}
+          var rows=result[page];if(page==="incarichi"){renderIncarichi(rows,code,result.acquisizione_metadati);return;}if(!rows.length){html((page==="commissioni"?commissionUpload():"")+panel(page,"Nessun dato disponibile."));if(page==="commissioni")bindCommissionUpload();return;}
           var fields=page==="incarichi"?["cds","sede","insegnamento","modulo","id_copertura","candidature"]:(page==="commissioni"?["cds","sede","presidente","componenti","anno"]:["id_pica","cognome","nome","cds","sede","modulo","stato"]);
           var labels={cds:"Corso di Studio",sede:"Sede",insegnamento:"Insegnamento",modulo:"Modulo",id_copertura:"ID copertura",candidature:"Domande",presidente:"Presidente",componenti:"Componenti",anno:"Anno accademico",id_pica:"ID PICA",cognome:"Cognome",nome:"Nome",stato:"Stato"};
           html((page==="commissioni"?commissionUpload():"")+'<div class="card"><h3 class="section-heading">'+esc(page==="incarichi"?"Incarichi ricavati da PICA":(page==="commissioni"?"Commissioni del bando":"Domande PICA"))+' · Bando '+esc(code)+'</h3>'+
