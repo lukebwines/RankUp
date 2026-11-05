@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#142840">
+  <title>RankUp — Gestione bandi di docenza</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#192b3b;background:#f4f7fb}
+    *{box-sizing:border-box} body{margin:0} button,input,select{font:inherit}
+    button{cursor:pointer;border:0} button:disabled{cursor:not-allowed;opacity:.5}
+    .layout{display:flex;min-height:100vh}.sidebar{width:250px;flex:none;background:#142840;color:#e9f2fb;padding:22px 16px;display:flex;flex-direction:column;gap:18px}
+    .brand{display:flex;align-items:center;gap:12px}.brand img{width:50px;height:50px;border-radius:12px;object-fit:cover;background:#254b73}
+    .brand h1{font-size:24px;margin:0;line-height:1.1}.brand small{font-size:11px;color:#a7bfd8}
+    .side-title{font-size:10px;letter-spacing:.11em;color:#9db6d0;font-weight:800}
+    .active-panel{background:#264463;border:1px solid #385875;padding:14px;border-radius:12px}
+    .active-panel strong{font-size:23px;display:block;margin:4px 0 9px;color:white}
+    .sidebar select{width:100%;background:#1e3854;color:white;border:1px solid #4c6984;border-radius:7px;padding:9px;font-size:13px}
+    nav{display:flex;flex-direction:column;gap:4px;margin-top:8px} nav button{background:transparent;color:#d3e0ef;text-align:left;padding:12px 13px;border-radius:9px;font-size:14px;display:flex;align-items:center;gap:10px}
+    nav button:hover,nav button.active{background:#2a4f76;color:white}.navdot{width:8px;height:8px;border-radius:50%;background:#7a9fc1}
+    nav button.active .navdot{background:#52b3fa}.sidebar-footer{margin-top:auto;color:#a3bbd5;font-size:11px;line-height:1.5}
+    main{flex:1;min-width:0;padding:26px 32px 50px}.topbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:25px}
+    .crumb{font-size:12px;color:#6a7d8e;font-weight:600;margin-bottom:5px}.topbar h2{margin:0;font-size:27px;letter-spacing:-.02em}
+    .active-pill{background:#dfeaf8;color:#194e80;padding:9px 14px;border-radius:100px;font-weight:750;font-size:13px;white-space:nowrap}
+    .muted{color:#66798b}.caption{font-size:12px;color:#74879a}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0 26px}
+    .card{background:white;border:1px solid #e1e7ef;border-radius:13px;padding:20px;box-shadow:0 2px 9px #14284005}
+    .kpi strong{font-size:28px;display:block;margin-bottom:6px;color:#1b385b}.kpi span{font-size:13px;color:#6c7e8f}
+    .split{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:18px}.section-heading{font-size:16px;font-weight:750;margin:0 0 14px}
+    .band-row{border-top:1px solid #edf1f4;padding:15px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .band-row:first-of-type{border:0}.band-row strong{display:block;margin-bottom:4px}.band-row small{color:#718294}
+    .badge{font-size:11px;border-radius:100px;background:#e8f1fd;color:#255b88;padding:6px 9px;font-weight:750;display:inline-block}
+    .badge.gray{background:#edf0f4;color:#617080}.btn{padding:10px 15px;border-radius:8px;font-size:13px;font-weight:700;background:#2068b3;color:white}
+    .btn.secondary{background:#e7eff9;color:#225783}.btn.ghost{background:transparent;color:#28669c}
+    .btn:focus-visible,nav button:focus-visible{outline:3px solid #82c5ff;outline-offset:2px}
+    .actions{display:flex;gap:9px;flex-wrap:wrap}.notice{background:#f0f5fc;border-left:3px solid #4380c3;border-radius:7px;padding:12px 14px;font-size:13px;line-height:1.5}
+    .empty{padding:32px;text-align:center;color:#738699}.empty strong{display:block;color:#24415f;font-size:18px;margin-bottom:9px}
+    .upload{border:2px dashed #acc4dc;background:#f8fbff;padding:28px;border-radius:12px}.upload input{width:100%;max-width:100%;margin:10px 0}
+    .summary{display:flex;gap:20px;flex-wrap:wrap;margin:16px 0}.summary strong{display:block;font-size:23px;color:#163b62}
+    .summary small{font-size:12px;color:#63758a}.tablebox{overflow:auto;max-width:100%}
+    table{width:100%;border-collapse:collapse;text-align:left;font-size:13px} th{font-weight:750;color:#6a7e8c;background:#f2f6fb}
+    th,td{padding:12px 11px;border-bottom:1px solid #eaf0f5;vertical-align:top;line-height:1.4}
+    .code{font-family:ui-monospace,monospace;font-weight:650}.mb{margin-bottom:15px}.error{color:#9e2832;background:#fff0f1;padding:13px;border-radius:8px;font-size:13px}
+    .success{color:#17583c;background:#eaf8f1;padding:13px;border-radius:8px;font-size:13px}.hidden{display:none}
+    .flow{display:flex;flex-direction:column;gap:10px}.flow-step{display:flex;align-items:center;gap:10px;font-size:13px;color:#566f85}
+    .flow-step span{border-radius:50%;width:24px;height:24px;display:grid;place-items:center;background:#e7eff8;font-size:11px;font-weight:750;color:#376b9f}
+    @media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.sidebar{width:210px}main{padding:22px}}
+    @media(max-width:690px){.layout{display:block}.sidebar{width:auto;gap:12px;padding:13px}.brand img{width:40px;height:40px}.sidebar nav{flex-direction:row;overflow:auto;white-space:nowrap}.sidebar nav button{padding:9px 12px}.active-panel{padding:10px}.active-panel strong{font-size:18px}.sidebar-footer{display:none}main{padding:18px}.grid{gap:9px}.card{padding:14px}.topbar h2{font-size:22px}}
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="static/rankup-icon.png" alt="Icona RankUp: scheda candidato e podio">
+        <div><h1>RankUp</h1><small>Teaching Selection Manager</small></div>
+      </div>
+      <div class="active-panel">
+        <div class="side-title">BANDO ATTIVO</div>
+        <strong id="side-code">Nessuno</strong>
+        <select id="band-select" aria-label="Seleziona bando"></select>
+      </div>
+      <nav id="nav">
+        <button data-page="dashboard" class="active"><span class="navdot"></span> Dashboard</button>
+        <button data-page="bandi"><span class="navdot"></span> Bandi</button>
+        <button data-page="incarichi"><span class="navdot"></span> Incarichi</button>
+        <button data-page="candidature"><span class="navdot"></span> Candidature</button>
+        <button data-page="valutazioni"><span class="navdot"></span> Valutazioni</button>
+        <button data-page="verbali"><span class="navdot"></span> Verbali</button>
+        <button data-page="graduatorie"><span class="navdot"></span> Graduatorie</button>
+        <button data-page="archivio"><span class="navdot"></span> Archivio</button>
+      </nav>
+      <div class="sidebar-footer">Versione 0.1.0 · Prototipo tecnico<br>Accesso tramite Home Assistant Ingress</div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div><div class="crumb" id="crumb">RankUp / Dashboard</div><h2 id="page-title">Dashboard generale</h2></div>
+        <div class="active-pill" id="top-code">Bando: nessuno</div>
+      </header>
+      <div id="notification" aria-live="polite"></div>
+      <div id="content"></div>
+    </main>
+  </div>
+  <script>
+    (function () {
+      "use strict";
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null};
+      var $ = function(id){return document.getElementById(id);};
+      var esc = function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});};
+      var api = async function(path,options){
+        var response=await fetch("api/"+path,options||{});
+        var data=await response.json().catch(function(){return {};});
+        if(!response.ok)throw new Error(data.detail||"Operazione non riuscita");
+        return data;
+      };
+      var html = function(content){$("content").innerHTML=content;};
+      var note = function(message,error){$("notification").innerHTML='<div class="'+(error?"error":"success")+' mb">'+esc(message)+'</div>';};
+      var clearNote = function(){$("notification").innerHTML="";};
+      var cur = function(){return state.bandi.find(function(b){return b.codice===state.active;});};
+      var setActive = function(code){state.active=code;localStorage.setItem("rankup_active",code);updateHeader();render();};
+      function updateHeader(){
+        var selected=cur(), code=selected?selected.codice:"nessuno";
+        $("side-code").textContent=selected?code:"Nessuno";
+        $("top-code").textContent="Bando: "+code;
+        var sel=$("band-select");sel.innerHTML="";
+        if(!state.bandi.length){var op=document.createElement("option");op.textContent="Nessun bando";sel.appendChild(op);}
+        state.bandi.forEach(function(b){var op=document.createElement("option");op.value=b.codice;op.textContent=b.codice;op.selected=b.codice===state.active;sel.appendChild(op);});
+      }
+      function panel(title,text){return '<div class="card"><h3 class="section-heading">'+esc(title)+'</h3><p class="muted">'+esc(text)+'</p></div>';}
+      function cards(){
+        var candidates=state.bandi.reduce(function(n,b){return n+b.candidature;},0);
+        var jobs=state.bandi.reduce(function(n,b){return n+b.incarichi;},0);
+        return '<div class="grid">'+
+          [[''+state.bandi.length,'Bandi importati'],[''+candidates,'Candidature PICA'],[''+jobs,'Incarichi individuati'],['—','Valutazioni (fase successiva)']].map(function(c){
+            return '<div class="card kpi"><strong>'+esc(c[0])+'</strong><span>'+esc(c[1])+'</span></div>';
+          }).join('')+'</div>';
+      }
+      function row(b){
+        return '<div class="band-row"><div><strong>'+esc(b.codice)+'</strong><small>'+esc(b.candidature)+' candidature · '+esc(b.incarichi)+' incarichi · '+esc(b.cds)+' CdS</small></div>'+
+          '<div class="actions"><span class="badge">'+esc(b.stato)+'</span><button class="btn secondary" data-choose="'+esc(b.codice)+'">Apri</button></div></div>';
+      }
+      function bindBandButtons(){document.querySelectorAll("[data-choose]").forEach(function(button){button.onclick=function(){state.page="incarichi";setActive(button.dataset.choose);};});}
+      function dashboard(){
+        html(cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
+          (state.bandi.length?state.bandi.map(row).join(''):'<div class="empty"><strong>Non ci sono ancora bandi</strong>Importa un file PICA per creare la prima procedura.</div>')+
+          '<button class="btn" id="dash-import">Importa candidature PICA</button></div>'+
+          '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
+          ['Importazione PICA e incarichi','Commissioni e schede PDF (prossima fase)','Valutazione e restituzione schede','Verbali per CdS','Graduatoria generale e approvazione'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
+          '</div><p class="caption">Le funzioni indicate come prossima fase non sono ancora operative.</p></div></div>');
+        $("dash-import").onclick=function(){go("bandi");};bindBandButtons();
+      }
+      function go(page){state.page=page;clearNote();render();}
+      function render(){
+        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",incarichi:"Incarichi",candidature:"Candidature",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        $("page-title").textContent=titles[state.page]||state.page;
+        $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
+        document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
+        if(state.page==="dashboard")return dashboard();
+        if(state.page==="bandi")return renderBandi();
+        if(state.page==="incarichi"||state.page==="candidature")return renderList(state.page);
+        if(state.page==="valutazioni")return html(panel("Monitoraggio schede", "La gestione dei PDF editabili, delle restituzioni e delle anomalie sarà attivata nella seconda milestone."));
+        if(state.page==="verbali")return html(panel("Verbali delle commissioni", "Generazione di un verbale per CdS dopo l'acquisizione delle valutazioni: funzionalità prevista, non ancora implementata."));
+        if(state.page==="graduatorie")return html(panel("Graduatorie per CdS e generali", "Saranno distinti i nominativi in chiaro per le commissioni e l'identificazione selettiva dei vincitori per l'approvazione degli atti."));
+        if(state.page==="archivio")return html(panel("Archivio bandi", "Esportazione ZIP completa, ripristino e cancellazione controllata: funzionalità futura. Attualmente nessun comando di eliminazione è attivo."));
+      }
+      function renderBandi(){
+        html('<div class="split"><section class="card"><h3 class="section-heading">Elenco bandi</h3>'+
+          (state.bandi.length?state.bandi.map(row).join(''):'<p class="muted">Nessun bando importato.</p>')+
+          '</section><section class="card"><h3 class="section-heading">Importa esportazione PICA</h3>'+
+          '<div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx">'+
+          '<button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div>'+
+          '<p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file. I dati non vengono caricati su GitHub.</p></section></div>');
+        bindBandButtons();
+        $("preview-btn").onclick=preview;
+      }
+      async function preview(){
+        var file=$("pica-file").files[0];if(!file){note("Seleziona prima un file Excel.",true);return;}
+        clearNote();var btn=$("preview-btn");btn.disabled=true;btn.textContent="Analisi...";
+        try{
+          var fd=new FormData();fd.append("file",file);
+          var result=await api("pica/preview",{method:"POST",body:fd});
+          state.preview=result;var x=result.riepilogo;
+          $("preview-result").innerHTML='<div class="notice"><strong>Codice bando rilevato: '+esc(result.codice_bando)+'</strong><br>'+
+            esc(x.candidature)+' candidature · '+esc(x.incarichi)+' incarichi · '+esc(x.cds)+' CdS<br>'+
+            '<small>'+esc(result.file)+'</small></div>'+
+            (x.avvisi.length?'<p class="caption">'+esc(x.avvisi.length)+' avvisi da controllare</p>':'')+
+            '<p><button class="btn" id="commit-btn">Conferma importazione</button></p>';
+          $("commit-btn").onclick=commit;
+        }catch(error){note(error.message,true);}
+        finally{btn.disabled=false;btn.textContent="Analizza file";}
+      }
+      async function commit(){
+        if(!state.preview)return;
+        var btn=$("commit-btn");btn.disabled=true;
+        try{
+          var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:state.preview.token})});
+          await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
+          updateHeader();render();note("Bando "+result.codice_bando+" importato correttamente.",false);
+        }catch(error){note(error.message,true);btn.disabled=false;}
+      }
+      async function renderList(page){
+        if(!cur()){html('<div class="card empty"><strong>Seleziona un bando</strong>Importa o apri un bando dalla sezione Bandi.</div>');return;}
+        var code=state.active;html('<div class="card"><p class="muted">Caricamento '+esc(page)+'...</p></div>');
+        try{
+          var result=await api("bandi/"+encodeURIComponent(code)+"/"+page);
+          if(state.page!==page||state.active!==code)return;
+          var rows=result[page];if(!rows.length){html(panel(page,"Nessun dato disponibile."));return;}
+          var fields=page==="incarichi"?["cds","sede","insegnamento","modulo","id_copertura","candidature"]:["id_pica","cognome","nome","cds","sede","modulo","stato"];
+          var labels={cds:"Corso di Studio",sede:"Sede",insegnamento:"Insegnamento",modulo:"Modulo",id_copertura:"ID copertura",candidature:"Domande",id_pica:"ID PICA",cognome:"Cognome",nome:"Nome",stato:"Stato"};
+          html('<div class="card"><h3 class="section-heading">'+esc(page==="incarichi"?"Incarichi ricavati da PICA":"Domande PICA")+' · Bando '+esc(code)+'</h3>'+
+            '<p class="caption">'+rows.length+' righe · ordine per CdS, sede, insegnamento e modulo</p>'+
+            '<div class="tablebox"><table><thead><tr>'+fields.map(function(k){return '<th>'+esc(labels[k]||k)+'</th>';}).join('')+'</tr></thead><tbody>'+
+            rows.map(function(r){return '<tr>'+fields.map(function(k){return '<td>'+esc(r[k])+'</td>';}).join('')+'</tr>';}).join('')+
+            '</tbody></table></div></div>');
+        }catch(error){note(error.message,true);html('');}
+      }
+      async function reload(){
+        var result=await api("bandi");state.bandi=result.bandi;
+        if(!cur())state.active=state.bandi.length?state.bandi[0].codice:"";
+        updateHeader();
+      }
+      $("band-select").onchange=function(){setActive(this.value);};
+      document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){go(b.dataset.page);};});
+      reload().then(render).catch(function(err){note("Impossibile caricare RankUp: "+err.message,true);});
+    })();
+  </script>
+</body>
+</html>
