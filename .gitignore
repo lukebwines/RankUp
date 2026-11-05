@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.env
+.data/
+data/
+*.sqlite
+*.sqlite3
+*.db
+uploads/
+*.xls
+*.xlsx
+*.pdf
+*.zip
