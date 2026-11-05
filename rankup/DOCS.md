@@ -71,3 +71,8 @@ Nel menu **Incarichi** aprire **Mostra tutti i dati dell'incarico**. Sono dispon
 Per il file PICA 26-02 verificato: 42 incarichi; i metadati ripetuti nelle 93 candidature sono coerenti. Non ci sono ore nella colonna V. Il codice partizione (S) e la descrizione (T) sono compilati solo per parte degli incarichi. Questi conteggi descrivono **soltanto quel file PICA**, non i bandi futuri.
 
 Il recupero e le verifiche vanno collaudati sull'installazione HAOS prima di utilizzare i dati per generare atti amministrativi.
+
+## 0.4.1 — Modello non professionalizzante predefinito
+Per ciascun SSD effettivamente identificato, RankUp presenta e usa automaticamente il modello non professionalizzante. **Non bisogna premere Salva né inserire un riferimento** per lasciare questa scelta. Se un SSD è professionalizzante, cambiare il menu della riga su Professionalizzante: RankUp registra immediatamente la selezione e la mantiene al riavvio. Per ripristinare il modello ordinario basta selezionarlo nuovamente. Le scelte manuali hanno effetto sui bandi che condividono lo stesso SSD.
+
+La classificazione non viene dichiarata come fatto accademico ufficiale: è una scelta dell'operatore per individuare il modello PDF da applicare. Gli incarichi con SSD non determinato (`NN` o vuoto) rimangono bloccati e vanno verificati individualmente.
