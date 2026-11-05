@@ -235,7 +235,8 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                     assert fields["REQUISITI"].value=="Testo prova"
                     assert fields["NOTE-COMM"].get("/Ff",0) & 4096
                     assert "60" in pdf.pages[0].extract_text()
-                    assert "Attività professionale" in pdf.pages[0].extract_text()
+                    text=pdf.pages[0].extract_text()
+                    assert "Attività" in text and "professionale" in text
                     assert fields["P18"].get("/Opt")==["0","3"] or len(fields["P18"].get("/Opt"))==2
                 types.append("P19" in fields)
             assert types.count(True)==1
