@@ -75,3 +75,13 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] SSD NN usa automaticamente il modello ordinario, senza classificazione o modifica del dato PICA.
 - [x] Test di regressione aggiunti per NN, struttura ordinaria e scheda professionalizzante.
 - [ ] Verifica funzionale su Home Assistant OS e prova del calcolo in Adobe Acrobat Reader.
+
+## 0.4.4 — Commissioni e menu PDF
+- [x] Associazione per CdS PICA normalizzato e sede coincidente.
+- [x] Eliminazione della sola dicitura PICA abilitante nel confronto, non nei dati originali.
+- [x] Bloccare associazioni ambigue o prive di commissione, senza inventare nominativi.
+- [x] Riepilogo associazioni nella pagina Commissioni e nella pagina Schede PDF.
+- [x] Etichette distinte nei menu con valori uguali 0,5/1,5 della scheda professionalizzante.
+- [x] Test sintetici del confronto multi-sede, collisioni e struttura PDF.
+- [ ] Test end-to-end su Home Assistant OS e verifica in Adobe Acrobat Reader.
+- [ ] Integrazione puntuale delle commissioni mancanti nei singoli bandi.
