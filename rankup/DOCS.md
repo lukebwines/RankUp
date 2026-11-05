@@ -129,3 +129,15 @@ I campi non sono precompilati con dati provenienti dai PDF di esempio. La nuova 
 Dopo una modifica di commissione o dei riferimenti dell'avviso, **rigenerare gli ZIP delle schede già scaricati**. RankUp non modifica i PDF già presenti sul computer e non firma i documenti. Tutti i nuovi dati vengono salvati nel solo bando selezionato, con registro delle variazioni.
 
 **Collaudo ancora necessario:** verifica dei flussi su Raspberry Pi/HAOS, test dell'Excel compilato, verifica della persistenza dopo riavvio e controllo delle nuove schede PDF in Adobe Acrobat Reader. Finché non sono state svolte tali verifiche, evitare dati personali reali e atti amministrativi definitivi.
+
+## Versione 0.6.0 — Importazione controllata e interfaccia
+
+Aggiornare l'add-on dopo un backup. La Dashboard mostra il logo e le icone della navigazione; il pulsante **Tema scuro / Tema chiaro** salva la scelta nel browser. La scheda del browser usa la favicon RankUp e Home Assistant mostra l'icona del podio.
+
+In **Bando → Valutazioni**, caricare singoli PDF compilati o un archivio ZIP e scegliere **Analizza PDF senza acquisire**. RankUp confronta bando, ID PICA, corso, sede, incarico e nominativi; legge i soli valori numerici delle voci, verifica massimali e totale e segnala le schede non editabili, incoerenti, duplicate o già acquisite. Per le attività professionalizzanti non è necessario conoscere quale descrizione sia stata selezionata: interessa il punteggio numerico e il subtotale.
+
+**Nessun punteggio viene registrato prima della conferma.** Dopo la conferma, solo le schede regolari modificano le valutazioni attive, le anomalie vengono archiviate come **Da verificare** senza punteggi e i duplicati ignorati. Le rettifiche richiedono un'ulteriore selezione esplicita e mantengono il PDF e i valori precedenti. Il riepilogo CdS/sede considera soltanto le candidature attive.
+
+Controlli da svolgere prima dell'uso ufficiale: PDF ordinario, PDF professionalizzante, totale PDF non aggiornato, punteggio zero senza nota/esito, duplicato, rettifica e persistenza dei documenti dopo riavvio. Il massimo per batch è 120 PDF e 40 MB; una scheda PDF non può superare 5 MB. La sessione di anteprima scade dopo un'ora.
+
+**Non caricare ancora candidature reali senza il collaudo su HAOS.** Le schede generate rimangono facsimili da validare; verbali e graduatorie non sono ancora disponibili.
