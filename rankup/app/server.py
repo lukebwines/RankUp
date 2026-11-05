@@ -19,6 +19,7 @@ import time
 import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
+from contextvars import ContextVar
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -43,6 +44,14 @@ SOURCES = BASE / "sources"
 DB = BASE / "rankup.sqlite3"
 ASSETS = Path(__file__).resolve().parent / "static"
 CODE_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
+USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,49}$")
+CURRENT_ACTOR: ContextVar[str | None] = ContextVar("rankup_actor",default=None)
+
+
+def request_actor() -> str:
+    """L'autore degli eventi è l'utente della richiesta corrente."""
+    return CURRENT_ACTOR.get() or "sistema"
+
 
 for folder in (BASE, PENDING, SOURCES):
     folder.mkdir(parents=True, exist_ok=True)
@@ -123,6 +132,26 @@ def initialize() -> None:
             quando TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS ix_comm_eventi_bando ON commissioni_eventi(bando_id);
+        CREATE TABLE IF NOT EXISTS rankup_utenti (
+            id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            password_salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            attivo INTEGER NOT NULL DEFAULT 1 CHECK(attivo IN (0,1)),
+            credenziali_versione INTEGER NOT NULL DEFAULT 1,
+            creato_il TEXT NOT NULL,
+            aggiornato_il TEXT NOT NULL,
+            creato_da TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS rankup_utenti_eventi (
+            id INTEGER PRIMARY KEY,
+            utente_id INTEGER NOT NULL REFERENCES rankup_utenti(id),
+            azione TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_rankup_utenti_eventi
+          ON rankup_utenti_eventi(utente_id,quando);
         CREATE TABLE IF NOT EXISTS bandi_riferimenti (
             bando_id INTEGER PRIMARY KEY REFERENCES bandi(id) ON DELETE CASCADE,
             repertorio TEXT NOT NULL DEFAULT '',
@@ -501,9 +530,14 @@ async def require_rankup_login(request: Request, call_next):
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-rankup-request") != "1":
             return JSONResponse({"detail": "Richiesta non autorizzata"}, status_code=403)
-    if not public and not AUTH.valid(request.cookies.get(COOKIE_NAME)):
+    principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not public and principal is None:
         return JSONResponse({"detail": "Autenticazione richiesta"}, status_code=401)
-    response = await call_next(request)
+    token = CURRENT_ACTOR.set(principal["username"] if principal else None)
+    try:
+        response = await call_next(request)
+    finally:
+        CURRENT_ACTOR.reset(token)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     if path.startswith("/api/"):
@@ -518,11 +552,12 @@ class LoginRequest(BaseModel):
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
+    principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
     return {
         "configured": AUTH.configured,
-        "authenticated": AUTH.valid(request.cookies.get(COOKIE_NAME)),
-        "username": AUTH.username if AUTH.valid(request.cookies.get(COOKIE_NAME)) else None,
-        "role": AUTH.role(request.cookies.get(COOKIE_NAME)),
+        "authenticated": principal is not None,
+        "username": principal["username"] if principal else None,
+        "role": principal["role"] if principal else None,
     }
 
 
@@ -533,7 +568,12 @@ def auth_login(credentials: LoginRequest, request: Request):
     token = AUTH.authenticate(credentials.username, credentials.password)
     if token is None:
         fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
-    response = JSONResponse({"ok": True, "username": AUTH.username, "role": "admin"})
+    identity=AUTH.principal(token)
+    if not identity:
+        AUTH.revoke(token)
+        fail("Sessione non disponibile: ripetere l'accesso",401)
+    response = JSONResponse({"ok": True, "username": identity["username"],
+                             "role": identity["role"]})
     response.set_cookie(
         key=COOKIE_NAME, value=token, path=cookie_path(request),
         max_age=SESSION_SECONDS, secure=secure_cookie(request),
@@ -686,7 +726,7 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
               (bando_id,prima_json,dopo_json,autore,quando)
               VALUES(?,?,?,?,?)
             """, (b["id"], json.dumps(previous,ensure_ascii=False),
-                  json.dumps(values,ensure_ascii=False), AUTH.username, now))
+                  json.dumps(values,ensure_ascii=False), request_actor(), now))
         db.commit()
     return {"ok": True, "riferimenti": values, "modificato": previous != values}
 
@@ -931,7 +971,7 @@ def _log_commission_change(db, bando_id: int, commission_id: int, action: str,
     """, (
         bando_id, commission_id, action,
         json.dumps(before, ensure_ascii=False) if before is not None else None,
-        json.dumps(after, ensure_ascii=False), AUTH.username,
+        json.dumps(after, ensure_ascii=False), request_actor(),
         datetime.now(timezone.utc).isoformat(timespec="microseconds"),
     ))
 
@@ -1629,7 +1669,7 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
                     json.dumps(item["punteggi"],ensure_ascii=False) if accepted else "{}",
                     item["punteggio"] if accepted else None,
                     item["totale_pdf"] if accepted else "",item["esito"] if accepted else "",
-                    item["note"] if accepted else "",item["motivo"],AUTH.username,now,
+                    item["note"] if accepted else "",item["motivo"],request_actor(),now,
                     item["decisione"] if accepted else "da_verificare","automatico"
                 ))
                 counts["rettificate" if status=="rettifica" else
@@ -1761,7 +1801,7 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
         """,(
             candidate["id"],version,total,body.esito,nota,
             "Acquisizione manuale da scheda verificata",decisione,
-            motivo,AUTH.username,now,pdf_id,b["id"]
+            motivo,request_actor(),now,pdf_id,b["id"]
         ))
         current=dict(db.execute("SELECT * FROM valutazioni_pdf WHERE id=?",(pdf_id,)).fetchone())
         db.execute("""
@@ -1775,7 +1815,7 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
             json.dumps({"documento_da_verificare":old,
                         "versione_precedente":dict(previous) if previous else None},
                        ensure_ascii=False),
-            json.dumps(current,ensure_ascii=False),AUTH.username,now
+            json.dumps(current,ensure_ascii=False),request_actor(),now
         ))
         db.commit()
     return {
