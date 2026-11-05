@@ -182,3 +182,31 @@ def test_unknown_candidacy_and_tampered_identity_never_change_scores(tmp_path,mo
         assert preview["riepilogo"]["da_verificare"]==1
         assert "discordanti" in preview["schede"][0]["motivo"]
         assert client.get("/api/bandi/26-02/valutazioni").json()["totale_acquisite"]==0
+
+
+def test_zip_with_21_blank_pdfs_reports_all_21_in_preview(tmp_path, monkeypatch):
+    """Un PDF vergine per ciascuna voce ZIP deve comparire nel risultato.
+
+    Usa soltanto schede sintetiche dei fixture, senza file dei candidati reali.
+    """
+    _, client, sheets = _setup(tmp_path, monkeypatch)
+    with client:
+        original = list(sheets.values())
+        archive_bytes = BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w", zipfile.ZIP_DEFLATED) as archive:
+            for n in range(21):
+                archive.writestr(
+                    f"OSTEOPATIA/VERONA/candidato_sintetico_{n + 1:02d}.pdf",
+                    original[n % len(original)]
+                )
+        result = _post(client, "/api/bandi/26-02/valutazioni/anteprima",
+            files={"files": ("schede_21.zip", archive_bytes.getvalue(), "application/zip")})
+        assert result.status_code == 200, result.text
+        body = result.json()
+        summary = body["riepilogo"]
+        assert summary["pdf_rilevati"] == 21
+        assert summary["pdf_analizzati"] == 21
+        assert summary["totale_classificati"] == 21
+        assert len(body["schede"]) == 21
+        assert sum(summary[key] for key in
+            ("regolare", "rettifica", "da_verificare", "duplicato")) == 21
