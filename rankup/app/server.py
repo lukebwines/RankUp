@@ -525,9 +525,12 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
           JOIN incarichi i ON i.id=c.incarico_id
           JOIN bandi b ON b.id=c.bando_id
           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
-          LEFT JOIN commissioni cm ON cm.bando_id=b.id
-                AND LOWER(TRIM(cm.cds))=LOWER(TRIM(i.cds))
-                AND LOWER(TRIM(cm.sede))=LOWER(TRIM(i.sede))
+          LEFT JOIN commissioni cm ON cm.id=(
+              SELECT cm2.id FROM commissioni cm2
+              WHERE cm2.bando_id=b.id
+                AND LOWER(TRIM(cm2.cds))=LOWER(TRIM(i.cds))
+              ORDER BY cm2.id LIMIT 1
+          )
           WHERE """+" AND ".join(conditions)+"""
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                    i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
