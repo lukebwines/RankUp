@@ -89,3 +89,10 @@ La classificazione non viene dichiarata come fatto accademico ufficiale: è una 
 Gli anni 2025-2021 sono previsti **solo** per l'A.A. 2026-2027 perché presenti nel modello fornito. Per altri periodi è necessario acquisire il modello di riferimento e riconfigurare il quinquennio. Il PDF restituito è ancora un facsimile tecnico: il layout e le regole di conteggio devono essere validati prima dell'uso amministrativo. La firma digitale e la protocollazione avvengono successivamente, all'esterno di RankUp.
 
 L'esportazione ZIP produce nuovi PDF: **i file scaricati prima della 0.4.2 non vengono cancellati dal computer**. Sostituirli manualmente e usare soltanto la versione corretta. I template ufficiali editabili caricabili senza modifiche al codice restano una funzione da implementare.
+
+## v0.4.3 — Scheda ordinaria e SSD NN
+La generazione per tutti gli SSD non professionalizzanti utilizza ora un nuovo modello editabile di una pagina, basato sul PDF ordinario originale. I massimali per area sono 15 (titoli/aggiornamento), 10 (attività professionale), 15 (didattica), 10 (scientifica), 3 (valutazione didattica), 7 (esperienze/competenze). La sezione scientifica descrive **cinque tipi di pubblicazioni** con un unico punteggio P13, come il modulo di riferimento. I punteggi restano inizializzati a zero; l'esito e le note sono editabili.
+
+La classificazione **NN** in PICA è mantenuta come dato di origine, ma per decisione operativa viene usato il **modello ordinario**. Non occorre selezionare o salvare nulla per NN, né viene consentita una selezione professionalizzante su tale codice. Una cella realmente vuota è ancora segnalata per verifica.
+
+Per collaudare: aggiornare RankUp alla versione 0.4.3, generare lo ZIP di un CdS con incarico ordinario o NN, aprire il PDF in Adobe Acrobat Reader, verificare una sola pagina, 15 campi P01-P15, totale iniziale zero e massimo 60, salvataggio note/esito e calcolo del totale dopo l'assegnazione di alcuni punteggi. Confrontare l'impaginazione con il modello ufficiale prima dell'uso amministrativo. La commissione firmerà successivamente, fuori dall'app.
