@@ -3,10 +3,11 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico iniziale (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.2.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
-- Add-on Home Assistant OS con accesso tramite Ingress.
+- Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
+- Porta host opzionale per Cloudflare Tunnel, disabilitata per impostazione predefinita.
 - Dashboard chiara con menu laterale blu notte e bando attivo sempre evidenziato.
 - Importazione PICA in formato Excel .xls/.xlsx con anteprima e conferma.
 - Riconoscimento del codice bando dalla prima riga (es. "univr 26-02 - Esportazione dati").
@@ -16,10 +17,10 @@ Prototipo tecnico iniziale (non ancora idoneo alla gestione in produzione di dat
 - Pagine Bandi, Candidature, Valutazioni, Verbali, Graduatorie, Archivio (alcune ancora segnaposto).
 
 ### Non ancora implementato
-Modifica delle commissioni già importate, generazione/lettura schede PDF, verbali, graduatorie, ruoli utente, export ZIP e cancellazione. Il controllo requisiti è stato rinviato su richiesta.
+Modifica delle commissioni già importate, generazione/lettura schede PDF, verbali, graduatorie, account operatore/ruoli distinti, export ZIP e cancellazione. Il controllo requisiti è stato rinviato su richiesta.
 
 ## Installazione su Home Assistant
-Aggiungere questo repository in **Impostazioni > Componenti aggiuntivi > Negozio > Repository**, installare RankUp e aprire l'interfaccia Ingress. La build richiede accesso Internet per le dipendenze Python.
+Aggiungere questo repository in **Impostazioni > Componenti aggiuntivi > Negozio > Repository**; nella scheda **Configurazione** impostare `admin_username` e `admin_password` (obbligatoria), quindi avviare RankUp e aprire l'interfaccia Ingress. Per il tunnel, nella scheda **Rete** si può assegnare la porta host a `8095/tcp`, disabilitata inizialmente. La build richiede accesso Internet per le dipendenze Python. Per i dettagli vedere `rankup/DOCS.md`.
 
 **Sicurezza:** usare solo dati fittizi in questa fase. Il repository non deve contenere file PICA, schede PDF o dati personali. Non esporre la porta interna dell'add-on direttamente su Internet.
 
