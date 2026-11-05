@@ -172,7 +172,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.7.4 · Prototipo tecnico<br>Accesso protetto con account amministratore</p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.7.4 · Prototipo tecnico<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -192,7 +192,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},role:null};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -225,6 +225,8 @@
       };
       function showLogin(message){
         state.role=null;
+        state.username="";
+        $("account-info").textContent="Accesso protetto";
         $("admin-users-link").style.display="none";
         $("admin-menu-heading").style.display="none";
         $("app-layout").style.display="none";
@@ -232,8 +234,10 @@
         $("login-error").textContent=message||"";
         $("login-pass").value="";
       }
-      async function authenticatedBoot(role){
+      async function authenticatedBoot(role, username){
         state.role=role==="admin"?"admin":"user";
+        state.username=username||"";
+        $("account-info").textContent=(state.role==="admin"?"Admin":"Utente")+" · "+state.username;
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
         if(state.page==="utenti" && state.role!=="admin")state.page="dashboard";
@@ -250,7 +254,7 @@
             showLogin("L'amministratore non è configurato. Imposta username e password nella scheda Configurazione dell'add-on e riavvialo.");
             $("login-submit").disabled=true;
           }else if(status.authenticated){
-            await authenticatedBoot(status.role);
+            await authenticatedBoot(status.role,status.username);
           }else{
             showLogin("");
           }
@@ -264,7 +268,7 @@
           var login=await api("auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({username:$("login-user").value,password:$("login-pass").value})});
           $("login-pass").value="";
-          await authenticatedBoot(login.role);
+          await authenticatedBoot(login.role,login.username);
         }catch(error){showLogin(error.message);}
         finally{button.disabled=false;}
       };
