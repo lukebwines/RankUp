@@ -43,6 +43,7 @@ def parse_commissioni(filename: str, content: bytes, expected_code: str) -> dict
 
         rows = []
         keys_seen = set()
+        skipped_empty = 0
         for row_no, cells in enumerate(it, start=2):
             def get(label):
                 idx = indices[normalize(label)]
@@ -54,6 +55,13 @@ def parse_commissioni(filename: str, content: bytes, expected_code: str) -> dict
                        ("presidente", "componenti", "requisiti", "anno")):
                     raise ValueError("Riga incompleta nel file commissioni: " + str(row_no))
                 continue   # righe vuote del modello, con BANDO gia' precompilato
+            # Il modello precompilato elenca i CdS/sedi PICA ancora da
+            # completare: non interpretare queste righe come commissioni.
+            if values["cds"] and values["sede"] and not values["presidente"] and not any(
+                values[k] for k in ("componenti", "requisiti", "anno")
+            ):
+                skipped_empty += 1
+                continue
             if not values["cds"] or not values["sede"] or not values["presidente"]:
                 raise ValueError("CdS, sede e presidente obbligatori alla riga " + str(row_no))
             bando_value = values["bando"]
@@ -78,6 +86,7 @@ def parse_commissioni(filename: str, content: bytes, expected_code: str) -> dict
             "rows": rows,
             "numero_cds": len({course_key(x["cds"]) for x in rows}),
             "numero_sedi": len(rows),
+            "righe_da_compilare_omesse": skipped_empty,
         }
     finally:
         book.close()
