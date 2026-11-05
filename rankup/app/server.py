@@ -6,6 +6,8 @@ Home Assistant Ingress rimane disponibile come ulteriore percorso di accesso.
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
+import zipfile
 import json
 import os
 from pathlib import Path
@@ -17,13 +19,14 @@ import time
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from pica import MAX_FILE_BYTES, parse_pica
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
+from schede import make_scheda
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -486,3 +489,79 @@ def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
                 riferimento=excluded.riferimento, aggiornato_il=excluded.aggiornato_il
         """, (sector, body.tipo, reference, now))
     return {"ssd": sector, "tipo": body.tipo, "riferimento": reference}
+
+
+def _safe_filename(value: str, maxlen=65) -> str:
+    result = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "")).strip("_")
+    return result[:maxlen] or "non_indicato"
+
+
+@app.get("/api/bandi/{code}/schede/zip")
+def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
+    """Genera gli AcroForm singoli e lo ZIP, solo se i settori sono classificati.
+
+    Questo generatore usa fac-simile tecnici da validare sulle schede ufficiali
+    prima dell'uso amministrativo.
+    """
+    code = valid_code(code)
+    with connect() as db:
+        bando = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not bando:
+            fail("Bando non trovato", 404)
+        conditions=["b.id=?","c.stato='Attiva'"]
+        params=[bando["id"]]
+        if cds:
+            conditions.append("i.cds=?")
+            params.append(cds)
+        if sede:
+            conditions.append("i.sede=?")
+            params.append(sede)
+        rows=db.execute("""
+          SELECT c.id_pica,c.cognome,c.nome,c.codice_fiscale,c.stato,
+                 i.key,i.cds,i.sede,i.insegnamento,i.modulo,i.ul,i.ssd,
+                 cl.tipo AS tipo_ssd,
+                 cm.presidente,cm.componenti,cm.anno
+          FROM candidature c
+          JOIN incarichi i ON i.id=c.incarico_id
+          JOIN bandi b ON b.id=c.bando_id
+          LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+          LEFT JOIN commissioni cm ON cm.bando_id=b.id
+                AND LOWER(TRIM(cm.cds))=LOWER(TRIM(i.cds))
+                AND LOWER(TRIM(cm.sede))=LOWER(TRIM(i.sede))
+          WHERE """+" AND ".join(conditions)+"""
+          ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
+                   i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
+                   c.cognome COLLATE NOCASE,c.nome COLLATE NOCASE
+        """,params).fetchall()
+    if not rows:
+        fail("Nessuna candidatura attiva trovata per la selezione")
+    if len(rows)>5000:
+        fail("Numero schede troppo elevato: selezionare uno o piu CdS")
+    unclassified=sorted({r["ssd"] or "(SSD mancante)" for r in rows if not r["tipo_ssd"]})
+    if unclassified:
+        fail("Classificare gli SSD prima della generazione: "+", ".join(unclassified[:20]))
+    without_commission=sorted({r["cds"]+" / "+r["sede"] for r in rows if not r["presidente"]})
+    if without_commission:
+        fail("Commissioni non associate per: "+", ".join(without_commission[:12]))
+    buffer=BytesIO()
+    with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=6) as archive:
+        for row in rows:
+            record=dict(row)
+            record["bando"]=code
+            record["scheda_id"]="RU-"+code+"-"+record["id_pica"]+"-"+record["key"][:10]
+            try:
+                pdf=make_scheda(record,record["tipo_ssd"])
+            except (ValueError, TypeError) as exc:
+                fail("Errore generazione PDF per ID PICA "+record["id_pica"]+": "+str(exc))
+            path=(_safe_filename(record["cds"])+"/"+
+                  _safe_filename(record["sede"])+"/"+
+                  _safe_filename(record["id_pica"])+"_"+record["key"][:10]+".pdf")
+            archive.writestr(path,pdf)
+    filename = "RankUp_"+code+"_schede"
+    if cds:
+        filename += "_"+_safe_filename(cds,30)
+    return Response(content=buffer.getvalue(),media_type="application/zip",headers={
+        "Content-Disposition":'attachment; filename="'+filename+'.zip"',
+        "Cache-Control":"no-store",
+    })
