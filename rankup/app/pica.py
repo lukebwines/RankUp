@@ -10,6 +10,7 @@ import unicodedata
 import hashlib
 from collections import Counter
 from typing import Any
+from incarichi_fields import EXTRA_PICA_FIELDS, EXTRA_SOURCE_KEYS
 
 
 MAX_ROWS = 20000
@@ -118,6 +119,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "codice_fiscale": ["codice fiscale"],
         "stato_pica": ["stato"],
     }
+    fields.update(EXTRA_PICA_FIELDS)
     matched: dict[str, int] = {}
     for canonical, aliases in fields.items():
         for alias in aliases:
@@ -132,6 +134,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
 
     records = []
     ssd_by_key = {}
+    extras_by_key = {}
     keys_seen = set()
     duplicate_rows = 0
     warnings = []
@@ -148,7 +151,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
             continue
 
         incarico = {k: get(k) for k in
-                    ("cds", "sede", "insegnamento", "modulo", "id_copertura", "codice_copertura", "ssd", "ul")}
+                    ("cds", "sede", "insegnamento", "modulo", "id_copertura", "codice_copertura", "ssd", "ul", *EXTRA_SOURCE_KEYS)}
         # I codici di copertura sono preferiti ai nomi. La sede e il CdS
         # restano inclusi per impedire unioni indesiderate.
         stable = incarico["id_copertura"] or incarico["codice_copertura"]
@@ -161,6 +164,20 @@ def parse_pica(filename: str, content: bytes) -> dict:
             raise ValueError("SSD discordante per la stessa copertura PICA: " + incarico["modulo"])
         if ssd:
             ssd_by_key[incarico["key"]] = ssd
+        # Un incarico PICA puo comparire in piu candidature: i metadati
+        # devono essere uguali. Conserviamo i valori non vuoti senza inventare
+        # quelli assenti, indipendentemente dall'ordine delle righe.
+        existing = extras_by_key.setdefault(incarico["key"], {})
+        for field in EXTRA_SOURCE_KEYS:
+            value = incarico[field].strip()
+            previous = existing.get(field, "")
+            if value and previous and value != previous:
+                raise ValueError(
+                    "Valori discordanti del campo " + field +
+                    " per lo stesso incarico PICA: " + incarico["modulo"]
+                )
+            if value:
+                existing[field] = value
         row_key = (candidate_id, incarico["key"])
         if row_key in keys_seen:
             duplicate_rows += 1
@@ -175,6 +192,10 @@ def parse_pica(filename: str, content: bytes) -> dict:
             "incarico": incarico,
             "source_row": row_number,
         })
+    # Le righe duplicate della stessa copertura possono avere alcuni campi
+    # supplementari vuoti: integrare solo da altre righe del medesimo incarico.
+    for record in records:
+        record["incarico"].update(extras_by_key.get(record["incarico"]["key"], {}))
     if not records:
         raise ValueError("Nessuna candidatura utilizzabile trovata nel file")
     assignments = {record["incarico"]["key"] for record in records}
