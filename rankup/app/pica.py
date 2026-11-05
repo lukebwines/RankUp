@@ -108,7 +108,10 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "modulo": ["descrizione copertura"],
         "id_copertura": ["id copertura"],
         "codice_copertura": ["codice copertura"],
-        "ssd": ["settore scientifico disciplinare", "ssd insegnamento", "ssd"],
+        # "ssd" e il settore dell'INCARICO (colonna O nel PICA 26-02).
+        # "Settore scientifico disciplinare" e invece un campo del CANDIDATO
+        # (colonna BC): non deve essere usato come fallback.
+        "ssd": ["ssd", "ssd insegnamento", "ssd copertura"],
         "ul": ["partizione studenti", "codice partizione studenti"],
         "cognome": ["cognome"],
         "nome": ["nome"],
