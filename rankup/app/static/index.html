@@ -723,8 +723,17 @@
         var dest=$("pdf-eval-result");
         if(!dest)return;
         var stats=data.riepilogo||{};
+        var filesDetected=stats.pdf_rilevati===undefined?(data.schede||[]).length:stats.pdf_rilevati;
+        var filesAnalyzed=stats.pdf_analizzati===undefined?(data.schede||[]).length:stats.pdf_analizzati;
+        var totalClassified=(stats.regolare||0)+(stats.rettifica||0)+(stats.da_verificare||0)+(stats.duplicato||0);
+        var countsMatch=filesDetected===filesAnalyzed && filesAnalyzed===totalClassified
+                        && (data.schede||[]).length===filesAnalyzed;
         var actionable=(stats.regolare||0)+(stats.rettifica||0)+(stats.da_verificare||0);
         dest.innerHTML='<h3 class="section-heading">Anteprima senza acquisizione</h3>'+
+          '<div class="notice"><strong>PDF trovati nel caricamento: '+esc(filesDetected)+
+          ' · PDF analizzati: '+esc(filesAnalyzed)+' · PDF classificati: '+esc(totalClassified)+'</strong>'+
+          (countsMatch?'': '<div class="error">Attenzione: conteggi incoerenti. Non procedere all’acquisizione.</div>')+'</div>'+
+          '<p class="caption">Il numero di schede attese nel riepilogo CdS è ricavato dalle candidature attive in PICA e non coincide necessariamente con il numero di file presenti nello ZIP.</p>'+
           '<div class="notice">'+(stats.regolare||0)+' regolari · '+(stats.rettifica||0)+
           ' nuove versioni · '+(stats.da_verificare||0)+' da verificare · '+
           (stats.duplicato||0)+' duplicati. I PDF regolari saranno acquisiti solo dopo la conferma.</div>'+
@@ -739,7 +748,7 @@
           }).join('')+'</tbody></table></div>'+
           (stats.rettifica?'<label style="display:block;margin-top:14px"><input type="checkbox" id="pdf-eval-revision"> Confermo esplicitamente la nuova versione delle schede già acquisite (lo storico sarà conservato)</label>':'')+
           '<div class="actions" style="margin-top:16px">'+
-          '<button class="btn" id="pdf-eval-confirm" type="button"'+(actionable?'':' disabled')+'>Conferma acquisizione ('+
+          '<button class="btn" id="pdf-eval-confirm" type="button"'+((actionable&&countsMatch)?'':' disabled')+'>Conferma acquisizione ('+
           (stats.regolare||0)+' regolari, '+(stats.rettifica||0)+' rettifiche, '+(stats.da_verificare||0)+' da verificare)</button>'+
           '<button class="btn secondary" id="pdf-eval-cancel" type="button">Annulla anteprima</button></div>'+
           '<p class="caption">La conferma conserva anche i PDF anomali come «Da verificare», senza registrare i loro punteggi. I duplicati vengono ignorati.</p>';
