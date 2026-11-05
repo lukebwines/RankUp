@@ -754,6 +754,157 @@ def commit_pica(body: CommitRequest):
     return {"ok": True, "codice_bando": code, "riepilogo": parsed["summary"]}
 
 
+
+class CommissioneInput(BaseModel):
+    cds: str = Field(min_length=1, max_length=250)
+    sede: str = Field(min_length=1, max_length=100)
+    presidente: str = Field(min_length=1, max_length=250)
+    componenti: str = Field(default="", max_length=2000)
+    requisiti: str = Field(default="", max_length=2000)
+    anno: str = Field(default="", max_length=30)
+    expected_updated_at: str | None = None
+
+
+def _commission_fields(row: dict) -> dict[str, str]:
+    keys = ("cds", "sede", "presidente", "componenti", "requisiti", "anno")
+    result = {key: str(row.get(key) or "").strip() for key in keys}
+    if not all(result[key] for key in ("cds", "sede", "presidente")):
+        fail("CdS, sede e presidente sono obbligatori")
+    bounds = {"cds": 250, "sede": 100, "presidente": 250,
+              "componenti": 2000, "requisiti": 2000, "anno": 30}
+    for key, limit in bounds.items():
+        if len(result[key]) > limit:
+            fail("Campo commissione troppo lungo: " + key)
+    return result
+
+
+def _match_commission_row(rows, cds: str, sede: str):
+    matches = [
+        row for row in rows
+        if course_key(row["cds"]) == course_key(cds)
+        and seat_key(row["sede"]) == seat_key(sede)
+    ]
+    if len(matches) > 1:
+        fail("Commissioni duplicate per la stessa sede dopo normalizzazione: verificare i dati", 409)
+    return matches[0] if matches else None
+
+
+def _validate_commission_course(db, bando_id: int, values: dict):
+    groups = db.execute(
+        "SELECT DISTINCT cds,sede FROM incarichi WHERE bando_id=?", (bando_id,)
+    ).fetchall()
+    if not any(
+        course_key(x["cds"]) == course_key(values["cds"])
+        and seat_key(x["sede"]) == seat_key(values["sede"])
+        for x in groups
+    ):
+        fail("Il CdS e la sede non risultano negli incarichi PICA del bando: verificare i dati")
+
+
+def _log_commission_change(db, bando_id: int, commission_id: int, action: str,
+                           before: dict | None, after: dict):
+    db.execute("""
+        INSERT INTO commissioni_eventi
+        (bando_id,commissione_id,azione,precedente_json,successivo_json,autore,quando)
+        VALUES(?,?,?,?,?,?,?)
+    """, (
+        bando_id, commission_id, action,
+        json.dumps(before, ensure_ascii=False) if before is not None else None,
+        json.dumps(after, ensure_ascii=False), AUTH.username,
+        datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+    ))
+
+
+def _insert_commission(db, bando_id: int, values: dict, action: str) -> int:
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    cursor = db.execute("""
+        INSERT INTO commissioni
+        (bando_id,cds,sede,presidente,componenti,requisiti,anno,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)
+    """, (
+        bando_id, values["cds"], values["sede"], values["presidente"],
+        values["componenti"], values["requisiti"], values["anno"], now,
+    ))
+    _log_commission_change(db, bando_id, cursor.lastrowid, action, None, values)
+    return cursor.lastrowid
+
+
+def _update_commission(db, bando_id: int, original: dict, values: dict,
+                       action: str, keep_blank: bool = True) -> bool:
+    keys = ("cds", "sede", "presidente", "componenti", "requisiti", "anno")
+    updated = {
+        key: values[key] if keep_blank or values[key] else original[key]
+        for key in keys
+    }
+    previous = {key: original[key] for key in keys}
+    if updated == previous:
+        return False
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    db.execute("""
+      UPDATE commissioni
+      SET cds=?,sede=?,presidente=?,componenti=?,requisiti=?,anno=?,updated_at=?
+      WHERE id=? AND bando_id=?
+    """, (
+        updated["cds"], updated["sede"], updated["presidente"],
+        updated["componenti"], updated["requisiti"], updated["anno"],
+        now, original["id"], bando_id,
+    ))
+    _log_commission_change(db, bando_id, original["id"], action, previous, updated)
+    return True
+
+
+@app.post("/api/bandi/{code}/commissioni/manuale")
+def add_commissione(code: str, body: CommissioneInput):
+    code = valid_code(code)
+    values = _commission_fields(body.model_dump())
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        _validate_commission_course(db, b["id"], values)
+        current = db.execute("SELECT * FROM commissioni WHERE bando_id=?", (b["id"],)).fetchall()
+        if _match_commission_row(current, values["cds"], values["sede"]) is not None:
+            fail("La commissione per questo CdS/sede esiste già: usa Modifica", 409)
+        commission_id = _insert_commission(db, b["id"], values, "inserimento_manuale")
+        db.commit()
+    return {"ok": True, "id": commission_id, "action": "inserita"}
+
+
+@app.put("/api/bandi/{code}/commissioni/{commission_id}")
+def edit_commissione(code: str, commission_id: int, body: CommissioneInput):
+    code = valid_code(code)
+    if commission_id <= 0:
+        fail("Identificativo commissione non valido")
+    if not body.expected_updated_at:
+        fail("Ricaricare la commissione prima di modificarla", 409)
+    values = _commission_fields(body.model_dump())
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        old = db.execute(
+            "SELECT * FROM commissioni WHERE id=? AND bando_id=?",
+            (commission_id, b["id"]),
+        ).fetchone()
+        if not old:
+            fail("Commissione non trovata", 404)
+        if old["updated_at"] != body.expected_updated_at:
+            fail("La commissione è stata modificata da un altro operatore: aggiorna la pagina", 409)
+        _validate_commission_course(db, b["id"], values)
+        others = db.execute(
+            "SELECT * FROM commissioni WHERE bando_id=? AND id<>?",
+            (b["id"], commission_id),
+        ).fetchall()
+        if _match_commission_row(others, values["cds"], values["sede"]) is not None:
+            fail("Esiste già una commissione per questo CdS/sede", 409)
+        changed = _update_commission(db, b["id"], dict(old), values, "modifica_manuale")
+        db.commit()
+    return {"ok": True, "modificata": changed,
+            "avviso": "Rigenerare le schede PDF già scaricate per il CdS interessato" if changed else ""}
+
+
 @app.get("/api/bandi/{code}/commissioni")
 def list_commissioni(code: str):
     code = valid_code(code)
