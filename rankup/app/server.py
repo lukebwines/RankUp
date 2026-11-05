@@ -1184,6 +1184,12 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
             SELECT cds,sede,presidente,componenti,anno,requisiti
             FROM commissioni WHERE bando_id=?
         """, (bando["id"],)).fetchall()
+        bando_ref_row = db.execute("""
+            SELECT repertorio,protocollo,data_avviso,anno_accademico
+            FROM bandi_riferimenti WHERE bando_id=?
+        """, (bando["id"],)).fetchone()
+    bando_ref = dict(bando_ref_row) if bando_ref_row else {}
+    notice_ref = bando_notice_reference(bando_ref)
     if not rows:
         fail("Nessuna candidatura attiva trovata per la selezione")
     if len(rows)>5000:
@@ -1208,8 +1214,12 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
         record.update({
             "presidente": commission["presidente"],
             "componenti": commission["componenti"],
-            "anno": commission["anno"],
-            "requisiti": commission["requisiti"],
+            "anno": bando_ref.get("anno_accademico") or commission["anno"],
+            # Il riferimento del bando, se verificato e completo, prevale
+            # soltanto nella casella dell'avviso. I requisiti CdS importati
+            # restano conservati nel database delle commissioni.
+            "requisiti": notice_ref or commission["requisiti"],
+            "requisiti_specifici": commission["requisiti"],
         })
         associated.append(record)
     if missing or ambiguous:
