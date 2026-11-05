@@ -112,6 +112,8 @@
     .theme-toggle{display:flex;gap:8px;align-items:center;white-space:nowrap}
     .theme-toggle .navicon{width:17px;height:17px}
     @media(max-width:690px){.topbar{flex-wrap:wrap}.theme-toggle{font-size:12px}}
+    .rankup-user-input{display:block;width:100%;min-width:220px;max-width:330px;padding:10px;margin:7px 0 10px;border:1px solid #c2d2e2;border-radius:8px;font-size:14px}
+    html[data-theme="dark"] .rankup-user-input{background:#0d1d2e;color:#eaf2fb;border-color:#55708c}
   </style>
 </head>
 <body>
@@ -157,6 +159,8 @@
         <div class="nav-separator">GESTIONE GENERALE</div>
         <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
         <button data-page="bandi"><svg class="navicon" aria-hidden="true"><use href="#ri-folders"></use></svg> Bandi</button>
+        <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
+        <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
@@ -221,6 +225,8 @@
       };
       function showLogin(message){
         state.role=null;
+        $("admin-users-link").style.display="none";
+        $("admin-menu-heading").style.display="none";
         $("app-layout").style.display="none";
         $("auth-screen").style.display="grid";
         $("login-error").textContent=message||"";
@@ -228,6 +234,9 @@
       }
       async function authenticatedBoot(role){
         state.role=role==="admin"?"admin":"user";
+        $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
+        if(state.page==="utenti" && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -304,12 +313,14 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",utenti:"Gestione utenti",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
         if(state.page==="dashboard")return dashboard();
         if(state.page==="bandi")return renderBandi();
+        if(state.page==="utenti")return state.role==="admin"?renderUtenti():
+          html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="riferimenti")return renderBandoReferences();
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="schede")return renderSchede();
@@ -318,6 +329,108 @@
         if(state.page==="graduatorie")return html(panel("Graduatorie per CdS e generali", "Saranno distinti i nominativi in chiaro per le commissioni e l'identificazione selettiva dei vincitori per l'approvazione degli atti."));
         if(state.page==="archivio")return html(panel("Archivio bandi", "Esportazione ZIP completa, ripristino e cancellazione controllata: funzionalità futura. Attualmente nessun comando di eliminazione è attivo."));
       }
+      async function renderUtenti(){
+        if(state.role!=="admin"){
+          html(panel("Accesso riservato","Gestione degli utenti consentita soltanto all'amministratore."));
+          return;
+        }
+        html('<div class="card"><h3 class="section-heading">Gestione account RankUp</h3>'+
+             '<p class="muted">Caricamento utenti...</p></div>');
+        try{
+          var result=await api("utenti");
+          if(state.page!=="utenti"||state.role!=="admin")return;
+          var users=result.utenti||[];
+          var content='<div class="card mb"><h3 class="section-heading">Amministratore del sistema</h3>'+
+            '<p><strong>'+esc(result.admin.username)+'</strong> · Admin</p>'+
+            '<p class="caption">Le credenziali dell’amministratore rimangono nella Configurazione dell’add-on Home Assistant. Gli utenti creati qui non possono attribuirsi privilegi amministrativi.</p>'+
+            '</div>'+
+            '<div class="card mb"><h3 class="section-heading">Crea un utente operativo</h3>'+
+            '<p class="muted">Gli utenti possono gestire bandi, incarichi, candidature, commissioni, schede PDF e valutazioni automatiche. L’acquisizione manuale e la gestione account sono riservate all’Admin.</p>'+
+            '<form id="new-user-form" autocomplete="off"><div class="actions" style="align-items:end;gap:14px;flex-wrap:wrap">'+
+            '<label>Nome utente<input class="rankup-user-input" id="new-user-name" name="username" autocomplete="off" maxlength="50" minlength="3" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,49}" required placeholder="Nome per l’accesso"></label>'+
+            '<label>Password iniziale<input class="rankup-user-input" id="new-user-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required placeholder="Minimo 8 caratteri"></label>'+
+            '<button type="submit" class="btn" id="new-user-submit">Crea utente</button></div></form>'+
+            '<p class="caption">La password non sarà più visualizzata dopo il salvataggio. Comunica le credenziali con un canale riservato.</p></div>'+
+            '<div class="card"><h3 class="section-heading">Utenti operativi ('+users.length+')</h3>';
+          if(!users.length)content+='<p class="muted">Nessun utente operativo registrato.</p>';
+          else{
+            content+='<div class="tablebox"><table><thead><tr><th>Utente</th><th>Stato</th><th>Creato il</th><th>Azioni</th></tr></thead><tbody>'+
+              users.map(function(u){
+                return '<tr><td><strong>'+esc(u.username)+'</strong><div class="caption">Ruolo: Utente operativo</div></td>'+
+                '<td>'+esc(u.attivo?"Attivo":"Disattivato")+'</td><td>'+esc(u.creato_il||"—")+'</td>'+
+                '<td><div class="actions">'+
+                '<button type="button" class="btn secondary" data-user-state="'+esc(u.id)+'" data-active="'+(u.attivo?"1":"0")+'">'+(u.attivo?"Disattiva":"Riattiva")+'</button>'+
+                '<button type="button" class="btn secondary" data-user-reset="'+esc(u.id)+'">Reimposta password</button></div>'+
+                '<form data-password-form="'+esc(u.id)+'" style="display:none;margin-top:10px" autocomplete="off">'+
+                '<label>Nuova password (minimo 8 caratteri)'+
+                '<input class="rankup-user-input" type="password" name="password" minlength="8" maxlength="128" required autocomplete="new-password" placeholder="Nuova password"></label>'+
+                '<button type="submit" class="btn">Salva nuova password</button></form></td></tr>';
+              }).join('')+'</tbody></table></div>';
+          }
+          content+='</div>';
+          html(content);
+          $("new-user-form").onsubmit=async function(event){
+            event.preventDefault();
+            var button=$("new-user-submit");
+            button.disabled=true;
+            try{
+              var data={username:$("new-user-name").value.trim(),
+                        password:$("new-user-password").value};
+              if(data.password.length<8){note("Password: almeno 8 caratteri",true);return;}
+              await api("utenti",{method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify(data)});
+              $("new-user-password").value="";
+              note("Utente creato: "+data.username+". Le credenziali devono essere comunicate in modo riservato.",false);
+              renderUtenti();
+            }catch(err){note(err.message,true);}
+            finally{button.disabled=false;}
+          };
+          document.querySelectorAll("[data-user-state]").forEach(function(btn){
+            btn.onclick=async function(){
+              var id=Number(btn.dataset.userState);
+              var activate=btn.dataset.active!=="1";
+              if(!confirm((activate?"Riattivare":"Disattivare")+" l'utente?"+
+                  (activate?"":" Le eventuali sessioni aperte saranno chiuse.")))return;
+              btn.disabled=true;
+              try{
+                await api("utenti/"+id+"/stato",{method:"PUT",
+                  headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({attivo:activate})});
+                note("Stato dell'utente aggiornato.",false);
+                renderUtenti();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          document.querySelectorAll("[data-user-reset]").forEach(function(btn){
+            btn.onclick=function(){
+              var form=document.querySelector('[data-password-form="'+btn.dataset.userReset+'"]');
+              form.style.display=form.style.display==="none"?"block":"none";
+              if(form.style.display==="block")form.querySelector("input").focus();
+              else form.reset();
+            };
+          });
+          document.querySelectorAll("[data-password-form]").forEach(function(form){
+            form.onsubmit=async function(event){
+              event.preventDefault();
+              var id=Number(form.dataset.passwordForm);
+              var password=form.querySelector("input").value;
+              if(password.length<8){note("Password: almeno 8 caratteri",true);return;}
+              if(!confirm("Reimpostare la password? Le sessioni attive dell'utente saranno revocate."))return;
+              var btn=form.querySelector("button");
+              btn.disabled=true;
+              try{
+                await api("utenti/"+id+"/password",{method:"PUT",
+                  headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({password:password})});
+                form.querySelector("input").value="";
+                note("Password reimpostata. L'utente dovrà effettuare nuovamente l'accesso.",false);
+                renderUtenti();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+        }catch(err){note("Impossibile leggere la gestione utenti: "+err.message,true);}
+      }
+
       function renderBandi(){
         html('<div class="split"><section class="card"><h3 class="section-heading">Elenco bandi</h3>'+
           (state.bandi.length?state.bandi.map(row).join(''):'<p class="muted">Nessun bando importato.</p>')+
