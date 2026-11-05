@@ -145,3 +145,5 @@ Controlli da svolgere prima dell'uso ufficiale: PDF ordinario, PDF professionali
 **Novità 0.6.1:** dal riquadro Storico delle schede ricevute è possibile scaricare il PDF originale, anche quando è classificato «Da verificare». Non vengono modificati i PDF acquisiti.
 
 **0.6.2:** corretta la lettura del valore predefinito «-- Seleziona --» del campo esito: non viene confuso con una dichiarazione della commissione. Le schede a punteggio zero senza esito o nota restano «Da verificare». Test automatici: 18 superati sulla base funzionale; verificare nuovamente il pacchetto pubblicato e il comportamento in Home Assistant.
+
+**v0.6.3 — Nomi PDF leggibili:** gli ZIP generati da Schede PDF contengono nomi del tipo `IDPICA_COGNOME_NOME_chiaveincarico.pdf`, mantenendo le cartelle CdS/sede. Cognome e nome derivano direttamente da PICA e sono resi compatibili con i file system. La chiave incarico evita collisioni per candidati con più incarichi. Questa modifica non cambia i PDF AcroForm o la loro lettura al rientro. Per verificare, rigenerare lo ZIP di un CdS e controllare l'elenco dei file.
