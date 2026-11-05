@@ -114,3 +114,5 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] 0.6.1: Download dell'originale PDF dal registro delle valutazioni, comprese le anomalie.
 
 - [x] 0.6.2: Protezione contro i segnaposto del menu esito nelle valutazioni con totale zero, 18 test automatici superati.
+
+- [x] 0.6.3: Nomi delle schede PDF con ID PICA + cognome + nome + chiave incarico, test di unicità e lunghezza.
