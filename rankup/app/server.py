@@ -470,8 +470,12 @@ def list_incarichi(code: str):
     code = valid_code(code)
     with connect() as db:
         rows = db.execute("""
-          SELECT i.cds, i.sede, i.insegnamento, i.modulo, i.ul,
+          SELECT i.key, i.cds, i.sede, i.insegnamento, i.modulo, i.ul,
                  i.id_copertura, i.codice_copertura, i.ssd,
+                 i.anno_corso, i.tipo_corso, i.tipo_cds, i.ciclo,
+                 i.inizio_pica, i.fine_pica, i.inizio_iso, i.fine_iso,
+                 i.codice_partizione, i.partizione_studenti,
+                 i.peso_copertura, i.ore, i.stato_coperture,
                  cl.tipo AS modello_ssd,
                  COUNT(c.id) AS candidature
           FROM incarichi i
@@ -483,7 +487,19 @@ def list_incarichi(code: str):
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                    i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE
         """, (code,)).fetchall()
-    return {"incarichi": [dict(row) for row in rows]}
+        migration = db.execute("""
+            SELECT m.metodo, m.incarichi_verificati, m.incarichi_aggiornati,
+                   m.campi_compilati, m.aggiornato_il
+            FROM incarichi_metadata_migrations m
+            JOIN bandi b ON b.id=m.bando_id
+            WHERE b.codice=?
+        """, (code,)).fetchone()
+        if not db.execute("SELECT 1 FROM bandi WHERE codice=?", (code,)).fetchone():
+            fail("Bando non trovato", 404)
+    return {
+        "incarichi": [dict(row) for row in rows],
+        "acquisizione_metadati": dict(migration) if migration else None,
+    }
 
 
 @app.get("/api/bandi/{code}/candidature")
