@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.4.0 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.4.1 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -43,3 +43,6 @@ Il PICA fornisce già tutte le informazioni della copertura. RankUp salva come c
 Per i bandi già importati (come il 26-02), una migrazione controllata recupera i dati esclusivamente dal file PICA originale conservato nell'add-on, dopo confronto dell'impronta SHA-256 e verifica della corrispondenza univoca di tutti gli incarichi. Gli altri dati non vengono modificati. Lo storico di migrazione resta in SQLite. La nuova interfaccia **Incarichi** mostra il dettaglio di ciascuna copertura.
 
 In questa milestone non vengono modificati i modelli PDF né generate informazioni mancanti nella fonte.
+
+### Scelta del modello PDF (v0.4.1)
+Gli SSD PICA effettivamente identificati usano **Non professionalizzante** come modello operativo predefinito. Non è necessario classificarli o salvarli singolarmente. Nella sezione **Schede PDF**, scegliere **Professionalizzante** solo per i settori interessati: la selezione viene salvata immediatamente nel database e riutilizzata in altri bandi. Non occorre indicare un riferimento documentale per il salvataggio. Le modifiche sono visibili come **Scelta salvata**, mentre gli SSD senza interventi manuali restano **Predefinito**. I codici privi di SSD effettivo (per esempio `NN`) restano in verifica e non possono essere utilizzati per la generazione senza un dato corretto. Le schede PDF restano facsimili da validare prima dell'uso amministrativo.
