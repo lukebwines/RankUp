@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.6.3 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.6.4 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -101,3 +101,8 @@ Il prospetto per CdS/sede considera soltanto le candidature attive. Il logo Rank
 
 ### v0.6.3 — Nomi delle schede PDF nello ZIP
 Il PDF di ciascuna candidatura ora include nel nome **ID PICA, cognome e nome**, seguiti dal codice tecnico dell'incarico: `IDPICA_COGNOME_NOME_chiaveincarico.pdf`. La struttura delle cartelle dello ZIP resta CdS/sede. Nomi e cognomi sono troncati a 26 caratteri ciascuno per evitare nomi troppo lunghi; gli accenti vengono normalizzati per compatibilità tra sistemi. La chiave tecnica rimane per distinguere più candidature della stessa persona a incarichi diversi. La reimportazione verifica l'identificativo interno alla scheda, non il nome del file. Le schede già scaricate non vengono rinominate: occorre rigenerare lo ZIP.
+
+### v0.6.4 — Diagnostica ZIP schede PDF
+Il caricamento di un archivio ZIP non deve confondere il numero di PDF effettivamente presenti con il numero di candidature attive PICA. L'anteprima mostra tre conteggi distinti: **PDF trovati**, **PDF analizzati**, **PDF classificati** (somma di regolari, rettifiche, da verificare e duplicati). In presenza di un'incongruenza disabilita la conferma. La sezione di avanzamento CdS/sede continua a mostrare separatamente le sole candidature attive attese.
+La verifica sull'archivio ricevuto per Osteopatia / Verona ha individuato 21 file PDF distinti, tutti editabili, con punteggio iniziale zero, esito non selezionato e note vuote: senza valutazione della commissione devono risultare «Da verificare» e non essere acquisiti con punteggio zero.
+Test sintetico con ZIP contenente 21 PDF: controllo automatico superato. Rimane da verificare il dato «15» visualizzato sul sistema Home Assistant, che potrebbe riferirsi a un contatore diverso.
