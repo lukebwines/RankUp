@@ -189,8 +189,22 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         pdf_default=client.get("/api/bandi/26-02/schede/zip")
         assert pdf_default.status_code==200, pdf_default.text
         with zipfile.ZipFile(BytesIO(pdf_default.content)) as archive:
-            assert all("P19" not in PdfReader(BytesIO(archive.read(name))).get_fields()
-                       for name in archive.namelist())
+            for name in archive.namelist():
+                pdf=PdfReader(BytesIO(archive.read(name)))
+                fields=pdf.get_fields()
+                assert len(pdf.pages)==1
+                assert all(("P%02d"%n) in fields for n in range(1,16))
+                assert "P19" not in fields
+                assert len(pdf.trailer["/Root"]["/AcroForm"]["/CO"])==1
+                assert fields["P01"].value=="0"
+                assert fields["P09"].value=="0"
+                assert fields["P13"].value=="0"
+                assert fields["P14"].value=="0"
+                assert fields["P15"].value=="0"
+                assert len(fields["P14"].get("/Opt"))==2
+                assert "60" in pdf.pages[0].extract_text()
+                assert "Pubblicazione di articolo" in pdf.pages[0].extract_text()
+                assert fields["NOTE-COMM"].get("/Ff",0)&4096
 
         # La selezione professionalizzante salva anche SSD con '/' e senza fonte.
         res=client.put("/api/ssd/"+quote("MEDS-24/C",safe="")+"/classificazione",
@@ -241,14 +255,27 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                 types.append("P19" in fields)
             assert types.count(True)==1
             assert types.count(False)==2
-        # Un codice PICA 'NN' non viene classificato automaticamente.
+        # NN resta il valore originale PICA ma usa la scheda ordinaria.
         with server.connect() as db:
             db.execute("UPDATE incarichi SET ssd='NN' WHERE ssd='SSD-A'")
-        unresolved=client.get("/api/bandi/26-02/ssd").json()["ssd"]
-        assert any(x["ssd"]=="NN" and x["tipo"] is None for x in unresolved)
+        classified=client.get("/api/bandi/26-02/ssd").json()["ssd"]
+        assert any(x["ssd"]=="NN" and x["tipo"]=="ordinario"
+                   and x["tipo_salvato"] is None for x in classified)
+        assert client.put("/api/ssd/NN/classificazione",
+            headers={"X-RankUp-Request":"1"},
+            json={"tipo":"professionalizzante"}).status_code==400
+        nn_zip=client.get("/api/bandi/26-02/schede/zip")
+        assert nn_zip.status_code==200, nn_zip.text
+        with zipfile.ZipFile(BytesIO(nn_zip.content)) as archive:
+            assert len(archive.namelist())==3
+            assert sum("P19" in PdfReader(BytesIO(archive.read(name))).get_fields()
+                       for name in archive.namelist())==1
+        # Le celle davvero vuote rimangono da verificare.
+        with server.connect() as db:
+            db.execute("UPDATE incarichi SET ssd='' WHERE ssd='NN'")
         assert client.get("/api/bandi/26-02/schede/zip").status_code==400
         with server.connect() as db:
-            db.execute("UPDATE incarichi SET ssd='SSD-A' WHERE ssd='NN'")
+            db.execute("UPDATE incarichi SET ssd='SSD-A' WHERE ssd=''")
 
         repeat = client.post("/api/pica/preview",
                              headers={"X-RankUp-Request": "1"},
