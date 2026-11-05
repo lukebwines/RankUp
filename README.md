@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.6.2 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.6.3 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -98,3 +98,6 @@ Il prospetto per CdS/sede considera soltanto le candidature attive. Il logo Rank
 **Aggiornamento 0.6.1:** aggiunto il download autenticato degli originali PDF anche per le schede da verificare. Sono parte dello storico e rimangono disponibili per un controllo o per richiedere una nuova scheda alla commissione.
 
 **Rilascio 0.6.2:** confermato il controllo delle schede a punteggio zero senza esito o note. La suite automatica sul codice funzionale ha superato tutti i 18 test. Resta necessario il collaudo sul Raspberry e nei lettori PDF reali.
+
+### v0.6.3 — Nomi delle schede PDF nello ZIP
+Il PDF di ciascuna candidatura ora include nel nome **ID PICA, cognome e nome**, seguiti dal codice tecnico dell'incarico: `IDPICA_COGNOME_NOME_chiaveincarico.pdf`. La struttura delle cartelle dello ZIP resta CdS/sede. Nomi e cognomi sono troncati a 26 caratteri ciascuno per evitare nomi troppo lunghi; gli accenti vengono normalizzati per compatibilità tra sistemi. La chiave tecnica rimane per distinguere più candidature della stessa persona a incarichi diversi. La reimportazione verifica l'identificativo interno alla scheda, non il nome del file. Le schede già scaricate non vengono rinominate: occorre rigenerare lo ZIP.
