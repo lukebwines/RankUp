@@ -1037,16 +1037,11 @@ async def import_commissioni(
         all_existing = db.execute(
             "SELECT * FROM commissioni WHERE bando_id=?", (b["id"],)
         ).fetchall()
-        available = {course_key(r["cds"]) + "|" + seat_key(r["sede"])
-                     for r in db.execute(
-                         "SELECT cds,sede FROM incarichi WHERE bando_id=?", (b["id"],)
-                     ).fetchall()}
+        # L'Excel ufficiale puo' comprendere commissioni di CdS/sedi
+        # senza candidature in questo specifico bando: le conserviamo.
+        # Solo l'associazione alle schede richiede corrispondenza PICA.
         for item in parsed["rows"]:
             values = _commission_fields(item)
-            key = course_key(values["cds"]) + "|" + seat_key(values["sede"])
-            if key not in available:
-                fail("Il CdS/sede dell'Excel non risulta nel bando PICA: " +
-                     values["cds"] + " / " + values["sede"])
             previous = _match_commission_row(all_existing, values["cds"], values["sede"])
             if previous:
                 if mode == "solo_nuove":
