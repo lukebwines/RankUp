@@ -59,3 +59,15 @@ Il campo `ssd` nell'esportazione PICA si riferisce all'incarico. Il campo `Setto
 All'avvio, RankUp esamina il file PICA originale conservato in `/data/sources/<codice-bando>/` e corregge anche gli SSD non vuoti precedentemente letti dalla colonna errata, senza alterare candidature, commissioni o classificazioni manuali. La procedura è transazionale, eseguita una sola volta per bando e registra i valori antecedenti e successivi. Se il file originale è assente o la corrispondenza degli incarichi non è certa, la correzione non viene eseguita.
 
 Nella pagina Schede PDF viene indicato il numero di incarichi corretti. **Non eliminare e non reimportare** il bando esistente. Verificare il valore `NN` presente nel file PICA: non corrisponde a un SSD specifico e richiede un accertamento prima della generazione delle schede per gli incarichi coinvolti.
+
+## Metadati completi degli incarichi (v0.4.0)
+
+Aggiornare RankUp alla 0.4.0 dopo un backup dell'add-on. **Non reimportare il bando già esistente.** Durante l'avvio, RankUp rilegge una sola volta il file PICA originale archiviato in `/data/sources/<codice-bando>/pica_originale.xls` oppure `.xlsx` e controlla che la sua impronta SHA-256 coincida con quella registrata al momento dell'importazione.
+
+La migrazione confronta gli identificativi interni di **tutti** gli incarichi ricostruiti: se il file, la corrispondenza o i valori già salvati non sono coerenti, non effettua modifiche e la sezione **Incarichi** segnala che l'acquisizione non è verificata. Se va a buon fine, integra esclusivamente i nuovi campi, registra il numero di incarichi aggiornati e conserva uno storico delle modifiche.
+
+Nel menu **Incarichi** aprire **Mostra tutti i dati dell'incarico**. Sono disponibili Anno del Corso, Tipo Corso, Tipo CDS, Ciclo, date INIZIO/FINE, codice e descrizione della partizione studenti, Peso Copertura, Ore, Stato coperture, codici e SSD. Per INIZIO/FINE si mostrano le date leggibili e il **valore originale Excel**. La colonna Ore vuota rimane vuota e viene indicata come non presente: RankUp non la calcola dal Peso Copertura.
+
+Per il file PICA 26-02 verificato: 42 incarichi; i metadati ripetuti nelle 93 candidature sono coerenti. Non ci sono ore nella colonna V. Il codice partizione (S) e la descrizione (T) sono compilati solo per parte degli incarichi. Questi conteggi descrivono **soltanto quel file PICA**, non i bandi futuri.
+
+Il recupero e le verifiche vanno collaudati sull'installazione HAOS prima di utilizzare i dati per generare atti amministrativi.
