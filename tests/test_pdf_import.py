@@ -210,3 +210,161 @@ def test_zip_with_21_blank_pdfs_reports_all_21_in_preview(tmp_path, monkeypatch)
         assert len(body["schede"]) == 21
         assert sum(summary[key] for key in
             ("regolare", "rettifica", "da_verificare", "duplicato")) == 21
+
+
+def test_explicit_non_idoneo_and_escluso_are_concluded_without_score(tmp_path,monkeypatch):
+    """Esito negativo motivato: NULL, mai zero, e candidatura conclusa."""
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        originals=list(sheets.values())
+        ordinary=[doc for doc in originals if "P19" not in PdfReader(BytesIO(doc)).get_fields()]
+        negative=_edit(ordinary[0],{
+            "STATUS":"CANDIDATO NON IDONEO",
+            "NOTE-COMM":"Valutazione negativa motivata dalla commissione nel documento di prova."
+        })
+        excluded=_edit(ordinary[1],{
+            "STATUS":"CANDIDATO CON REQUISITO ENTE DI APPARTENENZA MANCANTE",
+            "NOTE-COMM":"Requisito di appartenenza mancante nella documentazione sintetica."
+        })
+        preview=_preview(client,[("non_idoneo.pdf",negative),("escluso.pdf",excluded)])
+        assert preview["riepilogo"]["regolare"]==2,preview["schede"]
+        assert {x["decisione"] for x in preview["schede"]}=={"non_idoneo","escluso"}
+        assert all(x["punteggio"] is None for x in preview["schede"])
+        result=_confirm(client,preview["token"])
+        assert result["acquisite"]==2
+        summary=client.get("/api/bandi/26-02/valutazioni").json()
+        assert summary["totale_acquisite"]==2
+        assert summary["totale_idonee"]==0
+        assert summary["totale_non_idonee"]==1
+        assert summary["totale_escluse"]==1
+        with server.connect() as db:
+            values=db.execute("""
+                SELECT decisione,totale_calcolato,metodo,esito,note FROM valutazioni_pdf
+                WHERE stato='Acquisita' ORDER BY id
+            """).fetchall()
+            assert [r["decisione"] for r in values]==["non_idoneo","escluso"]
+            assert all(r["totale_calcolato"] is None and r["metodo"]=="automatico" for r in values)
+
+
+def test_negative_without_note_is_not_concluded(tmp_path,monkeypatch):
+    _,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        ordinary=next(p for p in sheets.values()
+            if "P19" not in PdfReader(BytesIO(p)).get_fields())
+        neg=_edit(ordinary,{"STATUS":"CANDIDATO NON IDONEO"})
+        preview=_preview(client,[("senza_nota.pdf",neg)])
+        assert preview["riepilogo"]["da_verificare"]==1
+        assert "Motivazione" in preview["schede"][0]["motivo"]
+        assert client.get("/api/bandi/26-02/valutazioni").json()["totale_acquisite"]==0
+
+
+def test_manual_idoneo_accepts_documented_total_and_logs_original(tmp_path,monkeypatch):
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        ordinary=next(p for p in sheets.values()
+            if "P19" not in PdfReader(BytesIO(p)).get_fields())
+        broken=_edit(ordinary,{
+            "STATUS":"CANDIDATO AMMESSO IN GRADUATORIA",
+            "P01":"2","TOT":"0"
+        })
+        preview=_preview(client,[("lettore_mac.pdf",broken)])
+        assert preview["riepilogo"]["da_verificare"]==1
+        _confirm(client,preview["token"])
+        record=client.get("/api/bandi/26-02/valutazioni").json()["archivio"][0]
+        assert record["stato"]=="Da verificare"
+        payload={
+            "candidatura_id":record["candidatura_id"],
+            "esito":"CANDIDATO AMMESSO IN GRADUATORIA",
+            "punteggio":"2.00",
+            "nota_commissione":"",
+            "motivazione_tecnica":"Il programma PDF non ha aggiornato il totale.",
+            "documento_verificato":True
+        }
+        response=_post(client,f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+                       json={**payload,"documento_verificato":False})
+        assert response.status_code==400,response.text
+        response=_post(client,f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+                       json=payload)
+        assert response.status_code==200,response.text
+        assert response.json()["decisione"]=="idoneo"
+        summary=client.get("/api/bandi/26-02/valutazioni").json()
+        assert summary["totale_acquisite"]==1
+        assert summary["totale_idonee"]==1
+        row=summary["archivio"][0]
+        assert row["metodo"]=="manuale" and row["totale_calcolato"]==2
+        downloaded=client.get(f"/api/bandi/26-02/valutazioni/{record['id']}/documento")
+        assert downloaded.content==broken
+        with server.connect() as db:
+            events=db.execute("SELECT * FROM valutazioni_pdf_eventi").fetchall()
+            assert len(events)==1
+            assert events[0]["azione"]=="Acquisizione manuale"
+
+
+def test_manual_negative_requires_original_note_and_uses_null_score(tmp_path,monkeypatch):
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        ordinary=next(p for p in sheets.values()
+            if "P19" not in PdfReader(BytesIO(p)).get_fields())
+        preview=_preview(client,[("da_verificare.pdf",ordinary)])
+        _confirm(client,preview["token"])
+        record=client.get("/api/bandi/26-02/valutazioni").json()["archivio"][0]
+        data={
+            "candidatura_id":record["candidatura_id"],
+            "esito":"CANDIDATO NON IDONEO",
+            "punteggio":None,"nota_commissione":"",
+            "motivazione_tecnica":"Documento non estraibile automaticamente, revisione necessaria.",
+            "documento_verificato":True
+        }
+        target=f"/api/bandi/26-02/valutazioni/{record['id']}/manuale"
+        no_note=_post(client,target,json=data)
+        assert no_note.status_code==400,no_note.text
+        with_score=_post(client,target,json={**data,
+            "nota_commissione":"Esito negativo deliberato nel verbale sintetico",
+            "punteggio":"0"})
+        assert with_score.status_code==400,with_score.text
+        result=_post(client,target,json={**data,
+            "nota_commissione":"Esito negativo deliberato nel verbale sintetico"})
+        assert result.status_code==200,result.text
+        with server.connect() as db:
+            row=db.execute("""
+                SELECT decisione,totale_calcolato,note,metodo
+                FROM valutazioni_pdf WHERE id=?
+            """,(record["id"],)).fetchone()
+            assert row["decisione"]=="non_idoneo"
+            assert row["totale_calcolato"] is None
+            assert row["metodo"]=="manuale"
+
+
+def test_manual_wrong_pica_and_filter_scope_rejected(tmp_path,monkeypatch):
+    _,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        original=next(p for p in sheets.values()
+            if "P19" not in PdfReader(BytesIO(p)).get_fields())
+        preview=_preview(client,[("da_verificare.pdf",original)])
+        _confirm(client,preview["token"])
+        record=client.get("/api/bandi/26-02/valutazioni").json()["archivio"][0]
+        list_result=client.get("/api/bandi/26-02/valutazioni/candidature",
+           params={"sede":"SEDE A"}).json()["candidature"]
+        assert len(list_result)==3
+        wrong=next(c for c in list_result if c["id"]!=record["candidatura_id"])
+        bad=_post(client,f"/api/bandi/26-02/valutazioni/{record['id']}/manuale",
+            json={"candidatura_id":wrong["id"],
+                  "esito":"CANDIDATO UNICO IDONEO","punteggio":"2",
+                  "nota_commissione":"",
+                  "motivazione_tecnica":"Verifica PICA diversa dalla scheda di prova.",
+                  "documento_verificato":True})
+        assert bad.status_code==409,bad.text
+        empty_site=client.get("/api/bandi/26-02/valutazioni",
+             params={"sede":"SEDE B"}).json()
+        assert empty_site["totale_attese"]==0
+        assert empty_site["archivio"]==[]
+        right_site=client.get("/api/bandi/26-02/valutazioni",
+             params={"sede":"SEDE A"}).json()
+        assert right_site["totale_attese"]==3
+        assert len(right_site["archivio"])==1
+        # Il filtro selezionato non può accettare schede riconosciute di altro CdS/sede.
+        response=_post(client,"/api/bandi/26-02/valutazioni/anteprima",
+            params={"sede":"SEDE B"},
+            files={"files":("different_site.pdf",original,"application/pdf")})
+        assert response.status_code==400,response.text
+        assert "diversi" in response.text
