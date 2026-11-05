@@ -604,3 +604,25 @@ def test_only_admin_can_manually_acquire_a_pdf(tmp_path, monkeypatch):
             json=payload)
         assert approved.status_code==200,approved.text
         assert approved.json()["metodo"]=="manuale"
+
+
+def test_admin_manual_button_remains_visible_for_every_pending_document():
+    """Ripristino UI: il PDF senza esito non nasconde il comando Admin.
+
+    L'autorizzazione e la validità della decisione sono verificate soltanto
+    dal server al momento del salvataggio, con i test separati già previsti.
+    """
+    from pathlib import Path
+    html=(Path(__file__).resolve().parents[1]/"rankup"/"app"/"static"/"index.html").read_text(encoding="utf-8")
+    start=html.index('var archive=report.archivio||[];')
+    end=html.index('document.querySelectorAll("[data-val-manual]")',start)
+    archive=html[start:end]
+    assert 'r.stato==="Da verificare"?' in archive
+    assert 'state.role==="admin"?' in archive
+    assert 'data-val-manual' in archive
+    assert 'Acquisisci manualmente' in archive
+    # Le segnalazioni sono informative; non determinano la visibilità.
+    assert 'r.manuale_possibile===false?' in archive
+    assert 'r.manuale_possibile?' not in archive
+    # Anche il rendering del modulo è protetto.
+    assert 'if(state.role!=="admin")' in html
