@@ -34,16 +34,31 @@ def normalize(value: Any) -> str:
 def _read_rows(filename: str, content: bytes):
     ext = filename.lower().rsplit(".", 1)[-1]
     if ext == "xls":
-        import xlrd
-        book = xlrd.open_workbook(file_contents=content, on_demand=True)
+        # xlrd è il parser principale; alcune esportazioni PICA .xls
+        # contengono record BIFF non gestiti da tutti i reader.
+        # Il fallback è stato verificato sul formato effettivo PICA.
         try:
-            sheet = book.sheet_by_index(0)
-            if sheet.nrows > MAX_ROWS or sheet.ncols > MAX_COLUMNS:
-                raise ValueError("File PICA oltre i limiti di righe o colonne")
-            for i in range(sheet.nrows):
-                yield [sheet.cell_value(i, j) for j in range(sheet.ncols)]
-        finally:
-            book.release_resources()
+            import xlrd
+            book = xlrd.open_workbook(file_contents=content, on_demand=True)
+            try:
+                sheet = book.sheet_by_index(0)
+                if sheet.nrows > MAX_ROWS or sheet.ncols > MAX_COLUMNS:
+                    raise ValueError("File PICA oltre i limiti di righe o colonne")
+                rows = [[sheet.cell_value(i, j) for j in range(sheet.ncols)]
+                        for i in range(sheet.nrows)]
+            finally:
+                book.release_resources()
+        except Exception as primary_error:
+            from legacy_biff import read_rows
+            try:
+                rows = list(read_rows(content))
+            except Exception as fallback_error:
+                raise ValueError(
+                    "Impossibile decodificare il formato Excel .xls. "
+                    "Lettore principale: " + type(primary_error).__name__ +
+                    "; lettore alternativo: " + type(fallback_error).__name__
+                ) from fallback_error
+        yield from rows
     elif ext == "xlsx":
         from openpyxl import load_workbook
         book = load_workbook(BytesIO(content), read_only=True, data_only=True)
