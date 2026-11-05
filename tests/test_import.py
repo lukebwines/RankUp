@@ -145,6 +145,13 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert repeat.status_code == 409
 
+        # Simula il bando importato prima dell'introduzione dell'SSD.
+        with server.connect() as db:
+            db.execute("UPDATE incarichi SET ssd='' WHERE bando_id=(SELECT id FROM bandi WHERE codice='26-02')")
+        importlib.reload(server)
+        with server.connect() as db:
+            sectors=[r["ssd"] for r in db.execute("SELECT DISTINCT ssd FROM incarichi ORDER BY ssd")]
+        assert sectors == ["SSD-A","SSD-B"]
         logout = client.post("/api/auth/logout", headers={"X-RankUp-Request": "1"})
         assert logout.status_code == 200
         assert client.get("/api/bandi").status_code == 401
