@@ -199,6 +199,9 @@ def test_zip_with_21_blank_pdfs_reports_all_21_in_preview(tmp_path, monkeypatch)
                     f"OSTEOPATIA/VERONA/candidato_sintetico_{n + 1:02d}.pdf",
                     original[n % len(original)]
                 )
+            archive.writestr("__MACOSX/OSTEOPATIA/VERONA/._candidato_sintetico_01.pdf",
+                             b"Finder resource-fork metadata")
+            archive.writestr("OSTEOPATIA/VERONA/.DS_Store",b"Finder metadata")
         result = _post(client, "/api/bandi/26-02/valutazioni/anteprima",
             files={"files": ("schede_21.zip", archive_bytes.getvalue(), "application/zip")})
         assert result.status_code == 200, result.text
@@ -305,7 +308,8 @@ def test_manual_negative_requires_original_note_and_uses_null_score(tmp_path,mon
     with client:
         ordinary=next(p for p in sheets.values()
             if "P19" not in PdfReader(BytesIO(p)).get_fields())
-        preview=_preview(client,[("da_verificare.pdf",ordinary)])
+        with_note=_edit(ordinary,{"NOTE-COMM":"Esito negativo deliberato nel verbale sintetico"})
+        preview=_preview(client,[("da_verificare.pdf",with_note)])
         _confirm(client,preview["token"])
         record=client.get("/api/bandi/26-02/valutazioni").json()["archivio"][0]
         data={
