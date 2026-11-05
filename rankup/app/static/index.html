@@ -728,7 +728,7 @@
             });
             var archiveHtml=[...groups.entries()].map(function(entry){
               var rows=entry[1];
-              return '<details style="margin:10px 0"><summary style="cursor:pointer;padding:10px 0;font-weight:700">'+esc(entry[0])+
+              return '<details'+(filter.cds?' open':'')+' style="margin:10px 0"><summary style="cursor:pointer;padding:10px 0;font-weight:700">'+esc(entry[0])+
                 ' · '+rows.length+' schede</summary><div class="tablebox"><table><thead><tr>'+
                 '<th>Candidatura</th><th>File</th><th>Stato</th><th>Esito</th><th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
                 rows.map(function(r){
@@ -787,12 +787,30 @@
         }catch(err){note("Impossibile leggere le valutazioni: "+err.message,true);html("");}
       }
 
-      async function renderManualEvaluation(code, record){
+      async function renderManualEvaluation(code, record, manualScope){
         var holder=$("manual-eval-panel");
         if(!holder)return;
-        var filter=state.valFilter;
+        var filter=manualScope||state.valFilter;
         if(!filter.cds && !record.candidatura_id){
-          note("Seleziona prima il CdS e la sede nel menu in alto per associare una scheda priva di identificativo.",true);
+          // Una scheda non associata appare nella vista generale: la scelta
+          // del CdS va eseguita qui, senza far scomparire il documento.
+          try{
+            var result=await api("bandi/"+encodeURIComponent(code));
+            var courses=(result.cds_sedi||[]);
+            holder.innerHTML='<div class="card mb"><h3 class="section-heading">Associa PDF a un CdS</h3>'+
+              '<p class="muted">Per il PDF '+esc(record.nome_originale)+' RankUp non ha riconosciuto la candidatura. Seleziona il CdS e la sede indicati dal documento per scegliere la candidatura PICA.</p>'+
+              '<select id="eval-man-scope" style="display:block;width:100%;padding:10px;margin:10px 0;border:1px solid #c5d4e3;border-radius:8px"><option value="">Scegli CdS e sede</option>'+
+              courses.map(function(c,i){return '<option value="'+i+'">'+esc(c.cds+' · '+c.sede)+'</option>';}).join('')+
+              '</select><div class="actions"><button class="btn" id="eval-man-next">Continua</button>'+
+              '<button class="btn secondary" id="eval-man-scope-cancel">Annulla</button></div></div>';
+            $("eval-man-scope-cancel").onclick=function(){holder.innerHTML="";};
+            $("eval-man-next").onclick=function(){
+              var n=$("eval-man-scope").value,selected=n===""?null:courses[Number(n)];
+              if(!selected){note("Seleziona il CdS e la sede da verificare",true);return;}
+              renderManualEvaluation(code,record,{cds:selected.cds,sede:selected.sede});
+            };
+            holder.scrollIntoView({behavior:"smooth",block:"start"});
+          }catch(err){note(err.message,true);}
           return;
         }
         holder.innerHTML=panel("Acquisizione manuale", "Caricamento candidature PICA...");
@@ -841,6 +859,7 @@
             if(negative)$("eval-man-score").value="";
           }
           select.onchange=statusMode;statusMode();
+          holder.scrollIntoView({behavior:"smooth",block:"start"});
           $("eval-man-cancel").onclick=function(){holder.innerHTML="";};
           $("eval-man-save").onclick=async function(){
             var candidacy=$("eval-man-candidate").value;
