@@ -187,3 +187,36 @@ def test_commission_template_skips_untouched_course_placeholders():
     parsed = parse_commissioni("format.xlsx", data, "26-02")
     assert parsed["numero_sedi"] == 1
     assert parsed["righe_da_compilare_omesse"] == 1
+
+
+def test_incomplete_commission_must_be_completed_before_pdf(tmp_path, monkeypatch):
+    monkeypatch.setenv("RANKUP_DATA_DIR", str(tmp_path))
+    (tmp_path / "options.json").write_text(json.dumps({
+        "admin_username":"test-admin",
+        "admin_password":"PasswordFittiziaLunga12345!"
+    }))
+    import server
+    importlib.reload(server)
+    with TestClient(server.app) as client:
+        _auth(client)
+        _commit_pica(client)
+        endpoint="/api/bandi/26-02/commissioni"
+        body={
+            "cds":"CDS DEMO", "sede":"SEDE A",
+            "presidente":"Presidente sintetico", "componenti":"",
+            "requisiti":"", "anno":"ANNO DI PROVA"
+        }
+        added=_up(client,endpoint+"/manuale",json=body)
+        assert added.status_code==200,added.text
+        report=client.get(endpoint+"/associazioni").json()
+        assert report["associate"]==0
+        assert report["incomplete"]==1
+        assert report["associazioni"][0]["stato"]=="incompleta"
+        assert client.get("/api/bandi/26-02/schede/zip").status_code==400
+        original=client.get(endpoint).json()["commissioni"][0]
+        body["componenti"]="Componenti sintetici"
+        body["expected_updated_at"]=original["updated_at"]
+        changed=_up(client,endpoint+"/"+str(original["id"]),method="PUT",json=body)
+        assert changed.status_code==200,changed.text
+        assert client.get(endpoint+"/associazioni").json()["associate"]==1
+        assert client.get("/api/bandi/26-02/schede/zip").status_code==200
