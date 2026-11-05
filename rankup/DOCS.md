@@ -188,3 +188,16 @@ La pagina **Gestione generale → Bandi** mostra soltanto l'elenco e l'importazi
 ## v0.7.4 — Pulsante Admin per tutte le schede da verificare
 
 In **Bando → Valutazioni → Storico**, l'amministratore vede **Acquisisci manualmente** su ogni scheda `Da verificare`, anche se l'esito nel PDF è vuoto. L'operatore può aprire la maschera e consultare l'originale. Se la scheda editabile non contiene alcun esito né nota della commissione, il backend continua a rifiutare la conferma dell'idoneità: occorre una decisione documentata, non soltanto un totale provvisorio. Gli utenti privi del ruolo Admin non vedono il pulsante e non possono utilizzare l'endpoint.
+
+## v0.8.0 — Gestione utenti da Admin
+
+1. Accedere a RankUp con l'account Admin preesistente configurato in Home Assistant.
+2. Aprire **Amministrazione → Gestione utenti**.
+3. Inserire **Nome utente** e **Password iniziale** di almeno 8 caratteri e premere **Crea utente**. Il nome non può coincidere, anche ignorando maiuscole/minuscole, con un account già presente o con l'Admin. Non vengono inventate credenziali di esempio per gli utenti reali.
+4. Consegnare la password all'utente con un canale riservato. L'utente potrà accedere dalla schermata di login di RankUp con il proprio username e la password assegnata, scegliendo il bando da lavorare.
+5. Per revocare l'accesso scegliere **Disattiva**; per ripristinarlo **Riattiva**. Per una password dimenticata utilizzare **Reimposta password**. Entrambe le operazioni revocano le vecchie sessioni.
+6. L'utente operativo potrà creare/importare e modificare i dati di lavoro e importare automaticamente i PDF; non vedrà la sezione Gestione utenti né il pulsante **Acquisisci manualmente**. Anche le relative chiamate API sono respinte per gli utenti non Admin.
+
+Le password utente sono protette da hash con salt casuale e conservate nel database persistente. L'Admin continua a usare la password nella configurazione dell'add-on, che conserva il precedente limite minimo di 12 caratteri. La password utente minima è 8 caratteri. Nessuna password viene restituita dopo la creazione. Lo storico amministrativo registra creazione, riattivazione/disattivazione e reset senza conservare password in chiaro.
+
+**Prima dell'aggiornamento 0.8.0:** fare un backup completo dell'add-on. **Collaudo:** creare un utente di prova, accedere in una sessione separata, verificare il permesso di modifica di un bando e il divieto HTTP 403 su Acquisisci manualmente e Gestione utenti, quindi verificare il reset password e il blocco della sessione precedente. L'aggiornamento non elimina gli archivi delle valutazioni.
