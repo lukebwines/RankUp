@@ -686,7 +686,7 @@ async def import_commissioni(code: str, file: UploadFile = File(...)):
 
 class ClassificazioneSSD(BaseModel):
     tipo: str
-    riferimento: str
+    riferimento: str = ""
 
 
 @app.get("/api/bandi/{code}/ssd")
@@ -694,7 +694,10 @@ def elenco_ssd_bando(code: str):
     code = valid_code(code)
     with connect() as db:
         rows = db.execute("""
-           SELECT UPPER(TRIM(i.ssd)) AS ssd, cl.tipo, cl.riferimento,
+           SELECT UPPER(TRIM(i.ssd)) AS ssd,
+                  CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'NN', 'ND', 'N-D', 'NON-INDICATO')
+                       THEN NULL ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo,
+                  cl.tipo AS tipo_salvato, cl.riferimento,
                   COUNT(i.id) AS incarichi,
                   COUNT(DISTINCT i.cds) AS cds
            FROM incarichi i JOIN bandi b ON b.id=i.bando_id
@@ -725,8 +728,8 @@ def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
     if body.tipo not in ("professionalizzante", "ordinario"):
         fail("Selezionare professionalizzante oppure ordinario")
     reference = body.riferimento.strip()
-    if len(reference)<3 or len(reference)>400:
-        fail("Inserire il riferimento documentale verificato che giustifica la classificazione")
+    if len(reference)>400:
+        fail("Il riferimento facoltativo non può superare 400 caratteri")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as db:
         if not db.execute("SELECT 1 FROM incarichi WHERE UPPER(TRIM(ssd))=? LIMIT 1",(sector,)).fetchone():
@@ -768,7 +771,8 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
         rows=db.execute("""
           SELECT c.id_pica,c.cognome,c.nome,c.codice_fiscale,c.stato,
                  i.key,i.cds,i.sede,i.insegnamento,i.modulo,i.ul,i.ssd,
-                 cl.tipo AS tipo_ssd,
+                 CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'NN', 'ND', 'N-D', 'NON-INDICATO')
+                      THEN NULL ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd,
                  cm.presidente,cm.componenti,cm.anno
           FROM candidature c
           JOIN incarichi i ON i.id=c.incarico_id
@@ -791,7 +795,7 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
         fail("Numero schede troppo elevato: selezionare uno o piu CdS")
     unclassified=sorted({r["ssd"] or "(SSD mancante)" for r in rows if not r["tipo_ssd"]})
     if unclassified:
-        fail("Classificare gli SSD prima della generazione: "+", ".join(unclassified[:20]))
+        fail("SSD non identificato nel PICA; verificare l'incarico prima della generazione: "+", ".join(unclassified[:20]))
     without_commission=sorted({r["cds"]+" / "+r["sede"] for r in rows if not r["presidente"]})
     if without_commission:
         fail("Commissioni non associate per: "+", ".join(without_commission[:12]))
