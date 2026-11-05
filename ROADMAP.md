@@ -136,3 +136,7 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] v0.7.1: Protezione contro l'inserimento manuale di idoneità/esclusioni senza esito né nota sul PDF editabile.
 - [x] v0.7.1: Test di migrazione idempotente (caso sintetico 15 punti senza esito), 25 test automatici superati.
 - [ ] Collaudo su dati già presenti in Home Assistant dopo backup.
+
+- [x] v0.7.2: Acquisizione manuale esclusivamente Admin, con controllo della sessione nel backend e pulsante nascosto agli altri ruoli.
+- [x] v0.7.2: Test di rifiuto HTTP 403 per utente non Admin autenticato senza modifica della valutazione.
+- [ ] Anagrafica utenti e ruoli multipli (attualmente esiste soltanto l'account admin).
