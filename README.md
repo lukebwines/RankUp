@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.4.1 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.4.2 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -46,3 +46,11 @@ In questa milestone non vengono modificati i modelli PDF né generate informazio
 
 ### Scelta del modello PDF (v0.4.1)
 Gli SSD PICA effettivamente identificati usano **Non professionalizzante** come modello operativo predefinito. Non è necessario classificarli o salvarli singolarmente. Nella sezione **Schede PDF**, scegliere **Professionalizzante** solo per i settori interessati: la selezione viene salvata immediatamente nel database e riutilizzata in altri bandi. Non occorre indicare un riferimento documentale per il salvataggio. Le modifiche sono visibili come **Scelta salvata**, mentre gli SSD senza interventi manuali restano **Predefinito**. I codici privi di SSD effettivo (per esempio `NN`) restano in verifica e non possono essere utilizzati per la generazione senza un dato corretto. Le schede PDF restano facsimili da validare prima dell'uso amministrativo.
+
+### Scheda professionalizzante a pagina unica (v0.4.2)
+
+Il generatore per gli SSD professionalizzanti usa ora un layout A4 ricostruito **senza riutilizzare il PDF compilato** dell'esempio. Le sei aree di valutazione e i massimali riproducono la struttura del modello fornito: **15 + 10 + 15 + 7 + 3 + 10 = 60 punti**. Sono previsti i menu del modello per i cinque anni di attività professionale, calcolo per annualità e totale tramite AcroForm JavaScript, note, esito, requisiti e commissione nella medesima pagina. I punteggi iniziano da zero.
+
+Per l'A.A. **2026-2027** si utilizzano i cinque anni 2025-2021 risultanti dal modello fornito. Per anni accademici diversi, in assenza di un modello approvato, gli anni riportano **[DA VER.]**. I requisiti sono letti dal file delle commissioni; se non acquisiti, il PDF indica **[DA VERIFICARE]**. Non vengono mai introdotti estremi di bando/protocollo o nominativi dall'esempio compilato.
+
+Le schede generate prima dell'aggiornamento devono essere **rigenerate**. Il calcolo interattivo va provato in un lettore che supporta JavaScript PDF (es. Adobe Acrobat), perché alcuni visualizzatori non eseguono le formule. Rimane un **facsimile tecnico da validare** prima dell'invio alle commissioni. La scheda ordinaria non è stata modificata.
