@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from pica import MAX_FILE_BYTES, parse_pica
+from pdf_import import evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_template
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
@@ -173,6 +174,31 @@ def initialize() -> None:
         );
         CREATE INDEX IF NOT EXISTS ix_comm_bando ON commissioni(bando_id);
         CREATE INDEX IF NOT EXISTS ix_inc_bando ON incarichi(bando_id);
+        CREATE TABLE IF NOT EXISTS valutazioni_pdf (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            candidatura_id INTEGER REFERENCES candidature(id) ON DELETE SET NULL,
+            stato TEXT NOT NULL CHECK(stato IN ('Acquisita','Da verificare')),
+            versione INTEGER NOT NULL,
+            attiva INTEGER NOT NULL DEFAULT 0 CHECK(attiva IN (0,1)),
+            sha256 TEXT NOT NULL,
+            nome_originale TEXT NOT NULL,
+            percorso TEXT NOT NULL,
+            modello TEXT NOT NULL,
+            punteggi_json TEXT NOT NULL DEFAULT '{}',
+            totale_calcolato REAL,
+            totale_pdf TEXT NOT NULL DEFAULT '',
+            esito TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            motivo TEXT NOT NULL DEFAULT '',
+            confermata_da TEXT NOT NULL,
+            confermata_il TEXT NOT NULL,
+            UNIQUE(bando_id, sha256)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_val_attiva
+          ON valutazioni_pdf(candidatura_id)
+          WHERE stato='Acquisita' AND attiva=1;
+        CREATE INDEX IF NOT EXISTS ix_val_bando ON valutazioni_pdf(bando_id,candidatura_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
         """)
         columns = {row["name"] for row in db.execute("PRAGMA table_info(incarichi)")}
