@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.3.1 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.4.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -35,3 +35,11 @@ Dal menu **Schede PDF**, classificare manualmente ciascun SSD sulla base di docu
 
 ### Correzione SSD 0.3.1
 Il PICA contiene due colonne distinte: **ssd** per l'incarico e **Settore scientifico disciplinare** nella sezione delle dichiarazioni del candidato. RankUp usa esclusivamente l'SSD dell'incarico. Dopo l'aggiornamento il sistema riconcilia una sola volta tutti gli SSD dei bandi esistenti dal file PICA originale presente in /data/sources, mantenendo un registro delle rettifiche. Non reimportare o eliminare i bandi. Il valore **NN** non identifica uno specifico SSD: viene segnalato per verifica e non è classificabile automaticamente.
+
+### Anagrafica completa degli incarichi (v0.4.0)
+
+Il PICA fornisce già tutte le informazioni della copertura. RankUp salva come campi distinti **Anno del Corso (I)**, **Tipo Corso (K)**, **Tipo CDS (L)**, **Ciclo (P)**, **INIZIO (Q)**, **FINE (R)**, **Codice Partizione Studenti (S)**, **Partizione Studenti (T)**, **Peso Copertura (U)**, **Ore (V)** e **Stato coperture (BU)**. Le date sono disponibili sia nel valore originale dell'Excel sia nella rappresentazione ISO ricavata dal seriale. **Ore non viene dedotto dal Peso Copertura.**
+
+Per i bandi già importati (come il 26-02), una migrazione controllata recupera i dati esclusivamente dal file PICA originale conservato nell'add-on, dopo confronto dell'impronta SHA-256 e verifica della corrispondenza univoca di tutti gli incarichi. Gli altri dati non vengono modificati. Lo storico di migrazione resta in SQLite. La nuova interfaccia **Incarichi** mostra il dettaglio di ciascuna copertura.
+
+In questa milestone non vengono modificati i modelli PDF né generate informazioni mancanti nella fonte.
