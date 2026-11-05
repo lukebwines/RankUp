@@ -140,3 +140,6 @@ Fuori dalla prima versione: verifica preliminare dei requisiti di accesso, elenc
 - [x] v0.7.2: Acquisizione manuale esclusivamente Admin, con controllo della sessione nel backend e pulsante nascosto agli altri ruoli.
 - [x] v0.7.2: Test di rifiuto HTTP 403 per utente non Admin autenticato senza modifica della valutazione.
 - [ ] Anagrafica utenti e ruoli multipli (attualmente esiste soltanto l'account admin).
+
+- [x] v0.7.3: Riferimenti dell'avviso trasferiti alla pagina autonoma della procedura attiva; elenco bandi riservato a importazione ed elenco PICA.
+- [x] v0.7.3: Test del menu e dell'isolamento dei riferimenti per codice bando.
