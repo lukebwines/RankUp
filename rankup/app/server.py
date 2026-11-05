@@ -718,7 +718,7 @@ def elenco_ssd_bando(code: str):
             "migrazione": dict(migration) if migration else None}
 
 
-@app.put("/api/ssd/{ssd}/classificazione")
+@app.put("/api/ssd/{ssd:path}/classificazione")
 def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
     sector = ssd.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]+(?:[-/][A-Z0-9]+)*", sector) or len(sector)>32:
