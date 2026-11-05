@@ -241,6 +241,14 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                 pdf=PdfReader(BytesIO(archive.read(name)))
                 fields=pdf.get_fields()
                 assert fields["ID-DOMANDA"].value in ("1001","1002")
+                # Nome ZIP leggibile alla commissione, con incarico distinto.
+                leaf=name.rsplit("/",1)[-1]
+                assert leaf.startswith(
+                    fields["ID-DOMANDA"].value+"_"+fields["COGNOME"].value+"_"+
+                    fields["NOME"].value+"_"
+                )
+                assert leaf.endswith(".pdf")
+                assert len(leaf) <= 120
                 assert fields["P01"].value == "0"
                 assert fields["TOT"].value == "0"
                 assert fields["RANKUP-ID"].value.startswith("RU-26-02-")
@@ -264,6 +272,9 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                 types.append("P19" in fields)
             assert types.count(True)==1
             assert types.count(False)==2
+        # Un candidato può avere due incarichi; le schede devono restare distinte.
+        assert len(set(pdfs)) == 3
+        assert len([n for n in pdfs if n.rsplit("/",1)[-1].startswith("1001_Candidato_Uno_")]) == 2
         # NN resta il valore originale PICA ma usa la scheda ordinaria.
         with server.connect() as db:
             db.execute("UPDATE incarichi SET ssd='NN' WHERE ssd='SSD-A'")
