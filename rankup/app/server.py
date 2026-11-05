@@ -493,6 +493,95 @@ def detail_bando(code: str):
             "cds_sedi": [dict(row) for row in groups]}
 
 
+
+class RiferimentiBando(BaseModel):
+    repertorio: str = Field(default="", max_length=90)
+    protocollo: str = Field(default="", max_length=90)
+    data_avviso: str = Field(default="", max_length=20)
+    anno_accademico: str = Field(default="", max_length=20)
+
+
+@app.get("/api/bandi/{code}/riferimenti")
+def get_riferimenti_bando(code: str):
+    code = valid_code(code)
+    with connect() as db:
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        row = db.execute("SELECT repertorio,protocollo,data_avviso,anno_accademico,aggiornato_il "
+                         "FROM bandi_riferimenti WHERE bando_id=?", (b["id"],)).fetchone()
+    return {"riferimenti": dict(row) if row else {
+        "repertorio": "", "protocollo": "", "data_avviso": "",
+        "anno_accademico": "", "aggiornato_il": None,
+    }}
+
+
+@app.put("/api/bandi/{code}/riferimenti")
+def save_riferimenti_bando(code: str, body: RiferimentiBando):
+    """Solo dati comunicati dall'operatore, non estratti dagli esempi PDF."""
+    code = valid_code(code)
+    values = {k: str(v or "").strip() for k, v in body.model_dump().items()}
+    data = values["data_avviso"]
+    if data:
+        try:
+            if not re.fullmatch(r"\d{2}/\d{2}/\d{4}", data):
+                raise ValueError()
+            datetime.strptime(data, "%d/%m/%Y")
+        except ValueError:
+            fail("Data avviso: utilizzare GG/MM/AAAA, senza valori presunti")
+    anno = values["anno_accademico"]
+    if anno:
+        if not re.fullmatch(r"\d{4}-\d{4}", anno):
+            fail("Anno accademico: utilizzare AAAA-AAAA")
+        first, second = [int(x) for x in anno.split("-")]
+        if second != first + 1:
+            fail("Anno accademico incoerente")
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        current = db.execute("""
+          SELECT repertorio,protocollo,data_avviso,anno_accademico
+          FROM bandi_riferimenti WHERE bando_id=?
+        """, (b["id"],)).fetchone()
+        previous = dict(current) if current else {key: "" for key in values}
+        if previous != values:
+            db.execute("""
+              INSERT INTO bandi_riferimenti(bando_id,repertorio,protocollo,data_avviso,
+                  anno_accademico,aggiornato_il)
+              VALUES(?,?,?,?,?,?)
+              ON CONFLICT(bando_id) DO UPDATE SET
+                repertorio=excluded.repertorio,
+                protocollo=excluded.protocollo,
+                data_avviso=excluded.data_avviso,
+                anno_accademico=excluded.anno_accademico,
+                aggiornato_il=excluded.aggiornato_il
+            """, (b["id"], values["repertorio"], values["protocollo"],
+                  values["data_avviso"], values["anno_accademico"], now))
+            db.execute("""
+              INSERT INTO bandi_riferimenti_eventi
+              (bando_id,prima_json,dopo_json,autore,quando)
+              VALUES(?,?,?,?,?)
+            """, (b["id"], json.dumps(previous,ensure_ascii=False),
+                  json.dumps(values,ensure_ascii=False), AUTH.username, now))
+        db.commit()
+    return {"ok": True, "riferimenti": values, "modificato": previous != values}
+
+
+def bando_notice_reference(ref: dict | None) -> str:
+    """Compila un riferimento solo se repertorio, protocollo e data esistono."""
+    if not ref:
+        return ""
+    rep, prot, data = [str(ref.get(k) or "").strip()
+                       for k in ("repertorio", "protocollo", "data_avviso")]
+    if not rep or not prot or not data:
+        return ""
+    return ("Come indicato nell'avviso di selezione per il conferimento "
+            "degli incarichi: Rep. " + rep + " Prot. " + prot + " del " + data)
+
+
 @app.get("/api/bandi/{code}/incarichi")
 def list_incarichi(code: str):
     code = valid_code(code)
