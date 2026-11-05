@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.5.0 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.6.0 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -84,3 +84,13 @@ Tutte le variazioni sono registrate nello storico SQLite del singolo bando. Le m
 Nella pagina **Bandi** è presente anche il pannello *Riferimenti del bando*, con campi editabili per **repertorio avviso, protocollo, data dell'avviso e anno accademico**. I campi sono vuoti finché l'operatore non acquisisce i dati ufficiali; **nessuno degli estremi presenti nei PDF di esempio viene copiato automaticamente**. Una volta completati repertorio, protocollo e data, i riferimenti vengono utilizzati nella nuova generazione delle schede PDF, senza eliminare i requisiti specifici salvati nell'anagrafica delle commissioni.
 
 La versione 0.5.0 è un prototipo sperimentale: richiede ancora collaudo completo su Home Assistant e validazione dei modelli PDF prima dell'impiego in procedimenti ufficiali.
+
+### RankUp 0.6.0 — Valutazioni PDF, icone e modalità scura
+
+La sezione **Valutazioni** del bando attivo consente un'importazione controllata in due fasi: **Analizza PDF senza acquisire** e **Conferma acquisizione**. Si possono caricare fino a 120 file PDF, anche da ZIP, entro 40 MB per batch. Il programma riconosce la candidatura tramite ID RankUp e dati PICA, valida il modello, ricalcola punteggi e totale, verifica i massimali ed evidenzia anomalie, duplicati e rettifiche. Non esegue JavaScript PDF e non si basa sul totale visualizzato dal lettore.
+
+La prima fase non registra punteggi nel database: i PDF restano in una sessione temporanea fino a 60 minuti. Dopo conferma, le schede regolari sono acquisite e conservate; quelle anomale sono archiviate come **Da verificare**, senza attribuire punteggi; i duplicati sono ignorati. Una nuova scheda per una candidatura già valutata richiede conferma esplicita di rettifica, conserva la versione precedente e non sovrascrive i documenti originali.
+
+Il prospetto per CdS/sede considera soltanto le candidature attive. Il logo RankUp è visibile in Dashboard, con favicon e icone SVG locali per la navigazione. Il tema scuro è selezionabile in alto e ricordato dal browser. Nel pannello Home Assistant è utilizzata l'icona del podio.
+
+**Stato sperimentale:** collaudare su Raspberry/HAOS, verificare i PDF compilati e salvati in Adobe Acrobat Reader ed eseguire un backup prima dell'aggiornamento. La generazione di verbali e graduatorie resta una fase successiva.
