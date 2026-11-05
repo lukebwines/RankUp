@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 from openpyxl import Workbook
 import pytest
 from pica import extract_code, parse_pica
@@ -67,28 +68,55 @@ def test_commissions_per_cds_multiple_seats():
 
 def test_web_import_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("RANKUP_DATA_DIR", str(tmp_path))
+    (tmp_path / "options.json").write_text(
+        json.dumps({"admin_username": "test-admin",
+                    "admin_password": "UnPasswordDiTestMoltoLungo123!"}),
+        encoding="utf-8",
+    )
     import importlib
     import server
     importlib.reload(server)
     from fastapi.testclient import TestClient
     with TestClient(server.app) as client:
         assert client.get("/api/health").status_code == 200
+        assert client.get("/api/bandi").status_code == 401
+        invalid = client.post("/api/auth/login",
+                              headers={"X-RankUp-Request": "1"},
+                              json={"username": "test-admin", "password": "errata"})
+        assert invalid.status_code == 401
+        no_csrf = client.post("/api/auth/login", json={"username": "test-admin",
+                                                       "password": "UnPasswordDiTestMoltoLungo123!"})
+        assert no_csrf.status_code == 403
+        login = client.post("/api/auth/login",
+                            headers={"X-RankUp-Request": "1"},
+                            json={"username": "test-admin",
+                                  "password": "UnPasswordDiTestMoltoLungo123!"})
+        assert login.status_code == 200
+        assert client.get("/api/auth/status").json()["authenticated"] is True
+        assert client.get("/api/bandi").status_code == 200
         preview = client.post("/api/pica/preview",
+                              headers={"X-RankUp-Request": "1"},
                               files={"file": ("demo.xlsx", pica_fixture(),
                                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert preview.status_code == 200, preview.text
         token = preview.json()["token"]
-        confirm = client.post("/api/pica/commit", json={"token": token})
+        confirm = client.post("/api/pica/commit", headers={"X-RankUp-Request": "1"}, json={"token": token})
         assert confirm.status_code == 200, confirm.text
         assert client.get("/api/bandi").json()["bandi"][0]["codice"] == "26-02"
         assert len(client.get("/api/bandi/26-02/incarichi").json()["incarichi"]) == 2
         assert len(client.get("/api/bandi/26-02/candidature").json()["candidature"]) == 3
         up = client.post("/api/bandi/26-02/commissioni/import",
+                         headers={"X-RankUp-Request": "1"},
                          files={"file": ("demo.xlsx", commissioni_fixture(),
                                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert up.status_code == 200, up.text
         assert len(client.get("/api/bandi/26-02/commissioni").json()["commissioni"]) == 2
         repeat = client.post("/api/pica/preview",
+                             headers={"X-RankUp-Request": "1"},
                              files={"file": ("demo.xlsx", pica_fixture(),
                                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         assert repeat.status_code == 409
+
+        logout = client.post("/api/auth/logout", headers={"X-RankUp-Request": "1"})
+        assert logout.status_code == 200
+        assert client.get("/api/bandi").status_code == 401
