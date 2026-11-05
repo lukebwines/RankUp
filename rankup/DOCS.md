@@ -172,3 +172,9 @@ Caso: lo storico mostra `Acquisita · automatico v1`, ma il PDF originale visual
 Il comando di acquisizione manuale deve rifiutare un documento PDF i cui campi sono leggibili e che non contiene né l'esito della commissione né una nota: non è autorizzato a trasformare un punteggio in idoneità. Richiedere alla commissione la scheda completata con l'esito effettivo. La nuova scheda corretta potrà essere caricata e verificata; la precedente rimarrà nello storico.
 
 Prima dell'aggiornamento effettuare un backup dei dati dell'add-on. Dopo la 0.7.1 aprire **Valutazioni → Osteopatia**, verificare lo stato della scheda interessata, il valore storico, il PDF scaricabile e il conteggio delle candidature concluse. Non confermare valutazioni prive dell'esito.
+
+## RankUp 0.7.2 — Permessi di acquisizione manuale
+
+Il pulsante `Acquisisci manualmente` compare solo per la sessione `admin` e solo quando la scheda consente un recupero manuale documentato. Per ogni altro ruolo l'interfaccia mostra `Acquisizione manuale riservata all'amministratore`. Il server effettua una verifica indipendente della sessione, impedendo richieste POST non autorizzate con risposta 403. L'identità dell'operatore che conferma rimane registrata nello storico.
+
+RankUp dispone al momento soltanto dell'account amministratore definito nelle opzioni Home Assistant. Non sono ancora disponibili account collaboratore/utente registrato; l'autorizzazione è già predisposta per tali evoluzioni.
