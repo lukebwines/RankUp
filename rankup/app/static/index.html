@@ -750,11 +750,12 @@
                     '<td>'+esc(r.stato==="Da verificare"?r.motivo:(r.note||r.motivazione_tecnica||"—"))+'</td>'+
                     '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
                     '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
-                    (r.stato==="Da verificare"?(r.manuale_possibile?
-                    (state.role==="admin"?
-                      '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>':
-                      '<span class="caption">Acquisizione manuale riservata all’amministratore</span>'):
-                    '<span class="caption">Esito della commissione mancante: richiedere scheda completata</span>'):'')+
+                    (r.stato==="Da verificare"?
+                      (state.role==="admin"?
+                        '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>'+
+                        (r.manuale_possibile===false?
+                          '<span class="caption">Esito assente nel PDF: verificare la documentazione della commissione prima di confermare</span>':''):
+                        '<span class="caption">Acquisizione manuale riservata all’amministratore</span>'):'')+
                     '</div></td></tr>';
                 }).join('')+'</tbody></table></div></details>';
             }).join('');
