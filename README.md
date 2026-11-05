@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.3.0 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.3.1 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -32,3 +32,6 @@ Vedere i file in rankup/app e il piano di sviluppo nel file ROADMAP.md.
 
 ### Schede PDF nella v0.3.0
 Dal menu **Schede PDF**, classificare manualmente ciascun SSD sulla base di documenti verificati; quindi selezionare tutti i CdS o un singolo corso/sede e scaricare lo ZIP. La generazione è bloccata in mancanza di classificazione o commissione. **Sono facsimili tecnici da verificare**: non utilizzare per valutazioni amministrative ufficiali finché non saranno approvati criteri, massimali, anni e struttura delle schede.
+
+### Correzione SSD 0.3.1
+Il PICA contiene due colonne distinte: **ssd** per l'incarico e **Settore scientifico disciplinare** nella sezione delle dichiarazioni del candidato. RankUp usa esclusivamente l'SSD dell'incarico. Dopo l'aggiornamento il sistema riconcilia una sola volta tutti gli SSD dei bandi esistenti dal file PICA originale presente in /data/sources, mantenendo un registro delle rettifiche. Non reimportare o eliminare i bandi. Il valore **NN** non identifica uno specifico SSD: viene segnalato per verifica e non è classificabile automaticamente.
