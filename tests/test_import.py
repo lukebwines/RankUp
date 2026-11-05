@@ -204,6 +204,13 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         assert selected["riferimento"]==""
         other=next(x for x in saved if x["ssd"]=="SSD-A")
         assert other["tipo"]=="ordinario" and other["tipo_salvato"] is None
+        # La scelta è persistente, non è solo un valore mostrato nel browser.
+        with server.connect() as db:
+            persisted=db.execute(
+                "SELECT tipo,riferimento FROM ssd_classificazioni WHERE ssd=?",
+                ("MEDS-24/C",)).fetchone()
+        assert persisted["tipo"]=="professionalizzante"
+        assert persisted["riferimento"]==""
         exported=client.get("/api/bandi/26-02/schede/zip")
         assert exported.status_code == 200, exported.text
         with zipfile.ZipFile(BytesIO(exported.content)) as archive:
@@ -257,7 +264,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         metadata=db.execute("SELECT * FROM incarichi_metadata_migrations").fetchone()
         meta_audit=db.execute("SELECT COUNT(*) AS n FROM incarichi_metadata_audit").fetchone()
         refreshed=db.execute("SELECT ssd,anno_corso,inizio_pica,inizio_iso,ore FROM incarichi WHERE ssd='SSD-A'").fetchone()
-    assert sectors == ["SSD-A","MEDS-24/C"]
+    assert sectors == ["MEDS-24/C","SSD-A"]
     assert repaired["incarichi_corretti"] == 2
     assert changes["n"] == 2
     assert metadata["metodo"] == "migrazione"
