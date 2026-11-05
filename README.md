@@ -11,11 +11,12 @@ Prototipo tecnico iniziale (non ancora idoneo alla gestione in produzione di dat
 - Importazione PICA in formato Excel .xls/.xlsx con anteprima e conferma.
 - Riconoscimento del codice bando dalla prima riga (es. "univr 26-02 - Esportazione dati").
 - Ricostruzione di incarichi e candidature senza un secondo elenco degli incarichi.
+- Importazione delle commissioni da Excel .xlsx con controllo di coerenza del codice bando e delle composizioni per CdS.
 - Conservazione dei dati in SQLite nello spazio persistente /data.
 - Pagine Bandi, Candidature, Valutazioni, Verbali, Graduatorie, Archivio (alcune ancora segnaposto).
 
 ### Non ancora implementato
-Importazione commissioni, generazione/lettura schede PDF, validazione delle commissioni, verbali, graduatorie, ruoli utente, export ZIP e cancellazione. Il controllo requisiti è stato rinviato su richiesta.
+Modifica delle commissioni già importate, generazione/lettura schede PDF, verbali, graduatorie, ruoli utente, export ZIP e cancellazione. Il controllo requisiti è stato rinviato su richiesta.
 
 ## Installazione su Home Assistant
 Aggiungere questo repository in **Impostazioni > Componenti aggiuntivi > Negozio > Repository**, installare RankUp e aprire l'interfaccia Ingress. La build richiede accesso Internet per le dipendenze Python.
