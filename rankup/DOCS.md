@@ -52,3 +52,10 @@ Dopo aver importato le commissioni, selezionare un CdS, eventualmente una sede, 
 **Importante:** le due schede attualmente prodotte sono **facsimili tecnici**, ricostruiti come PDF editabili. Il calcolo del totale dipende dal lettore PDF (preferibilmente Adobe Acrobat); RankUp dovrà ricalcolarlo autonomamente quando sarà implementata la lettura delle schede restituite. Prima di un uso ufficiale occorre validare criteri, massimali, anni di attività professionale e layout sulla base della documentazione approvata, non soltanto degli esempi.
 
 Il caricamento di modelli PDF neutralizzati da parte dell'amministratore, con mapping dei campi e versionamento, sarà sviluppato nella prossima fase; i PDF già compilati non devono essere caricati come template neutri.
+
+## Correzione SSD per bandi già importati (v0.3.1)
+Il campo `ssd` nell'esportazione PICA si riferisce all'incarico. Il campo `Settore scientifico disciplinare`, nella sezione professionale del candidato, non va usato per individuare il settore della copertura.
+
+All'avvio, RankUp esamina il file PICA originale conservato in `/data/sources/<codice-bando>/` e corregge anche gli SSD non vuoti precedentemente letti dalla colonna errata, senza alterare candidature, commissioni o classificazioni manuali. La procedura è transazionale, eseguita una sola volta per bando e registra i valori antecedenti e successivi. Se il file originale è assente o la corrispondenza degli incarichi non è certa, la correzione non viene eseguita.
+
+Nella pagina Schede PDF viene indicato il numero di incarichi corretti. **Non eliminare e non reimportare** il bando esistente. Verificare il valore `NN` presente nel file PICA: non corrisponde a un SSD specifico e richiede un accertamento prima della generazione delle schede per gli incarichi coinvolti.
