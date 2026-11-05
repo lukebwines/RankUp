@@ -1,4 +1,7 @@
 FROM python:3.12-slim
+ARG BUILD_ARCH
+ARG BUILD_VERSION=0.1.0
+LABEL io.hass.type="app" io.hass.arch="${BUILD_ARCH}" io.hass.version="${BUILD_VERSION}"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY app/requirements.txt /app/requirements.txt
