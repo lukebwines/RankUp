@@ -24,6 +24,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
 from pdf_import import (
@@ -1708,8 +1709,28 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
         original=(BASE/document["percorso"]).resolve()
         if not original.is_relative_to(base) or not original.is_file():
             fail("Originale della commissione non disponibile",409)
-        if hashlib.sha256(original.read_bytes()).hexdigest()!=document["sha256"]:
+        pdf_bytes=original.read_bytes()
+        if hashlib.sha256(pdf_bytes).hexdigest()!=document["sha256"]:
             fail("Originale PDF non integro: acquisizione manuale bloccata",409)
+        # Se la scheda AcroForm è leggibile ma NON contiene alcun
+        # pronunciamento (né esito, né nota), la procedura manuale non può
+        # trasformare un punteggio in idoneità. Occorre una decisione
+        # documentata dalla commissione, non una supposizione dell'operatore.
+        try:
+            pdf_fields=PdfReader(BytesIO(pdf_bytes),strict=False).get_fields() or {}
+        except Exception:
+            pdf_fields={}  # PDF appiattito: rimane la verifica documentale umana.
+        if pdf_fields:
+            raw_status=str((pdf_fields.get("STATUS") or {}).get("/V") or "").strip()
+            raw_note=str((pdf_fields.get("NOTE-COMM") or {}).get("/V") or "").strip()
+            if raw_status.casefold() in (
+                "", "-", "-- seleziona --", "seleziona", "--seleziona--"
+            ) and not raw_note:
+                fail("La scheda originale non contiene né esito né motivazione. "
+                     "Non è possibile convalidare un punteggio senza la decisione "
+                     "della commissione: richiedere il documento completato.",409)
+            if raw_status in ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI and raw_status!=body.esito:
+                fail("Esito manuale discordante dall'esito registrato nel PDF originale",409)
         previous=db.execute("""
             SELECT id,versione,decisione,esito,note,totale_calcolato
             FROM valutazioni_pdf
