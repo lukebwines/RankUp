@@ -126,7 +126,7 @@ def make_scheda(record: dict, tipo: str) -> bytes:
             fieldFlags="readOnly")
 
     rect(36,page_h-92,page_w-72,46,primary)
-    txt(48,page_h-64,"SCHEDA DI VALUTAZIONE TITOLI CANDIDATI",12,True,white)
+    txt(48,page_h-64,"SCHEDA DI VALUTAZIONE TITOLI CANDIDATI - A.A. "+short(record.get("anno") or "[DA VERIFICARE]",20),10,True,white)
     txt(48,page_h-82,
         ("SSD PROFESSIONALIZZANTI" if professional else "SSD NON PROFESSIONALIZZANTI")
         + "  -  BANDO " + short(record.get("bando"),30),10,True,white)
