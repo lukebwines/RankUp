@@ -64,6 +64,7 @@
         <button data-page="bandi"><span class="navdot"></span> Bandi</button>
         <button data-page="incarichi"><span class="navdot"></span> Incarichi</button>
         <button data-page="candidature"><span class="navdot"></span> Candidature</button>
+        <button data-page="commissioni"><span class="navdot"></span> Commissioni</button>
         <button data-page="valutazioni"><span class="navdot"></span> Valutazioni</button>
         <button data-page="verbali"><span class="navdot"></span> Verbali</button>
         <button data-page="graduatorie"><span class="navdot"></span> Graduatorie</button>
@@ -130,13 +131,13 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",incarichi:"Incarichi",candidature:"Candidature",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
         if(state.page==="dashboard")return dashboard();
         if(state.page==="bandi")return renderBandi();
-        if(state.page==="incarichi"||state.page==="candidature")return renderList(state.page);
+        if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="valutazioni")return html(panel("Monitoraggio schede", "La gestione dei PDF editabili, delle restituzioni e delle anomalie sarà attivata nella seconda milestone."));
         if(state.page==="verbali")return html(panel("Verbali delle commissioni", "Generazione di un verbale per CdS dopo l'acquisizione delle valutazioni: funzionalità prevista, non ancora implementata."));
         if(state.page==="graduatorie")return html(panel("Graduatorie per CdS e generali", "Saranno distinti i nominativi in chiaro per le commissioni e l'identificazione selettiva dei vincitori per l'approvazione degli atti."));
@@ -183,15 +184,37 @@
         try{
           var result=await api("bandi/"+encodeURIComponent(code)+"/"+page);
           if(state.page!==page||state.active!==code)return;
-          var rows=result[page];if(!rows.length){html(panel(page,"Nessun dato disponibile."));return;}
-          var fields=page==="incarichi"?["cds","sede","insegnamento","modulo","id_copertura","candidature"]:["id_pica","cognome","nome","cds","sede","modulo","stato"];
-          var labels={cds:"Corso di Studio",sede:"Sede",insegnamento:"Insegnamento",modulo:"Modulo",id_copertura:"ID copertura",candidature:"Domande",id_pica:"ID PICA",cognome:"Cognome",nome:"Nome",stato:"Stato"};
-          html('<div class="card"><h3 class="section-heading">'+esc(page==="incarichi"?"Incarichi ricavati da PICA":"Domande PICA")+' · Bando '+esc(code)+'</h3>'+
+          var rows=result[page];if(!rows.length){html((page==="commissioni"?commissionUpload():"")+panel(page,"Nessun dato disponibile."));if(page==="commissioni")bindCommissionUpload();return;}
+          var fields=page==="incarichi"?["cds","sede","insegnamento","modulo","id_copertura","candidature"]:(page==="commissioni"?["cds","sede","presidente","componenti","anno"]:["id_pica","cognome","nome","cds","sede","modulo","stato"]);
+          var labels={cds:"Corso di Studio",sede:"Sede",insegnamento:"Insegnamento",modulo:"Modulo",id_copertura:"ID copertura",candidature:"Domande",presidente:"Presidente",componenti:"Componenti",anno:"Anno accademico",id_pica:"ID PICA",cognome:"Cognome",nome:"Nome",stato:"Stato"};
+          html((page==="commissioni"?commissionUpload():"")+'<div class="card"><h3 class="section-heading">'+esc(page==="incarichi"?"Incarichi ricavati da PICA":(page==="commissioni"?"Commissioni del bando":"Domande PICA"))+' · Bando '+esc(code)+'</h3>'+
             '<p class="caption">'+rows.length+' righe · ordine per CdS, sede, insegnamento e modulo</p>'+
             '<div class="tablebox"><table><thead><tr>'+fields.map(function(k){return '<th>'+esc(labels[k]||k)+'</th>';}).join('')+'</tr></thead><tbody>'+
             rows.map(function(r){return '<tr>'+fields.map(function(k){return '<td>'+esc(r[k])+'</td>';}).join('')+'</tr>';}).join('')+
             '</tbody></table></div></div>');
+          if(page==="commissioni")bindCommissionUpload();
         }catch(error){note(error.message,true);html('');}
+      }
+      function commissionUpload(){
+        return '<div class="card" style="margin-bottom:16px"><h3 class="section-heading">Importa commissioni · Bando '+esc(state.active)+'</h3>'+
+          '<div class="upload"><label for="commission-file"><strong>Excel commissioni .xlsx</strong></label><input type="file" id="commission-file" accept=".xlsx">'+
+          '<button class="btn" id="commission-import">Importa commissioni</button></div>'+
+          '<p class="caption">Le commissioni sono salvate per singolo bando. L'importazione non modifica quelle degli altri bandi.</p></div>';
+      }
+      function bindCommissionUpload(){
+        var btn=$("commission-import");
+        if(!btn)return;
+        btn.onclick=async function(){
+          var file=$("commission-file").files[0];if(!file){note("Seleziona il file commissioni .xlsx.",true);return;}
+          if(!confirm("Importare le commissioni nel bando "+state.active+"?"))return;
+          btn.disabled=true;
+          try{
+            var fd=new FormData();fd.append("file",file);
+            var result=await api("bandi/"+encodeURIComponent(state.active)+"/commissioni/import",{method:"POST",body:fd});
+            note("Importate "+result.commissioni+" righe per "+result.cds+" CdS.",false);
+            renderList("commissioni");
+          }catch(error){note(error.message,true);btn.disabled=false;}
+        };
       }
       async function reload(){
         var result=await api("bandi");state.bandi=result.bandi;
