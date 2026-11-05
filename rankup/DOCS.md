@@ -141,3 +141,5 @@ In **Bando → Valutazioni**, caricare singoli PDF compilati o un archivio ZIP e
 Controlli da svolgere prima dell'uso ufficiale: PDF ordinario, PDF professionalizzante, totale PDF non aggiornato, punteggio zero senza nota/esito, duplicato, rettifica e persistenza dei documenti dopo riavvio. Il massimo per batch è 120 PDF e 40 MB; una scheda PDF non può superare 5 MB. La sessione di anteprima scade dopo un'ora.
 
 **Non caricare ancora candidature reali senza il collaudo su HAOS.** Le schede generate rimangono facsimili da validare; verbali e graduatorie non sono ancora disponibili.
+
+**Novità 0.6.1:** dal riquadro Storico delle schede ricevute è possibile scaricare il PDF originale, anche quando è classificato «Da verificare». Non vengono modificati i PDF acquisiti.
