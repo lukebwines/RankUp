@@ -224,6 +224,19 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
                 assert fields["P01"].value == "0"
                 assert fields["TOT"].value == "0"
                 assert fields["RANKUP-ID"].value.startswith("RU-26-02-")
+                if "P19" in fields:
+                    assert len(pdf.pages)==1
+                    assert len(pdf.trailer["/Root"]["/AcroForm"]["/CO"])==6
+                    assert fields["P01"].value=="0"
+                    assert fields["P18"].value=="0"
+                    assert fields["extraField0"].value=="0"
+                    assert fields["attivita0"].value=="0"
+                    assert fields["plus0"].value=="0"
+                    assert fields["REQUISITI"].value=="Testo prova"
+                    assert fields["NOTE-COMM"].get("/Ff",0) & 4096
+                    assert "60" in pdf.pages[0].extract_text()
+                    assert "Attività professionale" in pdf.pages[0].extract_text()
+                    assert fields["P18"].get("/Opt")==["0","3"] or len(fields["P18"].get("/Opt"))==2
                 types.append("P19" in fields)
             assert types.count(True)==1
             assert types.count(False)==2
