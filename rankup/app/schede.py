@@ -15,6 +15,7 @@ from reportlab.lib.pagesizes import A4
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, DictionaryObject, TextStringObject, ArrayObject
 from professional import make_professional
+from ordinary import make_ordinary
 
 ORDINARI = [
  ("P01", "Altra laurea (titolo aggiuntivo)", 2),
@@ -101,6 +102,7 @@ def make_scheda(record: dict, tipo: str) -> bytes:
     professional = tipo == "professionalizzante"
     if professional:
         return make_professional(record)
+    return make_ordinary(record)
     rows = PROFESSIONALIZZANTI if professional else ORDINARI
     primary = HexColor("#d0009a" if professional else "#00bc1f")
     bg = HexColor("#edf3fa")
