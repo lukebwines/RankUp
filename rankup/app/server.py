@@ -109,6 +109,12 @@ def initialize() -> None:
             riferimento TEXT NOT NULL,
             aggiornato_il TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS ssd_import_migrations (
+            bando_id INTEGER PRIMARY KEY REFERENCES bandi(id) ON DELETE CASCADE,
+            aggiornato_il TEXT NOT NULL,
+            incarichi_verificati INTEGER NOT NULL,
+            incarichi_corretti INTEGER NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS ix_comm_bando ON commissioni(bando_id);
         CREATE INDEX IF NOT EXISTS ix_inc_bando ON incarichi(bando_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
@@ -119,34 +125,73 @@ def initialize() -> None:
 
 
 def backfill_ssd_from_saved_pica() -> None:
-    """Aggiorna i bandi gia importati usando solo l'Excel originale salvato."""
-    with connect() as db:
-        candidates = db.execute(
-            "SELECT b.id,b.codice FROM bandi b "
-            "WHERE EXISTS (SELECT 1 FROM incarichi i WHERE i.bando_id=b.id AND i.ssd='')"
-        ).fetchall()
-        for b in candidates:
-            for extension in (".xls", ".xlsx"):
-                source = SOURCES / b["codice"] / ("pica_originale" + extension)
-                if source.is_file():
-                    break
-            else:
-                continue
-            try:
-                parsed = parse_pica(source.name, source.read_bytes())
-            except (ValueError, OSError):
-                continue
-            if parsed["code"] != b["codice"]:
-                continue
-            mapped = {}
-            for item in parsed["rows"]:
-                inc = item["incarico"]
-                if inc.get("ssd"):
-                    mapped[inc["key"]] = inc["ssd"].strip().upper()
-            for key, ssd in mapped.items():
-                db.execute("UPDATE incarichi SET ssd=? WHERE bando_id=? AND key=? "
-                           "AND ssd=''", (ssd, b["id"], key))
+    """Corregge UNA VOLTA gli SSD gia importati dalla colonna incarico di PICA.
 
+    La migrazione corregge anche i valori erronei non vuoti ottenuti in
+    precedenza dal campo professionale del candidato. Non reimporta e
+    non modifica candidature, classificazioni SSD o altri dati.
+    """
+    with connect() as db:
+        pending = db.execute("""
+            SELECT b.id,b.codice FROM bandi b
+            LEFT JOIN ssd_import_migrations m ON m.bando_id=b.id
+            WHERE m.bando_id IS NULL
+        """).fetchall()
+
+    for b in pending:
+        source = None
+        for extension in (".xls", ".xlsx"):
+            candidate = SOURCES / b["codice"] / ("pica_originale" + extension)
+            if candidate.is_file():
+                source = candidate
+                break
+        if source is None:
+            continue  # Non modificare SSD senza l'originale PICA.
+
+        try:
+            parsed = parse_pica(source.name, source.read_bytes())
+        except (ValueError, OSError):
+            continue
+        if parsed["code"] != b["codice"]:
+            continue
+
+        expected = {}
+        for item in parsed["rows"]:
+            inc = item["incarico"]
+            key = inc["key"]
+            value = inc.get("ssd", "").strip().upper()
+            if key in expected and expected[key] != value:
+                # Nessun valore viene assegnato in caso di dati incoerenti.
+                expected = {}
+                break
+            expected[key] = value
+
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute(
+                "SELECT key,ssd FROM incarichi WHERE bando_id=?", (b["id"],)
+            ).fetchall()
+            if not current or not expected or any(row["key"] not in expected for row in current):
+                db.rollback()
+                continue  # Evitare correzioni parziali.
+            changes = 0
+            for row in current:
+                correct = expected[row["key"]]
+                if (row["ssd"] or "").strip().upper() != correct:
+                    db.execute(
+                        "UPDATE incarichi SET ssd=? WHERE bando_id=? AND key=?",
+                        (correct, b["id"], row["key"])
+                    )
+                    changes += 1
+            db.execute("""
+                INSERT INTO ssd_import_migrations
+                (bando_id,aggiornato_il,incarichi_verificati,incarichi_corretti)
+                VALUES(?,?,?,?)
+            """, (
+                b["id"], datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                len(current), changes
+            ))
+            db.commit()
 
 initialize()
 backfill_ssd_from_saved_pica()
