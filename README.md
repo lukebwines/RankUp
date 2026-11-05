@@ -3,7 +3,7 @@
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato
-Prototipo tecnico v0.4.3 (non ancora idoneo alla gestione in produzione di dati personali).
+Prototipo tecnico v0.4.4 (non ancora idoneo alla gestione in produzione di dati personali).
 
 ### Funzioni implementate
 - Add-on Home Assistant OS con accesso tramite Ingress e login amministratore configurabile.
@@ -61,3 +61,11 @@ La scheda ordinaria è stata ricostruita su **una sola pagina A4** usando come r
 **NN** è mantenuto nel dato originale PICA ma utilizza **automaticamente il modello non professionalizzante**, senza intervento dell'operatore. Il menu di selezione è disabilitato per NN per impedire un'attribuzione professionalizzante impropria. La decisione non modifica il valore dell'SSD né altre candidature. I campi effettivamente vuoti o gli altri codici non determinati restano da verificare.
 
 I PDF già scaricati non sono sostituiti automaticamente: **rigenerare lo ZIP** dopo l'aggiornamento. La scheda resta un facsimile tecnico da validare e i totali calcolati via JavaScript richiedono lettori PDF compatibili.
+
+### Correzione associazione commissioni e menu PDF (v0.4.4)
+
+- L'associazione commissioni ora confronta il **CdS e la sede**, riconoscendo l'eventuale suffisso PICA `(ABILITANTE ALLA PROFESSIONE ...)` quando la commissione riporta il nome breve. Non vengono effettuati confronti approssimativi né trasferimenti automatici tra sedi.
+- La pagina **Commissioni** mostra un prospetto di associazione, distinguendo abbinate, mancanti e ambigue. Anche **Schede PDF** mostra i conteggi prima della generazione ZIP.
+- Per il file PICA e l'Excel commissioni forniti del bando 26-02, il confronto locale rileva **16 CdS/sedi associati su 17**: manca nell'Excel la commissione per **IGIENE DENTALE / VERONA**. Non sono stati inventati nominativi e nessuna commissione esistente viene sovrascritta.
+- I menu professionali di attività e tutoraggio mostrano le **etichette descrittive** del modello, anziché duplicare il valore numerico per opzioni che condividono gli stessi punti (es. 0,5). I valori esportati restano numerici per il totale calcolato.
+- Nessuna reimportazione PICA/commissioni è richiesta per gli altri CdS. Gli ZIP generati in precedenza vanno rigenerati. I PDF restano facsimili da collaudare in Adobe Acrobat Reader.
