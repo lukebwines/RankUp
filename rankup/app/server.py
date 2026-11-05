@@ -25,7 +25,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from pica import MAX_FILE_BYTES, parse_pica
-from pdf_import import evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES
+from pdf_import import (
+    evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
+    classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
+)
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_template
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
@@ -199,9 +202,42 @@ def initialize() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS uq_val_attiva
           ON valutazioni_pdf(candidatura_id)
           WHERE stato='Acquisita' AND attiva=1;
+        CREATE TABLE IF NOT EXISTS valutazioni_pdf_eventi (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id),
+            candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+            azione TEXT NOT NULL,
+            precedente_json TEXT NOT NULL,
+            successivo_json TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_val_eventi
+          ON valutazioni_pdf_eventi(bando_id,valutazione_pdf_id);
         CREATE INDEX IF NOT EXISTS ix_val_bando ON valutazioni_pdf(bando_id,candidatura_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
         """)
+        # Migrazione incrementale non distruttiva: ogni scheda già acquisita
+        # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
+        existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
+        for field, definition in (
+            ("decisione", "TEXT NOT NULL DEFAULT 'da_verificare'"),
+            ("metodo", "TEXT NOT NULL DEFAULT 'automatico'"),
+            ("motivazione_tecnica", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if field not in existing:
+                db.execute("ALTER TABLE valutazioni_pdf ADD COLUMN " + field + " " + definition)
+        # Esiti storici già esplicitamente registrati: classificazione esatta.
+        db.execute("""UPDATE valutazioni_pdf SET decisione=
+            CASE
+              WHEN esito IN (?,?) THEN 'idoneo'
+              WHEN esito IN (?,?) THEN 'non_idoneo'
+              WHEN esito IN (?,?,?) THEN 'escluso'
+              ELSE decisione
+            END
+            WHERE decisione='da_verificare' AND stato='Acquisita'
+        """, ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI)
         columns = {row["name"] for row in db.execute("PRAGMA table_info(incarichi)")}
         if "ssd" not in columns:
             db.execute("ALTER TABLE incarichi ADD COLUMN ssd TEXT NOT NULL DEFAULT ''")
@@ -1493,7 +1529,7 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
                 if item["stato"]=="da_verificare" and item["motivo"].startswith("Più PDF differenti"):
                     revised.update(stato="da_verificare",motivo=item["motivo"])
                 keys=("stato","candidatura_id","id_pica","modello","punteggio",
-                      "totale_pdf","esito","note")
+                      "totale_pdf","esito","note","decisione")
                 if any(item.get(k)!=revised.get(k) for k in keys):
                     fail("Dati variati dopo l'anteprima: ripetere il caricamento",409)
                 fresh.append((item,data,revised))
@@ -1518,8 +1554,8 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
                     INSERT INTO valutazioni_pdf
                     (bando_id,candidatura_id,stato,versione,attiva,sha256,
                      nome_originale,percorso,modello,punteggi_json,totale_calcolato,
-                     totale_pdf,esito,note,motivo,confermata_da,confermata_il)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     totale_pdf,esito,note,motivo,confermata_da,confermata_il,decisione,metodo)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,(
                     b["id"],item["candidatura_id"],
                     "Acquisita" if accepted else "Da verificare",
@@ -1530,7 +1566,8 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
                     json.dumps(item["punteggi"],ensure_ascii=False) if accepted else "{}",
                     item["punteggio"] if accepted else None,
                     item["totale_pdf"] if accepted else "",item["esito"] if accepted else "",
-                    item["note"] if accepted else "",item["motivo"],AUTH.username,now
+                    item["note"] if accepted else "",item["motivo"],AUTH.username,now,
+                    item["decisione"] if accepted else "da_verificare","automatico"
                 ))
                 counts["rettificate" if status=="rettifica" else
                        "acquisite" if status=="regolare" else "da_verificare"]+=1
