@@ -152,3 +152,15 @@ Controlli da svolgere prima dell'uso ufficiale: PDF ordinario, PDF professionali
 Nell'anteprima **Valutazioni**, dopo aver caricato uno ZIP, verificare il riepilogo **PDF trovati nel caricamento / PDF analizzati / PDF classificati**. I tre numeri devono coincidere. La somma «regolari + nuove versioni + da verificare + duplicati» deve coincidere con il numero di PDF trovati. Se non coincidono, la conferma viene bloccata.
 Il conteggio **schede attese** della tabella CdS/sede proviene dalle candidature PICA attive, non dai file presenti nello ZIP, e può quindi essere differente.
 Per il caso di prova con 21 PDF vergini di Osteopatia, il conteggio atteso è 21/21/21, mentre i punteggi non devono essere acquisiti perché manca una valutazione effettiva (esito e note non selezionati). Se su HAOS il riepilogo resta a 15, acquisire lo screenshot completo dei conteggi senza confermare e confrontarlo con il registro del bando.
+
+## v0.7.0 — Valutazioni per CdS, non idoneità e trascrizione manuale
+
+**Selezione del CdS:** aprire Bando → Valutazioni. Nei menu `Corso di Studio` e `Sede` scegliere il contesto da esaminare. Vengono filtrati l'avanzamento e lo storico delle schede e le candidature disponibili per la trascrizione manuale. Il conteggio delle schede concluse comprende esiti idonei, non idonei ed esclusi, purché esplicitamente acquisiti. La tabella evidenzia distintamente non idoneità, esclusioni e documenti da verificare. I PDF senza corrispondenza PICA sono raggiungibili dalla vista generale.
+
+**Esiti automatici:** una scheda con decisione di non idoneità o esclusione e nota motivazionale della commissione può concludere la candidatura senza punteggio (`NULL`). Uno zero non è un'esclusione e un punteggio positivo non implica idoneità. Le schede idonee devono avere un esito previsto dal modulo e il totale numerico coerente. L'assenza di esito o della nota obbligatoria porta a `Da verificare`.
+
+**Procedura manuale:** prima si carica il PDF e si conferma la conservazione tra le schede `Da verificare`. Poi, dallo Storico, cliccare `Acquisisci manualmente`. L'operatore sceglie l'esatta candidatura PICA, indica l'esito riportato dalla commissione, immette il punteggio soltanto per idonei oppure la motivazione della non idoneità/esclusione, descrive il motivo tecnico e attesta la corrispondenza con il PDF originale. In presenza di una valutazione già acquisita occorre confermare la rettifica. Il PDF originale è conservato senza modifiche e le trascrizioni sono tracciate nel registro eventi.
+
+**Attenzione:** RankUp non può attestare autonomamente che il testo trascritto coincida con un PDF illeggibile: la verifica documentale è responsabilità dell'operatore. Non usare questa funzione per attribuire punteggi o giudizi non deliberati dalla commissione. Le schede non ancora compilate non devono essere acquisite manualmente. Prima dell'uso amministrativo effettuare backup e collaudo con PDF autentici.
+
+**Mac:** lo ZIP può includere metadati di Finder, ignorati dal lettore. Il contenuto delle schede resta da verificare rispetto al programma usato per compilare il PDF.
