@@ -509,6 +509,11 @@
           };
         }catch(error){note("Impossibile leggere i riferimenti del bando: "+error.message,true);}
       }
+      var TIPO_REQUISITI=[
+        ["NESSUNA RISERVA","Nessuna riserva"],["SSN","Dipendente SSN"],
+        ["ALTRO ATENEO","Dipendente altro Ateneo"],["AOUI","AOUI"],["ASUIT","ASUIT"],
+        ["UNITN","UNITN"],["SSP","SSP"],["APSS","APSS"],["ASUIT O UNITN","ASUIT o UNITN"]
+      ];
       async function preview(){
         var file=$("pica-file").files[0];if(!file){note("Seleziona prima un file Excel.",true);return;}
         clearNote();var btn=$("preview-btn");btn.disabled=true;btn.textContent="Analisi...";
@@ -516,11 +521,26 @@
           var fd=new FormData();fd.append("file",file);
           var result=await api("pica/preview",{method:"POST",body:fd});
           state.preview=result;var x=result.riepilogo;
+          var types=result.tipologie||[];
+          var options=function(entry){
+            return '<option value="">— Seleziona requisito —</option>'+
+              TIPO_REQUISITI.map(function(c){
+                return '<option value="'+esc(c[0])+'"'+(entry.requisito===c[0]?' selected':'')+'>'+esc(c[1])+'</option>';
+              }).join('');
+          };
           $("preview-result").innerHTML='<div class="notice"><strong>Codice bando rilevato: '+esc(result.codice_bando)+'</strong><br>'+
             esc(x.candidature)+' candidature · '+esc(x.incarichi)+' incarichi · '+esc(x.cds)+' CdS<br>'+
             '<small>'+esc(result.file)+'</small></div>'+
             (x.avvisi.length?'<p class="caption">'+esc(x.avvisi.length)+' avvisi da controllare</p>':'')+
-            '<p><button class="btn" id="commit-btn">Conferma importazione</button></p>';
+            '<h3>Dizionario colonna L (Tipo CDS)</h3>'+
+            '<p class="caption">Classifica ogni dicitura nuova prima dell’importazione. Le corrispondenze note sono precompilate. Modificarle richiede una motivazione e aggiorna il dizionario comune. Nessuna IA o lettura PDF.</p>'+
+            '<div class="tablebox"><table><thead><tr><th>Dicitura originale</th><th>Incarichi</th><th>Requisito</th><th>Motivo rettifica (se cambia)</th></tr></thead><tbody>'+
+            types.map(function(t,i){return '<tr><td>'+esc(t.dicitura||"(Valore vuoto)")+
+              (t.nuova?' <span class="badge gray">NUOVO</span>':'')+
+              '</td><td>'+esc(t.incarichi)+'</td><td><select data-tipo="'+i+'">'+options(t)+
+              '</select></td><td><input data-tipo-motivo="'+i+'" maxlength="500" placeholder="Motivazione, se rettificato"></td></tr>';}).join('')+
+            '</tbody></table></div>'+
+            '<p><button class="btn" id="commit-btn">Conferma dizionario e importa</button></p>';
           $("commit-btn").onclick=commit;
         }catch(error){note(error.message,true);}
         finally{btn.disabled=false;btn.textContent="Analizza file";}
@@ -529,9 +549,23 @@
         if(!state.preview)return;
         var btn=$("commit-btn");btn.disabled=true;
         try{
-          var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:state.preview.token})});
+          var types=state.preview.tipologie||[];
+          var mapped=[];
+          for(var i=0;i<types.length;i++){
+            var t=types[i];
+            var select=document.querySelector('[data-tipo="'+i+'"]');
+            var requirement=(select&&select.value)||"";
+            if(!requirement){throw new Error("Assegna un requisito alla dicitura: "+(t.dicitura||"(vuota)"));}
+            var reason=(document.querySelector('[data-tipo-motivo="'+i+'"]')||{}).value||"";
+            if(!t.nuova&&requirement!==t.requisito&&!reason.trim()){
+              throw new Error("Motiva la rettifica della dicitura: "+t.dicitura);
+            }
+            mapped.push({chiave:t.chiave,requisito:requirement,motivo:reason.trim()});
+          }
+          var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({token:state.preview.token,tipologie:mapped})});
           await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
-          updateHeader();render();note("Bando "+result.codice_bando+" importato correttamente.",false);
+          updateHeader();render();note("Bando "+result.codice_bando+" importato con dizionario PICA.",false);
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
       function renderIncarichi(rows,code,acquisition){
