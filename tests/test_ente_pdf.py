@@ -40,35 +40,34 @@ def test_pdf_ente_rejects_non_pdf(tmp_path,monkeypatch):
         assert r.status_code==400,r.text
 
 
-def test_ai_opt_in_is_disabled_by_default_and_does_not_send_candidates(tmp_path,monkeypatch):
+
+def test_ai_local_does_not_send_candidates_or_write_requisiti(tmp_path,monkeypatch):
     server,admin,_=_setup(tmp_path,monkeypatch)
     with admin:
         _post(admin,"/api/bandi/26-02/ente/bando-pdf",
               files={"file":("bando.pdf",sample_pdf(),"application/pdf")})
         endpoint="/api/bandi/26-02/ente/ai/anteprima"
-        no_consent=_post(admin,endpoint,json={"consenso_documento_pubblico":False})
-        assert no_consent.status_code==400,no_consent.text
-        disabled=_post(admin,endpoint,json={"consenso_documento_pubblico":True})
+        disabled=_post(admin,endpoint,json={})
         assert disabled.status_code==503,disabled.text
         import json
         (tmp_path/"options.json").write_text(json.dumps({
-            "admin_username":"test-admin","admin_password":"this-is-a-long-test-password",
-            "ai_enabled":True,"ai_api_key":"synthetic-test-key-123456"
+            "ollama_url":"http://127.0.0.1:11434"
         }),encoding="utf-8")
         captured={}
-        def fake_ai(text,assignments,api_key):
+        def fake_ai(text,assignments,url):
             captured["text"]=text
             captured["assignments"]=assignments
-            captured["api_key"]=api_key
+            captured["url"]=url
             return [{"key":assignments[0]["key"],"ente_proposto":"AOUI",
                      "citazione":"MODULO SINTETICO - AOUI","stato":"DA CONFERMARE"}]
         monkeypatch.setattr(server,"ai_propose_ente",fake_ai)
-        result=_post(admin,endpoint,json={"consenso_documento_pubblico":True})
+        result=_post(admin,endpoint,json={})
         assert result.status_code==200,result.text
         assert result.json()["proposte"][0]["ente_proposto"]=="AOUI"
+        assert result.json()["modello_locale"] is True
+        assert captured["url"]=="http://127.0.0.1:11434"
         assert "cognome" not in str(captured["assignments"])
         assert "id_pica" not in str(captured["assignments"])
-        # L'AI non scrive requisiti nell'archivio, nemmeno quando propone un ente.
         rows=admin.get("/api/bandi/26-02/incarichi").json()["incarichi"]
         assert all(not row["ente_richiesto"] for row in rows)
 
