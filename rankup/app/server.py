@@ -1366,6 +1366,36 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
 
 
 
+
+@app.get("/api/bandi/{code}/valutazioni/ai/occupazione/storico")
+def storico_occupazione_ai(code: str, request: Request):
+    """Soli amministratori vedono storico e risultati delle verifiche IA."""
+    require_admin(request)
+    code = valid_code(code)
+    with connect() as db:
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        records = db.execute("""
+            SELECT a.valutazione_pdf_id, a.requisito_analizzato,
+                a.stato,a.motivo,a.evidenza,a.autore,a.quando,
+                a.id AS audit_id
+            FROM valutazioni_occupazione_ai a
+            WHERE a.bando_id=?
+            ORDER BY a.id DESC
+        """, (b["id"],)).fetchall()
+    latest = {}
+    counts = {}
+    for row in records:
+        key = str(row["valutazione_pdf_id"])
+        counts[key] = counts.get(key, 0) + 1
+        if key not in latest:
+            latest[key] = dict(row)
+    for key, value in latest.items():
+        value["numero_controlli"] = counts[key]
+    return {"controlli": latest}
+
+
 @app.get("/api/bandi/{code}/valutazioni/ai/occupazione/report.pdf")
 def report_occupazione_cds(code: str, cds: str, request: Request, sede: str = ""):
     """Report per CdS, riservato Admin; soltanto controlli IA registrati."""
