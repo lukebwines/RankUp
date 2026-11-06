@@ -577,7 +577,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.6", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.8.7", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -813,7 +813,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.6"}
+    return {"status": "ok", "version": "0.8.7"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1889,7 +1889,7 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
             params.append(sede)
         rows=db.execute("""
           SELECT c.id_pica,c.cognome,c.nome,c.codice_fiscale,c.stato,
-                 i.key,i.cds,i.sede,i.insegnamento,i.modulo,i.ul,i.ssd,
+                 i.key,i.cds,i.sede,i.insegnamento,i.modulo,i.ul,i.ssd,i.tipo_cds,
                  CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
                       THEN NULL
                       WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
