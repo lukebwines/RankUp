@@ -509,6 +509,11 @@
           };
         }catch(error){note("Impossibile leggere i riferimenti del bando: "+error.message,true);}
       }
+      var TIPO_REQUISITI=[
+        ["NESSUNA RISERVA","Nessuna riserva"],["SSN","Dipendente SSN"],
+        ["ALTRO ATENEO","Dipendente altro Ateneo"],["AOUI","AOUI"],["ASUIT","ASUIT"],
+        ["UNITN","UNITN"],["SSP","SSP"],["APSS","APSS"],["ASUIT O UNITN","ASUIT o UNITN"]
+      ];
       async function preview(){
         var file=$("pica-file").files[0];if(!file){note("Seleziona prima un file Excel.",true);return;}
         clearNote();var btn=$("preview-btn");btn.disabled=true;btn.textContent="Analisi...";
@@ -516,11 +521,26 @@
           var fd=new FormData();fd.append("file",file);
           var result=await api("pica/preview",{method:"POST",body:fd});
           state.preview=result;var x=result.riepilogo;
+          var types=result.tipologie||[];
+          var options=function(entry){
+            return '<option value="">— Seleziona requisito —</option>'+
+              TIPO_REQUISITI.map(function(c){
+                return '<option value="'+esc(c[0])+'"'+(entry.requisito===c[0]?' selected':'')+'>'+esc(c[1])+'</option>';
+              }).join('');
+          };
           $("preview-result").innerHTML='<div class="notice"><strong>Codice bando rilevato: '+esc(result.codice_bando)+'</strong><br>'+
             esc(x.candidature)+' candidature · '+esc(x.incarichi)+' incarichi · '+esc(x.cds)+' CdS<br>'+
             '<small>'+esc(result.file)+'</small></div>'+
             (x.avvisi.length?'<p class="caption">'+esc(x.avvisi.length)+' avvisi da controllare</p>':'')+
-            '<p><button class="btn" id="commit-btn">Conferma importazione</button></p>';
+            '<h3>Dizionario colonna L (Tipo CDS)</h3>'+
+            '<p class="caption">Classifica ogni dicitura nuova prima dell’importazione. Le corrispondenze note sono precompilate. Modificarle richiede una motivazione e aggiorna il dizionario comune. Nessuna IA o lettura PDF.</p>'+
+            '<div class="tablebox"><table><thead><tr><th>Dicitura originale</th><th>Incarichi</th><th>Requisito</th><th>Motivo rettifica (se cambia)</th></tr></thead><tbody>'+
+            types.map(function(t,i){return '<tr><td>'+esc(t.dicitura||"(Valore vuoto)")+
+              (t.nuova?' <span class="badge gray">NUOVO</span>':'')+
+              '</td><td>'+esc(t.incarichi)+'</td><td><select data-tipo="'+i+'">'+options(t)+
+              '</select></td><td><input data-tipo-motivo="'+i+'" maxlength="500" placeholder="Motivazione, se rettificato"></td></tr>';}).join('')+
+            '</tbody></table></div>'+
+            '<p><button class="btn" id="commit-btn">Conferma dizionario e importa</button></p>';
           $("commit-btn").onclick=commit;
         }catch(error){note(error.message,true);}
         finally{btn.disabled=false;btn.textContent="Analizza file";}
@@ -529,9 +549,23 @@
         if(!state.preview)return;
         var btn=$("commit-btn");btn.disabled=true;
         try{
-          var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:state.preview.token})});
+          var types=state.preview.tipologie||[];
+          var mapped=[];
+          for(var i=0;i<types.length;i++){
+            var t=types[i];
+            var select=document.querySelector('[data-tipo="'+i+'"]');
+            var requirement=(select&&select.value)||"";
+            if(!requirement){throw new Error("Assegna un requisito alla dicitura: "+(t.dicitura||"(vuota)"));}
+            var reason=(document.querySelector('[data-tipo-motivo="'+i+'"]')||{}).value||"";
+            if(!t.nuova&&requirement!==t.requisito&&!reason.trim()){
+              throw new Error("Motiva la rettifica della dicitura: "+t.dicitura);
+            }
+            mapped.push({chiave:t.chiave,requisito:requirement,motivo:reason.trim()});
+          }
+          var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({token:state.preview.token,tipologie:mapped})});
           await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
-          updateHeader();render();note("Bando "+result.codice_bando+" importato correttamente.",false);
+          updateHeader();render();note("Bando "+result.codice_bando+" importato con dizionario PICA.",false);
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
       function renderIncarichi(rows,code,acquisition){
@@ -594,6 +628,7 @@
             field("ID Copertura (N)",value(r.id_copertura)),
             field("SSD (O)",value(r.ssd)),
             field("Ente richiesto",enteBadge(r)),
+            field("Origine requisito",esc(r.stato_requisito||"DA VERIFICARE")),
             field("Fonte del requisito",value(r.ente_fonte))
           ].join("");
           return '<tr><td>'+value(r.cds)+'</td><td>'+value(r.sede)+
@@ -607,7 +642,7 @@
               ?'<form data-ente-form="'+esc(r.key)+'" class="actions" style="align-items:end;flex-wrap:wrap;padding:12px">'+
                '<label>Ente richiesto<select name="ente" required>'+
                '<option value="">Seleziona dal bando</option>'+
-               ["SSN","AOUI","ASUIT","UNITN","SSP","ASUIT O UNITN","NESSUNA RISERVA"].map(function(e){
+               ["SSN","AOUI","ASUIT","UNITN","SSP","APSS","ALTRO ATENEO","ASUIT O UNITN","NESSUNA RISERVA"].map(function(e){
                  return '<option value="'+e+'"'+(r.ente_richiesto===e?' selected':'')+'>'+e+'</option>';}).join('')+
                '</select></label><label>Fonte ufficiale<input name="fonte" required maxlength="500" placeholder="Allegato al bando, riga/incarico" value="'+esc(r.ente_fonte||"")+'"></label>'+
                '<button class="btn" type="submit">Conferma requisito</button></form>'
@@ -623,11 +658,10 @@
            '<input type="file" accept=".pdf,application/pdf" id="bando-pdf-ente">'+
            '<button class="btn secondary" id="bando-pdf-ente-upload" type="button">Analizza testo del bando</button>'+
            '<p class="caption">Il PDF rimane nell’add-on. Le evidenze testuali richiedono verifica amministrativa.</p>'+
-           '<p class="caption"><strong>IA locale Ollama</strong> · Il bando viene analizzato sul Raspberry Pi. Nessuna chiave API cloud. Nessun dato candidato è inviato al modello.</p>'+
+           '<p class="caption">I requisiti sono determinati dal dizionario PICA, non da Ollama o dal PDF.</p>'+
            '<button class="btn secondary" id="ai-ente-status" type="button">Verifica Ollama locale</button>'+
-           '<button class="btn secondary" id="ai-ente-preview" type="button">Suggerisci requisiti con IA locale</button>'+
-           '<p class="caption">Per bandi con oltre 12 incarichi, seleziona prima il CdS nel filtro.</p>'+
-           '<div id="ai-ente-results" style="margin-top:12px"></div>'+
+           '<button class="btn secondary" id="pica-dictionary-open" type="button">Gestisci dizionario PICA</button>'+
+           '<div id="pica-dictionary-panel"></div>'+
            '</div><div id="bando-ente-preview"></div>':'')+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
           '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Ente richiesto</th><th>Anno corso</th><th>Candidature</th></tr>'+
@@ -643,39 +677,39 @@
             }catch(err){note(err.message,true);}
             finally{button.disabled=false;}
           };
-          $("ai-ente-preview").onclick=async function(){
-            var button=this;button.disabled=true;
+          $("pica-dictionary-open").onclick=async function(){
+            var holder=$("pica-dictionary-panel");
+            holder.innerHTML='<p class="caption">Caricamento dizionario...</p>';
             try{
-              var result=await api("bandi/"+encodeURIComponent(code)+"/ente/ai/anteprima",{
-                method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({cds:state.incarichiFilter.cds||""})});
-              var proposals=result.proposte||[];
-              var dest=$("ai-ente-results");
-              dest.innerHTML='<p class="caption">'+esc(proposals.length)+' proposte IA da verificare su '+esc(result.totale_incarichi)+' incarichi. '+esc(result.avviso)+'</p>'+
-                '<div class="tablebox"><table><thead><tr><th>Incarico</th><th>Proposta</th><th>Citazione PDF</th><th>Azione</th></tr></thead><tbody>'+
-                proposals.map(function(p,i){
-                  var r=rows.find(function(x){return x.key===p.key;})||{};
-                  return '<tr><td>'+esc(r.modulo||"Incarico non trovato")+' · '+esc(r.cds||"")+
-                    '</td><td>'+esc(p.ente_proposto)+'</td><td>'+esc(p.citazione)+'</td>'+
-                    '<td><button class="btn secondary" data-ai-approve="'+i+'" type="button">Conferma requisito</button></td></tr>';
+              var info=await api("pica/tipologie"), types=info.tipologie||[];
+              holder.innerHTML='<h4>Dizionario condiviso della colonna L</h4>'+
+                '<p class="caption">Le modifiche vengono registrate e valgono anche per i bandi già acquisiti, salvo conferme manuali dei singoli incarichi.</p>'+
+                '<div class="tablebox"><table><thead><tr><th>Dicitura</th><th>Requisito</th><th>Motivo rettifica</th><th></th></tr></thead><tbody>'+
+                types.map(function(t,i){
+                  return '<tr><td>'+esc(t.dicitura)+'</td><td><select data-dict-req="'+i+'">'+
+                    TIPO_REQUISITI.map(function(c){
+                      return '<option value="'+esc(c[0])+'"'+(c[0]===t.requisito?' selected':'')+'>'+esc(c[1])+'</option>';
+                    }).join('')+'</select></td><td><input maxlength="500" data-dict-reason="'+i+'" placeholder="Obbligatoria se cambia"></td>'+
+                    '<td><button class="btn secondary" data-dict-save="'+i+'" type="button">Salva</button></td></tr>';
                 }).join('')+'</tbody></table></div>';
-              dest.querySelectorAll("[data-ai-approve]").forEach(function(btn){
+              holder.querySelectorAll("[data-dict-save]").forEach(function(btn){
                 btn.onclick=async function(){
-                  var p=proposals[Number(btn.dataset.aiApprove)];
-                  if(!p||!confirm("Hai verificato la proposta rispetto al PDF ufficiale per questo incarico?"))return;
+                  var i=Number(btn.dataset.dictSave),t=types[i];
+                  var req=holder.querySelector('[data-dict-req="'+i+'"]').value;
+                  var reason=holder.querySelector('[data-dict-reason="'+i+'"]').value.trim();
+                  if(req===t.requisito){note("Nessuna modifica.",false);return;}
+                  if(!reason){note("Motivazione obbligatoria per la rettifica.",true);return;}
+                  if(!confirm("Aggiornare questa corrispondenza per tutti i bandi privi di rettifica manuale?"))return;
                   btn.disabled=true;
                   try{
-                    await api("bandi/"+encodeURIComponent(code)+"/incarichi/"+encodeURIComponent(p.key)+"/ente",{
-                      method:"PUT",headers:{"Content-Type":"application/json"},
-                      body:JSON.stringify({ente_richiesto:p.ente_proposto,
-                        fonte:"Bando PDF ufficiale: "+p.citazione.slice(0,350)})});
-                    note("Requisito approvato e registrato.",false);
+                    await api("pica/tipologie",{method:"PUT",headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify({chiave:t.chiave,requisito:req,motivo:reason})});
+                    note("Dizionario aggiornato con storico della rettifica.",false);
                     await renderList("incarichi");
                   }catch(err){note(err.message,true);btn.disabled=false;}
                 };
               });
-            }catch(err){note(err.message,true);}
-            finally{button.disabled=false;}
+            }catch(err){note(err.message,true);holder.innerHTML="";}
           };
           $("bando-pdf-ente-upload").onclick=async function(){
             var f=$("bando-pdf-ente").files[0];
@@ -733,7 +767,7 @@
               '<p class="caption">Controllo istruttorio; non determina ammissioni o esclusioni. Il dato dichiarato è riportato senza modifiche.</p>'+
               select+'<p class="caption" id="cand-counter"></p><div class="tablebox"><table><thead><tr>'+
               '<th>ID PICA</th><th>Candidato</th><th>CdS</th><th>Modulo</th><th>Ente richiesto</th>'+
-              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th></tr></thead>'+
+              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th><th>Ollama locale</th></tr></thead>'+
               '<tbody id="cand-rows"></tbody></table></div></div>');
             function showCandidates(){
               var course=$("cand-cds").value,status=$("cand-ente-stato").value;
@@ -747,9 +781,31 @@
                   '</td><td>'+esc(r.cds)+'</td><td>'+esc(r.modulo)+'</td><td>'+esc(r.ente_richiesto||"DA CONFIGURARE")+
                   '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
                   '</td><td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
-                  '<div class="caption">'+esc(e.motivo||"")+'</div></td></tr>';
+                  '<div class="caption">'+esc(e.motivo||"")+'</div></td>'+
+                  '<td>'+(state.role==="admin"&&r.ente_richiesto&&r.ente_richiesto!=="NESSUNA RISERVA"
+                    ? '<button type="button" class="btn secondary" data-ai-cand="'+rows.indexOf(r)+'">Verifica occupazione</button>'
+                    : '<span class="caption">Non richiesta</span>')+
+                  (r.ai_occupazione?'<p class="caption"><strong>'+esc(r.ai_occupazione.stato)+'</strong> — '+
+                   esc(r.ai_occupazione.motivo)+' <em>'+esc(r.ai_occupazione.evidenza||"")+'</em></p>':'')+
+                  '</td></tr>';
               }).join('');
             }
+            $("cand-rows").onclick=async function(event){
+              var button=event.target.closest("button[data-ai-cand]");
+              if(!button)return;
+              var row=rows[Number(button.dataset.aiCand)];
+              if(!row)return;
+              button.disabled=true;button.textContent="Analisi locale...";
+              try{
+                var response=await api("bandi/"+encodeURIComponent(code)+"/candidature/ai/anteprima",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({id_pica:String(row.id_pica),incarico_key:row.incarico_key})
+                });
+                row.ai_occupazione=response.risultato;
+                showCandidates();
+                note("Analisi IA locale completata; esito esclusivamente istruttorio.",false);
+              }catch(error){note(error.message,true);button.disabled=false;button.textContent="Verifica occupazione";}
+            };
             $("cand-cds").onchange=showCandidates;$("cand-ente-stato").onchange=showCandidates;
             showCandidates();return;
           }
