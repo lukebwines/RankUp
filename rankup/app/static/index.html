@@ -628,6 +628,38 @@
           var result=await api("bandi/"+encodeURIComponent(code)+"/"+page);
           if(state.page!==page||state.active!==code)return;
           var rows=result[page];if(page==="incarichi"){renderIncarichi(rows,code,result.acquisizione_metadati);return;}if(page==="commissioni"){await renderCommissioni(rows,code);return;}if(!rows.length){html((page==="commissioni"?commissionUpload():"")+panel(page,"Nessun dato disponibile."));if(page==="commissioni")bindCommissionUpload();return;}
+          if(page==="candidature"){
+            var groups=[...new Set(rows.map(function(r){return r.cds;}).filter(Boolean))].sort();
+            var select='<div class="actions" style="margin:12px 0"><label>Corso di Studio<select id="cand-cds">'+
+              '<option value="">Tutti i CdS</option>'+groups.map(function(g){return '<option value="'+esc(g)+'">'+esc(g)+'</option>';}).join('')+
+              '</select></label><label>Esito verifica<select id="cand-ente-stato">'+
+              '<option value="">Tutti</option><option value="COERENTE">Coerente (preliminare)</option>'+
+              '<option value="DA VERIFICARE">Da verificare</option><option value="DA CONFIGURARE">Da configurare</option>'+
+              '<option value="NESSUNA RISERVA">Nessuna riserva</option></select></label></div>';
+            html('<div class="card"><h3 class="section-heading">Candidature PICA · Verifica preliminare ente · Bando '+esc(code)+'</h3>'+
+              '<p class="caption">Controllo istruttorio; non determina ammissioni o esclusioni. Il dato dichiarato è riportato senza modifiche.</p>'+
+              select+'<p class="caption" id="cand-counter"></p><div class="tablebox"><table><thead><tr>'+
+              '<th>ID PICA</th><th>Candidato</th><th>CdS</th><th>Modulo</th><th>Ente richiesto</th>'+
+              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th></tr></thead>'+
+              '<tbody id="cand-rows"></tbody></table></div></div>');
+            function showCandidates(){
+              var course=$("cand-cds").value,status=$("cand-ente-stato").value;
+              var filtered=rows.filter(function(r){
+                return (!course||r.cds===course)&&(!status||(r.verifica_ente||{}).stato.indexOf(status)===0);
+              });
+              $("cand-counter").textContent=filtered.length+" candidature visualizzate su "+rows.length;
+              $("cand-rows").innerHTML=filtered.map(function(r){
+                var e=r.verifica_ente||{},st=e.stato||"DA VERIFICARE",ok=st.indexOf("COERENTE")===0;
+                return '<tr><td>'+esc(r.id_pica)+'</td><td>'+esc([r.cognome,r.nome].filter(Boolean).join(" "))+
+                  '</td><td>'+esc(r.cds)+'</td><td>'+esc(r.modulo)+'</td><td>'+esc(r.ente_richiesto||"DA CONFIGURARE")+
+                  '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
+                  '</td><td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
+                  '<div class="caption">'+esc(e.motivo||"")+'</div></td></tr>';
+              }).join('');
+            }
+            $("cand-cds").onchange=showCandidates;$("cand-ente-stato").onchange=showCandidates;
+            showCandidates();return;
+          }
           var fields=page==="incarichi"?["cds","sede","insegnamento","modulo","id_copertura","candidature"]:(page==="commissioni"?["cds","sede","presidente","componenti","anno"]:["id_pica","cognome","nome","cds","sede","modulo","stato"]);
           var labels={cds:"Corso di Studio",sede:"Sede",insegnamento:"Insegnamento",modulo:"Modulo",id_copertura:"ID copertura",candidature:"Domande",presidente:"Presidente",componenti:"Componenti",anno:"Anno accademico",id_pica:"ID PICA",cognome:"Cognome",nome:"Nome",stato:"Stato"};
           html((page==="commissioni"?commissionUpload():"")+'<div class="card"><h3 class="section-heading">'+esc(page==="incarichi"?"Incarichi ricavati da PICA":(page==="commissioni"?"Commissioni del bando":"Domande PICA"))+' · Bando '+esc(code)+'</h3>'+
