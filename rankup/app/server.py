@@ -337,6 +337,18 @@ def initialize() -> None:
             ON valutazioni_occupazione_ai(valutazione_pdf_id, id DESC)
         """)
         db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_vincitori_proposti (
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                incarico_id INTEGER NOT NULL REFERENCES incarichi(id) ON DELETE CASCADE,
+                candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL,
+                PRIMARY KEY(bando_id,incarico_id)
+            )
+        """)
+        db.execute("""
             CREATE TABLE IF NOT EXISTS graduatorie_cds (
                 id INTEGER PRIMARY KEY,
                 bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -2842,6 +2854,58 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
               request_actor(),stamp))
         db.commit()
     return {"ok":True,"stato":"definitiva","hash":digest}
+
+
+class CambiaVincitoreProposto(BaseModel):
+    candidatura_id: int = Field(gt=0)
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.put("/api/bandi/{code}/verbali/graduatorie/{incarico_id}/vincitore")
+def vincitore_proposto_istruttorio(code: str,incarico_id: int,
+                                 body: CambiaVincitoreProposto,request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        job=db.execute("""SELECT cds,sede FROM incarichi WHERE id=? AND bando_id=?""",
+                       (incarico_id,b["id"])).fetchone()
+        if not job:fail("Incarico non trovato",404)
+        _assert_graduatoria_open(db,b["id"],job["cds"],job["sede"])
+        choice=db.execute("""
+            SELECT c.id FROM candidature c
+            JOIN valutazioni_pdf v ON v.candidatura_id=c.id
+                 AND v.attiva=1 AND v.stato='Acquisita' AND v.decisione='idoneo'
+            WHERE c.id=? AND c.incarico_id=? AND c.stato='Attiva'
+                AND v.totale_calcolato IS NOT NULL
+        """,(body.candidatura_id,incarico_id)).fetchone()
+        if not choice:
+            fail("Il vincitore proposto deve essere una candidatura idonea con punteggio acquisito",409)
+        before=db.execute("""SELECT * FROM graduatorie_vincitori_proposti
+            WHERE bando_id=? AND incarico_id=?""",(b["id"],incarico_id)).fetchone()
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_vincitori_proposti
+            (bando_id,incarico_id,candidatura_id,motivazione,riferimento,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+            ON CONFLICT(bando_id,incarico_id) DO UPDATE SET
+            candidatura_id=excluded.candidatura_id,motivazione=excluded.motivazione,
+            riferimento=excluded.riferimento,autore=excluded.autore,quando=excluded.quando
+        """,(b["id"],incarico_id,body.candidatura_id,
+             body.motivazione.strip(),body.riferimento.strip(),request_actor(),now))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"incarico",incarico_id,"Vincitore proposto indicato dall'Admin",
+             json.dumps({"precedente":dict(before) if before else None,
+                         "candidatura_id":body.candidatura_id,
+                         "motivazione":body.motivazione.strip(),
+                         "riferimento":body.riferimento.strip()},ensure_ascii=False),
+             request_actor(),now))
+        db.commit()
+    return {"ok":True}
 
 
 @app.get("/api/bandi/{code}/verbali/graduatorie/pdf")
