@@ -386,6 +386,16 @@
               '</div>';
             return heading+g.incarichi.map(function(job){
               return '<h4>'+esc(job.insegnamento)+' · '+esc(job.modulo)+' · SSD '+esc(job.ssd||"[DA VERIFICARE]")+'</h4>'+
+                '<p class="caption">Vincitore proposto: '+esc((job.candidature.find(function(x){return x.candidatura_id===job.vincitore_id;})||{}).id_pica||"DA VERIFICARE")+
+                (job.vincitore_motivazione?' · Motivazione registrata: '+esc(job.vincitore_motivazione):'')+'</p>'+
+                (state.role==="admin"&&!final&&!approved
+                  ? '<div class="actions"><label>Vincitore proposto (solo candidati idonei) <select data-winner-choice="'+esc(job.id)+'">'+
+                    '<option value="">Seleziona candidato</option>'+
+                    job.candidature.filter(function(c){return c.decisione==="idoneo"&&c.punteggio!=null;}).map(function(c){
+                      return '<option value="'+esc(c.candidatura_id)+'"'+
+                        (job.vincitore_id===c.candidatura_id?' selected':'')+'>'+esc(c.id_pica+" · "+c.cognome+" "+c.nome+" · "+c.punteggio)+'</option>';
+                    }).join('')+'</select></label><button class="btn secondary" data-winner-save="'+esc(job.id)+'">Conferma con motivazione</button></div>'
+                  : '')+
                 '<div class="tablebox"><table><thead><tr><th>Posizione</th><th>ID PICA</th><th>Candidato</th><th>Punti</th><th>Esito</th><th>Note della Commissione</th></tr></thead><tbody>'+
                 job.candidature.map(function(c){
                   return '<tr><td>'+esc(c.posizione==null?"—":c.posizione)+'</td><td>'+esc(c.id_pica)+
@@ -397,6 +407,27 @@
           html(controls+(blocks||panel("Nessuna graduatoria","Nessun incarico corrisponde ai filtri.")));
           $("verb-cds").onchange=function(){state.verbaliCds=this.value;state.verbaliSede="";renderVerbaliGraduatorie();};
           $("verb-sede").onchange=function(){state.verbaliSede=this.value;renderVerbaliGraduatorie();};
+          document.querySelectorAll("[data-winner-save]").forEach(function(btn){
+            btn.onclick=async function(){
+              var assignment=btn.dataset.winnerSave;
+              var value=document.querySelector('[data-winner-choice="'+assignment+'"]');
+              if(!value||!value.value){note("Seleziona una candidatura idonea",true);return;}
+              var reason=prompt("Motivazione documentata della scelta del vincitore proposto:");
+              if(!reason||reason.trim().length<10){note("Motivazione obbligatoria di almeno 10 caratteri",true);return;}
+              var reference=prompt("Riferimento verificabile della decisione della Commissione:");
+              if(!reference||reference.trim().length<5){note("Riferimento obbligatorio",true);return;}
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/"+
+                    encodeURIComponent(assignment)+"/vincitore",{
+                    method:"PUT",headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({candidatura_id:Number(value.value),
+                      motivazione:reason.trim(),riferimento:reference.trim()})});
+                note("Scelta del vincitore proposta registrata e tracciata.",false);
+                renderVerbaliGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
           document.querySelectorAll("[data-verb-final]").forEach(function(btn){
             btn.onclick=async function(){
               var g=shown[Number(btn.dataset.verbFinal)];
