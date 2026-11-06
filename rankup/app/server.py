@@ -29,6 +29,7 @@ from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
+from ai_ente import propose as ai_propose_ente, AIEmployerError
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -985,6 +986,47 @@ async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile =
     return {"ok":True,"file":filename[:150],"sha256":digest,"pagine":len(reader.pages),
             "evidenze":evidence,"avviso":
             "Le occorrenze sono indizi testuali, non requisiti automaticamente assegnati agli incarichi. Confermare ogni requisito con la tabella ufficiale."}
+
+
+class RichiestaIAEnte(BaseModel):
+    consenso_documento_pubblico: bool = False
+
+
+@app.post("/api/bandi/{code}/ente/ai/anteprima")
+def anteprima_ente_ai(code: str, body: RichiestaIAEnte, request: Request):
+    """Solo PDF ufficiale e dati dei moduli; mai dati personali PICA."""
+    require_admin(request)
+    code=valid_code(code)
+    if not body.consenso_documento_pubblico:
+        fail("Confermare esplicitamente l'invio del solo testo del bando PDF al provider IA")
+    try:
+        options=json.loads((BASE / "options.json").read_text(encoding="utf-8"))
+    except (OSError,ValueError):
+        options={}
+    if options.get("ai_enabled") is not True or not options.get("ai_api_key"):
+        fail("RankUP AI non attiva: abilitarla nelle opzioni dell'add-on e configurare la chiave API",503)
+    path=SOURCES / code / "bando_requisiti_originale.pdf"
+    if not path.is_file():
+        fail("Caricare prima il bando PDF ufficiale",404)
+    try:
+        pdf=PdfReader(str(path))
+        if len(pdf.pages)>100:fail("PDF troppo lungo")
+        text="\n".join((p.extract_text() or "") for p in pdf.pages)
+    except HTTPException:
+        raise
+    except Exception:
+        fail("Il bando PDF non è leggibile",400)
+    with connect() as db:
+        rows=db.execute("""SELECT i.key,i.cds,i.sede,i.insegnamento,i.modulo
+                         FROM incarichi i JOIN bandi b ON b.id=i.bando_id
+                         WHERE b.codice=? ORDER BY i.cds,i.sede,i.modulo""",(code,)).fetchall()
+    if not rows:fail("Nessun incarico disponibile da confrontare",404)
+    try:
+        proposals=ai_propose_ente(text,[dict(x) for x in rows],options["ai_api_key"])
+    except AIEmployerError as exc:
+        fail(str(exc),502)
+    return {"proposte":proposals,"totale_incarichi":len(rows),
+            "avviso":"Suggerimenti IA NON applicati. Confermare ogni ente con fonte originale."}
 
 
 class RequisitoEnteInput(BaseModel):
