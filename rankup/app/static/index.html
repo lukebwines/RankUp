@@ -518,6 +518,11 @@
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
       function renderIncarichi(rows,code,acquisition){
+        function enteBadge(r){
+          return r.ente_richiesto
+            ? '<span class="badge" title="'+esc(r.ente_fonte||"Fonte non indicata")+'">'+esc(r.ente_richiesto)+'</span>'
+            : '<span class="badge gray">DA VERIFICARE</span>';
+        }
         var filter=state.incarichiFilter;
         var courses=[...new Set(rows.map(function(r){return r.cds;}).filter(Boolean))].sort();
         if(filter.cds&&!courses.includes(filter.cds)){filter.cds="";filter.sede="";}
@@ -570,15 +575,26 @@
             field("Stato coperture (BU)",value(r.stato_coperture)),
             field("Codice Copertura (G)",value(r.codice_copertura)),
             field("ID Copertura (N)",value(r.id_copertura)),
-            field("SSD (O)",value(r.ssd))
+            field("SSD (O)",value(r.ssd)),
+            field("Ente richiesto",enteBadge(r)),
+            field("Fonte del requisito",value(r.ente_fonte))
           ].join("");
           return '<tr><td>'+value(r.cds)+'</td><td>'+value(r.sede)+
             '</td><td>'+value(r.insegnamento)+'</td><td>'+value(r.modulo)+
-            '</td><td class="code">'+value(r.ssd)+'</td><td>'+value(r.anno_corso)+
+            '</td><td class="code">'+value(r.ssd)+'</td><td>'+enteBadge(r)+'</td><td>'+value(r.anno_corso)+
             '</td><td>'+value(r.candidature)+'</td></tr>'+
-            '<tr><td colspan="7"><details class="assignment-detail"><summary>Mostra tutti i dati dell’incarico'+
+            '<tr><td colspan="8"><details class="assignment-detail"><summary>Mostra tutti i dati dell’incarico'+
             (r.id_copertura?' · ID '+esc(r.id_copertura):'')+
             '</summary><dl class="assignment-metadata">'+extra+'</dl>'+
+            (state.role==="admin"
+              ?'<form data-ente-form="'+esc(r.key)+'" class="actions" style="align-items:end;flex-wrap:wrap;padding:12px">'+
+               '<label>Ente richiesto<select name="ente" required>'+
+               '<option value="">Seleziona dal bando</option>'+
+               ["SSN","AOUI","ASUIT","UNITN","SSP","ASUIT O UNITN","NESSUNA RISERVA"].map(function(e){
+                 return '<option value="'+e+'"'+(r.ente_richiesto===e?' selected':'')+'>'+e+'</option>';}).join('')+
+               '</select></label><label>Fonte ufficiale<input name="fonte" required maxlength="500" placeholder="Allegato al bando, riga/incarico" value="'+esc(r.ente_fonte||"")+'"></label>'+
+               '<button class="btn" type="submit">Conferma requisito</button></form>'
+              :'')+
             '<p class="caption">Il Peso Copertura è conservato come dato autonomo e non viene interpretato come numero di ore.</p>'+
             '</details></td></tr>';
         }).join("");
@@ -586,8 +602,21 @@
           '</h3><p class="caption">'+visible.length+' incarichi visualizzati su '+rows.length+', ordinati per CdS, sede, insegnamento e modulo.</p>'+
           '<div class="notice mb">'+explanation+'</div>'+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
-          '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Anno corso</th><th>Candidature</th></tr>'+
+          '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Ente richiesto</th><th>Anno corso</th><th>Candidature</th></tr>'+
           '</thead><tbody>'+content+'</tbody></table></div></div>');
+        document.querySelectorAll("[data-ente-form]").forEach(function(form){
+          form.onsubmit=async function(event){
+            event.preventDefault();
+            var button=form.querySelector("button");button.disabled=true;
+            try{
+              var body={ente_richiesto:form.elements.ente.value,fonte:form.elements.fonte.value.trim()};
+              await api("bandi/"+encodeURIComponent(code)+"/incarichi/"+form.dataset.enteForm+"/ente",{
+                method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+              note("Requisito ente confermato dalla fonte indicata.",false);
+              await renderList("incarichi");
+            }catch(err){note(err.message,true);button.disabled=false;}
+          };
+        });
         $("incarichi-cds").onchange=function(){state.incarichiFilter={cds:this.value,sede:""};renderIncarichi(rows,code,acquisition);};
         $("incarichi-sede").onchange=function(){state.incarichiFilter.sede=this.value;renderIncarichi(rows,code,acquisition);};
         $("incarichi-reset").onclick=function(){state.incarichiFilter={cds:"",sede:""};renderIncarichi(rows,code,acquisition);};
