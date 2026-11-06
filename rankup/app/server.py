@@ -577,7 +577,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.5", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.8.6", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -813,7 +813,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.5"}
+    return {"status": "ok", "version": "0.8.6"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1923,6 +1923,13 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
     # Il file PICA usa spesso la denominazione estesa "(ABILITANTE ...)".
     # Usare soltanto il nome canonico CdS + sede. Non applicare somiglianze
     # parziali e non ereditare una commissione da un'altra sede.
+    # La stessa valutazione istruttoria gia esposta in "Candidature"
+    # accompagna la scheda del candidato. Non invocare Ollama per creare PDF,
+    # non usare i suoi esiti come decisione e non variare le schede archiviate.
+    verification = {
+        (str(r["id_pica"]), r["incarico_key"]): r
+        for r in list_candidature(code)["candidature"]
+    }
     index = commission_index(commission_rows)
     associated = []
     missing = set()
@@ -1935,6 +1942,26 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
             (ambiguous if status == "ambigua" else missing).add(label)
             continue
         record = dict(row)
+        selected = verification.get((str(record["id_pica"]), record["key"]), {})
+        requested = selected.get("ente_richiesto") or ""
+        preliminary = selected.get("verifica_ente") or {}
+        # Il punto di attenzione permane anche con dichiarazioni plausibili:
+        # il rapporto di lavoro attivo deve comunque essere verificato.
+        if requested and requested != "NESSUNA RISERVA":
+            record["attenzione_occupazione"] = (
+                "ATTENZIONE - Verificare occupazione e appartenenza: " +
+                requested + " (PICA: " +
+                str(preliminary.get("stato") or "DA VERIFICARE") + ")"
+            )
+            record["attenzione_motivo"] = str(preliminary.get("motivo") or "")
+        elif not requested:
+            record["attenzione_occupazione"] = (
+                "ATTENZIONE - Requisito di appartenenza non classificato [DA VERIFICARE]"
+            )
+            record["attenzione_motivo"] = "Verificare la dicitura originale PICA e il bando."
+        else:
+            record["attenzione_occupazione"] = ""
+            record["attenzione_motivo"] = ""
         record.update({
             "presidente": commission["presidente"],
             "componenti": commission["componenti"],
