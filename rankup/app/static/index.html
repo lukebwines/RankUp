@@ -600,10 +600,37 @@
         }).join("");
         html('<div class="card"><h3 class="section-heading">Anagrafica incarichi · Bando '+esc(code)+
           '</h3><p class="caption">'+visible.length+' incarichi visualizzati su '+rows.length+', ordinati per CdS, sede, insegnamento e modulo.</p>'+
-          '<div class="notice mb">'+explanation+'</div>'+filters+
+          '<div class="notice mb">'+explanation+'</div>'+
+          (state.role==="admin"?'<div class="upload" style="margin-bottom:12px">'+
+           '<label for="bando-pdf-ente"><strong>Documento ufficiale: bando PDF</strong></label>'+
+           '<input type="file" accept=".pdf,application/pdf" id="bando-pdf-ente">'+
+           '<button class="btn secondary" id="bando-pdf-ente-upload" type="button">Analizza testo del bando</button>'+
+           '<p class="caption">Il PDF rimane nell’add-on. L’analisi propone solo evidenze testuali: conferma l’ente su ogni incarico.</p>'+
+           '</div><div id="bando-ente-preview"></div>':'')+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
           '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Ente richiesto</th><th>Anno corso</th><th>Candidature</th></tr>'+
           '</thead><tbody>'+content+'</tbody></table></div></div>');
+        if(state.role==="admin"){
+          $("bando-pdf-ente-upload").onclick=async function(){
+            var f=$("bando-pdf-ente").files[0];
+            if(!f){note("Seleziona un bando PDF ufficiale",true);return;}
+            var button=this;button.disabled=true;
+            try{
+              var body=new FormData();body.append("file",f,f.name);
+              var result=await api("bandi/"+encodeURIComponent(code)+"/ente/bando-pdf",{method:"POST",body:body});
+              var dest=$("bando-ente-preview");
+              dest.innerHTML='<div class="notice"><strong>Documento registrato: '+esc(result.file)+
+                '</strong><p>'+esc(result.avviso)+'</p><p>'+esc(result.pagine)+' pagine, '+esc(result.evidenze.length)+
+                ' occorrenze individuate.</p></div>'+
+                '<details><summary>Visualizza le evidenze da controllare</summary>'+
+                '<div class="tablebox"><table><thead><tr><th>Pagina</th><th>Riga</th><th>Testo PDF</th></tr></thead><tbody>'+
+                result.evidenze.map(function(e){return '<tr><td>'+esc(e.pagina)+'</td><td>'+esc(e.riga)+
+                  '</td><td>'+esc(e.testo)+'</td></tr>';}).join('')+
+                '</tbody></table></div></details>';
+            }catch(err){note(err.message,true);}
+            finally{button.disabled=false;}
+          };
+        }
         document.querySelectorAll("[data-ente-form]").forEach(function(form){
           form.onsubmit=async function(event){
             event.preventDefault();
