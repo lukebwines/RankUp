@@ -158,7 +158,6 @@
       <nav id="nav">
         <div class="nav-separator">GESTIONE GENERALE</div>
         <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
-        <button data-page="bandi"><svg class="navicon" aria-hidden="true"><use href="#ri-folders"></use></svg> Bandi</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
@@ -309,20 +308,19 @@
       function dashboard(){
         html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Panoramica dei bandi e delle procedure didattiche.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
           (state.bandi.length?state.bandi.map(row).join(''):'<div class="empty"><strong>Non ci sono ancora bandi</strong>Importa un file PICA per creare la prima procedura.</div>')+
-          '<button class="btn" id="dash-import">Importa candidature PICA</button></div>'+
+          '</div><div class="card"><h3 class="section-heading">Importa esportazione PICA</h3><div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div><p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file.</p></div>'+
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
           ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
           '</div><p class="caption">Verbali e graduatorie saranno introdotti nelle fasi successive.</p></div></div>');
-        $("dash-import").onclick=function(){go("bandi");};bindBandButtons();
+        bindBandButtons();$("preview-btn").onclick=preview;
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",bandi:"Gestione bandi",utenti:"Gestione utenti",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
         if(state.page==="dashboard")return dashboard();
-        if(state.page==="bandi")return renderBandi();
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="riferimenti")return renderBandoReferences();
@@ -364,7 +362,8 @@
                 '<td>'+esc(u.attivo?"Attivo":"Disattivato")+'</td><td>'+esc(u.creato_il||"—")+'</td>'+
                 '<td><div class="actions">'+
                 '<button type="button" class="btn secondary" data-user-state="'+esc(u.id)+'" data-active="'+(u.attivo?"1":"0")+'">'+(u.attivo?"Disattiva":"Riattiva")+'</button>'+
-                '<button type="button" class="btn secondary" data-user-reset="'+esc(u.id)+'">Reimposta password</button></div>'+
+                '<button type="button" class="btn secondary" data-user-reset="'+esc(u.id)+'">Reimposta password</button>'+
+                '<button type="button" class="btn secondary" data-user-delete="'+esc(u.id)+'" data-name="'+esc(u.username)+'" style="color:#ef6372">Elimina utente</button></div>'+
                 '<form data-password-form="'+esc(u.id)+'" style="display:none;margin-top:10px" autocomplete="off">'+
                 '<label>Nuova password (minimo 8 caratteri)'+
                 '<input class="rankup-user-input" type="password" name="password" minlength="8" maxlength="128" required autocomplete="new-password" placeholder="Nuova password"></label>'+
@@ -405,6 +404,17 @@
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
           });
+          document.querySelectorAll("[data-user-delete]").forEach(function(btn){
+            btn.onclick=async function(){
+              var id=Number(btn.dataset.userDelete),name=btn.dataset.name;
+              if(!confirm('Eliminare l’utente "'+name+'"? Verrà revocato l’accesso; lo storico rimarrà conservato.'))return;
+              btn.disabled=true;
+              try{
+                await api("utenti/"+id,{method:"DELETE"});
+                note("Utente eliminato: "+name+". Storico conservato.",false);renderUtenti();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
           document.querySelectorAll("[data-user-reset]").forEach(function(btn){
             btn.onclick=function(){
               var form=document.querySelector('[data-password-form="'+btn.dataset.userReset+'"]');
@@ -435,16 +445,6 @@
         }catch(err){note("Impossibile leggere la gestione utenti: "+err.message,true);}
       }
 
-      function renderBandi(){
-        html('<div class="split"><section class="card"><h3 class="section-heading">Elenco bandi</h3>'+
-          (state.bandi.length?state.bandi.map(row).join(''):'<p class="muted">Nessun bando importato.</p>')+
-          '</section><section class="card"><h3 class="section-heading">Importa esportazione PICA</h3>'+
-          '<div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx">'+
-          '<button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div>'+
-          '<p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file. I dati non vengono caricati su GitHub.</p></section></div>');
-        bindBandButtons();
-        $("preview-btn").onclick=preview;
-      }
       async function renderBandoReferences(){
         var code=state.active;
         if(state.page!=="riferimenti")return;
@@ -792,6 +792,10 @@
           }catch(error){note(error.message,true);btn.disabled=false;}
         };
       }
+      function statusIcon(ok){
+        return ok?'<span aria-label="PASSED" title="Controllo superato" style="color:#26bf77;font-weight:800">✓ PASSED</span>':
+          '<span aria-label="NOT PASSED" title="Controllo non superato" style="display:inline-block;padding:3px 7px;background:#a8243a;color:white;border-radius:5px;font-size:11px;font-weight:800">NOT PASSED</span>';
+      }
       async function renderValutazioni(){
         if(!cur()){html(panel("Seleziona bando","Apri un bando per acquisire le valutazioni delle commissioni."));return;}
         var code=state.active, filter=state.valFilter;
@@ -860,7 +864,7 @@
                      provisional==null?"—":provisional+" (da convalidare)");
                   return '<tr><td><div>'+esc(r.id_pica||"Da associare")+'</div>'+
                     '<span class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</span></td>'+
-                    '<td>'+esc(r.nome_originale)+'</td><td>'+esc(r.stato)+(r.decisione==="da_verificare" && r.stato==="Acquisita"?
+                    '<td>'+esc(r.nome_originale)+'</td><td>'+statusIcon(r.stato==="Acquisita"&&r.decisione!=="da_verificare"&&(r.decisione!=="idoneo"||r.totale_calcolato!=null))+' '+esc(r.stato)+(r.decisione==="da_verificare" && r.stato==="Acquisita"?
                     '<div class="caption">Esito mancante: acquisizione storica non convalidata</div>':'')+(r.stato==="Acquisita"?
                     '<div class="caption">'+esc(r.metodo||"automatico")+' · v'+esc(r.versione)+'</div>':'')+'</td>'+
                     '<td>'+esc(r.decisione==="da_verificare"?"Da verificare (esito assente)":r.esito||"—")+'</td><td>'+esc(scoring)+'</td>'+
@@ -1049,7 +1053,7 @@
               item.punteggio==null?"—":item.punteggio+(item.decisione==="da_verificare"?" (da convalidare)":"");
             return '<tr><td>'+esc(item.nome_originale)+'<div class="caption">ID PICA: '+esc(item.id_pica||"non identificato")+'</div></td>'+
               '<td>'+esc(item.cds||"—")+' / '+esc(item.sede||"—")+'</td>'+
-              '<td><span class="badge '+(item.stato==="regolare"?"":"gray")+'">'+esc(labels[item.stato]||item.stato)+'</span></td>'+
+              '<td>'+statusIcon(item.stato==="regolare"||item.stato==="rettifica")+' <span class="badge '+(item.stato==="regolare"?"":"gray")+'">'+esc(labels[item.stato]||item.stato)+'</span></td>'+
               '<td>'+esc(item.esito||"—")+'</td><td>'+esc(score)+'</td><td>'+esc(item.motivo||"")+'</td></tr>';
           }).join('')+'</tbody></table></div>'+
           (stats.rettifica?'<label style="display:block;margin-top:14px"><input type="checkbox" id="pdf-eval-revision"> Confermo espressamente le rettifiche di valutazioni già acquisite</label>':'')+
