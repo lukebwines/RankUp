@@ -304,11 +304,6 @@ def make_ordinary(record: dict) -> bytes:
     text(56,760,"Componenti:",7.3,True)
     field("COMPONENTI",115,759,435,14,record.get("componenti"),fontsize=7.4,background=PALE)
     rect(50,781,500,1,INK)
-    centered(50,788,500,
-             "Documento da compilare e sottoporre successivamente a firma digitale.",
-             8,True,INK)
-    centered(50,801,500,
-             "Firma e protocollo sono gestiti fuori da RankUp.",7.5)
     field("RANKUP-ID",53,818,497,11,
           record.get("scheda_id") or "[DA VERIFICARE]",fontsize=6,background=white)
     pdf.save()
