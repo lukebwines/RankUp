@@ -265,6 +265,17 @@ def initialize() -> None:
                 PRIMARY KEY(bando_id,key_incarico)
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS incarichi_ente_eventi (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                key_incarico TEXT NOT NULL,
+                precedente_json TEXT NOT NULL,
+                successivo_json TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -1075,6 +1086,8 @@ def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: 
                           JOIN bandi b ON b.id=i.bando_id
                           WHERE b.codice=? AND i.key=?""",(code,key)).fetchone()
         if not row:fail("Incarico non trovato",404)
+        prior=db.execute("SELECT ente_richiesto,fonte FROM incarichi_ente_requisiti WHERE bando_id=? AND key_incarico=?",
+                         (row["bando_id"],key)).fetchone()
         db.execute("""INSERT INTO incarichi_ente_requisiti
                  (bando_id,key_incarico,ente_richiesto,fonte,confermato_da,confermato_il)
                  VALUES(?,?,?,?,?,?)
@@ -1082,6 +1095,13 @@ def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: 
                  ente_richiesto=excluded.ente_richiesto,fonte=excluded.fonte,
                  confermato_da=excluded.confermato_da,confermato_il=excluded.confermato_il
                  """,(row["bando_id"],key,ente,fonte,who["username"],now))
+        db.execute("""INSERT INTO incarichi_ente_eventi
+                    (bando_id,key_incarico,precedente_json,successivo_json,autore,quando)
+                    VALUES(?,?,?,?,?,?)""",(
+                    row["bando_id"],key,
+                    json.dumps(dict(prior) if prior else {},ensure_ascii=False),
+                    json.dumps({"ente_richiesto":ente,"fonte":fonte},ensure_ascii=False),
+                    who["username"],now))
         db.commit()
     return {"ok":True,"key":key,"ente_richiesto":ente,"fonte":fonte}
 
