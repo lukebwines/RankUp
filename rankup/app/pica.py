@@ -118,6 +118,10 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "nome": ["nome"],
         "codice_fiscale": ["codice fiscale"],
         "stato_pica": ["stato"],
+        "occupazione": ["occupazione*", "occupazione"],
+        "azienda_ente": ["azienda/ente", "azienda ente", "ente di appartenenza", "datore di lavoro"],
+        "profilo_professionale": ["profilo professionale"],
+
     }
     fields.update(EXTRA_PICA_FIELDS)
     matched: dict[str, int] = {}
@@ -189,6 +193,10 @@ def parse_pica(filename: str, content: bytes) -> dict:
             "nome": get("nome"),
             "codice_fiscale": get("codice_fiscale"),
             "stato_pica": get("stato_pica"),
+            "occupazione": get("occupazione"),
+            "azienda_ente": get("azienda_ente"),
+            "profilo_professionale": get("profilo_professionale"),
+
             "incarico": incarico,
             "source_row": row_number,
         })

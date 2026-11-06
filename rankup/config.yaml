@@ -19,7 +19,10 @@ ports_description:
   8095/tcp: Accesso diretto per Cloudflare Tunnel (configurare porta host nella sezione Rete)
 options:
   admin_username: admin
+  ai_enabled: false
 schema:
   admin_username: str(3,50)
   admin_password: password(12,128)
+  ai_enabled: bool
+  ai_api_key: password?
 stage: experimental

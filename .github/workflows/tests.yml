@@ -13,3 +13,19 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r rankup/app/requirements.txt pytest httpx
       - run: PYTHONPATH=rankup/app pytest -q tests/
+      - name: Check inline JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          import pathlib
+          import subprocess
+          from tempfile import TemporaryDirectory
+          html=pathlib.Path("rankup/app/static/index.html").read_text(encoding="utf-8")
+          scripts=re.findall(r"<script[^>]*>(.*?)</script>",html,flags=re.S|re.I)
+          assert scripts, "No inline scripts to check"
+          with TemporaryDirectory() as folder:
+              for i,script in enumerate(scripts):
+                  path=pathlib.Path(folder)/("script-"+str(i)+".js")
+                  path.write_text(script,encoding="utf-8")
+                  subprocess.run(["node","--check",str(path)],check=True)
+          PY

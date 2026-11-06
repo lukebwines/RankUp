@@ -28,6 +28,8 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
+from ente_check import evaluate_ente
+from ai_ente import propose as ai_propose_ente, AIEmployerError
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -252,6 +254,28 @@ def initialize() -> None:
         user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
         if "eliminato" not in user_columns:
             db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS incarichi_ente_requisiti (
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                key_incarico TEXT NOT NULL,
+                ente_richiesto TEXT NOT NULL,
+                fonte TEXT NOT NULL,
+                confermato_da TEXT NOT NULL,
+                confermato_il TEXT NOT NULL,
+                PRIMARY KEY(bando_id,key_incarico)
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS incarichi_ente_eventi (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                key_incarico TEXT NOT NULL,
+                precedente_json TEXT NOT NULL,
+                successivo_json TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -757,6 +781,27 @@ def health():
     return {"status": "ok", "version": "0.8.1"}
 
 
+class NuovoBandoInput(BaseModel):
+    codice: str = Field(min_length=3,max_length=50)
+
+
+@app.post("/api/bandi")
+def prepara_bando(body: NuovoBandoInput,request: Request):
+    """Crea contenitore vuoto per PDF e requisiti PRIMA delle candidature PICA."""
+    require_admin(request)
+    code=valid_code(body.codice.strip().upper())
+    now=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as db:
+        try:
+            db.execute("""INSERT INTO bandi
+                (codice,stato,created_at,source_filename,source_hash,import_at)
+                VALUES(?,'In preparazione',?,'','',?)""",(code,now,now))
+            db.commit()
+        except sqlite3.IntegrityError:
+            fail("Bando già presente",409)
+    return {"ok":True,"codice":code,"stato":"In preparazione"}
+
+
 @app.get("/api/bandi")
 def list_bandi():
     with connect() as db:
@@ -900,11 +945,14 @@ def list_incarichi(code: str):
                  i.codice_partizione, i.partizione_studenti,
                  i.peso_copertura, i.ore, i.stato_coperture,
                  cl.tipo AS modello_ssd,
+                 er.ente_richiesto AS ente_richiesto,
+                 er.fonte AS ente_fonte,
                  COUNT(c.id) AS candidature
           FROM incarichi i
           JOIN bandi b ON b.id=i.bando_id
           LEFT JOIN candidature c ON c.incarico_id=i.id
           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+          LEFT JOIN incarichi_ente_requisiti er ON er.bando_id=b.id AND er.key_incarico=i.key
           WHERE b.codice=?
           GROUP BY i.id
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
@@ -925,23 +973,186 @@ def list_incarichi(code: str):
     }
 
 
+@app.post("/api/bandi/{code}/ente/bando-pdf")
+async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile = File(...)):
+    """Conserva l'originale e presenta EVIDENZE TESTUALI, senza assegnare riserve automaticamente.
+
+    Il testo PDF non viene inviato a servizi esterni. Per PDF senza testo
+    estraibile va effettuata una lettura documentale manuale.
+    """
+    require_admin(request)
+    code=valid_code(code)
+    filename=(file.filename or "").split("/")[-1].split("\\\\")[-1]
+    if not filename.lower().endswith(".pdf"):
+        fail("Caricare il bando ufficiale in formato PDF")
+    content=await file.read(12*1024*1024+1)
+    if not content or len(content)>12*1024*1024:
+        fail("PDF vuoto o superiore al limite di 12 MB")
+    try:
+        reader=PdfReader(BytesIO(content))
+        if len(reader.pages)>100:fail("Il PDF supera il limite di 100 pagine")
+        evidence=[]
+        for page_no,page in enumerate(reader.pages,start=1):
+            text=page.extract_text() or ""
+            for line_no,line in enumerate(text.splitlines(),start=1):
+                line=" ".join(line.split())
+                if re.search(r"(?<![A-Z])(SSN|AOUI|ASUIT|UNITN|SSP)(?![A-Z])",line,re.I):
+                    evidence.append({"pagina":page_no,"riga":line_no,"testo":line[:450]})
+                    if len(evidence)>=150:break
+            if len(evidence)>=150:break
+    except HTTPException:
+        raise
+    except Exception:
+        fail("Impossibile estrarre il testo del PDF: verificare il documento",400)
+    with connect() as db:
+        if not db.execute("SELECT 1 FROM bandi WHERE codice=?",(code,)).fetchone():
+            fail("Bando non trovato",404)
+    folder=SOURCES / code
+    folder.mkdir(parents=True,exist_ok=True)
+    dest=folder / "bando_requisiti_originale.pdf"
+    digest=hashlib.sha256(content).hexdigest()
+    if dest.exists() and hashlib.sha256(dest.read_bytes()).hexdigest()!=digest:
+        fail("È già presente un bando PDF diverso: conservare la versione originale e verificare prima della sostituzione",409)
+    if not dest.exists():
+        dest.write_bytes(content)
+    return {"ok":True,"file":filename[:150],"sha256":digest,"pagine":len(reader.pages),
+            "evidenze":evidence,"avviso":
+            "Le occorrenze sono indizi testuali, non requisiti automaticamente assegnati agli incarichi. Confermare ogni requisito con la tabella ufficiale."}
+
+
+class RichiestaIAEnte(BaseModel):
+    consenso_documento_pubblico: bool = False
+
+
+@app.post("/api/bandi/{code}/ente/ai/anteprima")
+def anteprima_ente_ai(code: str, body: RichiestaIAEnte, request: Request):
+    """Solo PDF ufficiale e dati dei moduli; mai dati personali PICA."""
+    require_admin(request)
+    code=valid_code(code)
+    if not body.consenso_documento_pubblico:
+        fail("Confermare esplicitamente l'invio del solo testo del bando PDF al provider IA")
+    try:
+        options=json.loads((BASE / "options.json").read_text(encoding="utf-8"))
+    except (OSError,ValueError):
+        options={}
+    if options.get("ai_enabled") is not True or not options.get("ai_api_key"):
+        fail("RankUP AI non attiva: abilitarla nelle opzioni dell'add-on e configurare la chiave API",503)
+    path=SOURCES / code / "bando_requisiti_originale.pdf"
+    if not path.is_file():
+        fail("Caricare prima il bando PDF ufficiale",404)
+    try:
+        pdf=PdfReader(str(path))
+        if len(pdf.pages)>100:fail("PDF troppo lungo")
+        text="\n".join((p.extract_text() or "") for p in pdf.pages)
+    except HTTPException:
+        raise
+    except Exception:
+        fail("Il bando PDF non è leggibile",400)
+    with connect() as db:
+        rows=db.execute("""SELECT i.key,i.cds,i.sede,i.insegnamento,i.modulo
+                         FROM incarichi i JOIN bandi b ON b.id=i.bando_id
+                         WHERE b.codice=? ORDER BY i.cds,i.sede,i.modulo""",(code,)).fetchall()
+    if not rows:fail("Nessun incarico disponibile da confrontare",404)
+    try:
+        proposals=ai_propose_ente(text,[dict(x) for x in rows],options["ai_api_key"])
+    except AIEmployerError as exc:
+        fail(str(exc),502)
+    return {"proposte":proposals,"totale_incarichi":len(rows),
+            "avviso":"Suggerimenti IA NON applicati. Confermare ogni ente con fonte originale."}
+
+
+class RequisitoEnteInput(BaseModel):
+    ente_richiesto: str = Field(max_length=50)
+    fonte: str = Field(min_length=1,max_length=500)
+
+
+ENTE_AMMESSI={"SSN","AOUI","ASUIT","UNITN","SSP","ASUIT O UNITN","NESSUNA RISERVA"}
+
+
+@app.put("/api/bandi/{code}/incarichi/{key}/ente")
+def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: Request):
+    """Configurazione esplicita e tracciata: nessun ente viene dedotto dal PICA."""
+    who=require_admin(request)
+    code=valid_code(code)
+    if not re.fullmatch(r"[0-9a-f]{24}",key):fail("Identificativo incarico non valido")
+    ente=" ".join(body.ente_richiesto.upper().strip().split())
+    if ente not in ENTE_AMMESSI:fail("Ente richiesto non riconosciuto")
+    fonte=body.fonte.strip()
+    if not fonte:fail("Indicare la fonte ufficiale del requisito")
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("""SELECT i.bando_id FROM incarichi i
+                          JOIN bandi b ON b.id=i.bando_id
+                          WHERE b.codice=? AND i.key=?""",(code,key)).fetchone()
+        if not row:fail("Incarico non trovato",404)
+        prior=db.execute("SELECT ente_richiesto,fonte FROM incarichi_ente_requisiti WHERE bando_id=? AND key_incarico=?",
+                         (row["bando_id"],key)).fetchone()
+        db.execute("""INSERT INTO incarichi_ente_requisiti
+                 (bando_id,key_incarico,ente_richiesto,fonte,confermato_da,confermato_il)
+                 VALUES(?,?,?,?,?,?)
+                 ON CONFLICT(bando_id,key_incarico) DO UPDATE SET
+                 ente_richiesto=excluded.ente_richiesto,fonte=excluded.fonte,
+                 confermato_da=excluded.confermato_da,confermato_il=excluded.confermato_il
+                 """,(row["bando_id"],key,ente,fonte,who["username"],now))
+        db.execute("""INSERT INTO incarichi_ente_eventi
+                    (bando_id,key_incarico,precedente_json,successivo_json,autore,quando)
+                    VALUES(?,?,?,?,?,?)""",(
+                    row["bando_id"],key,
+                    json.dumps(dict(prior) if prior else {},ensure_ascii=False),
+                    json.dumps({"ente_richiesto":ente,"fonte":fonte},ensure_ascii=False),
+                    who["username"],now))
+        db.commit()
+    return {"ok":True,"key":key,"ente_richiesto":ente,"fonte":fonte}
+
+
 @app.get("/api/bandi/{code}/candidature")
 def list_candidature(code: str):
     code = valid_code(code)
     with connect() as db:
         rows = db.execute("""
-           SELECT c.id_pica, c.cognome, c.nome, c.stato,
-                  i.cds, i.sede, i.insegnamento, i.modulo
+           SELECT c.id_pica, c.cognome, c.nome, c.stato, c.source_json,
+                  i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo,
+                  er.ente_richiesto
            FROM candidature c
            JOIN incarichi i ON i.id=c.incarico_id
            JOIN bandi b ON b.id=c.bando_id
+           LEFT JOIN incarichi_ente_requisiti er ON er.bando_id=b.id AND er.key_incarico=i.key
            WHERE b.codice=?
            ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                     i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
                     c.cognome COLLATE NOCASE, c.nome COLLATE NOCASE
            LIMIT 10000
         """, (code,)).fetchall()
-    return {"candidature": [dict(row) for row in rows]}
+    # Vecchie importazioni: recupera le dichiarazioni dal PICA originale
+    # conservato nell'add-on, SENZA reimportare le candidature.
+    employment={}
+    folder=SOURCES / code
+    for path in (folder / "pica_originale.xls",folder / "pica_originale.xlsx"):
+        if not path.is_file():continue
+        try:
+            original=parse_pica(path.name,path.read_bytes())
+            employment={(str(r["id_pica"]),r["incarico"]["key"]):r for r in original["rows"]}
+        except (ValueError,OSError):
+            employment={}
+        break
+    output=[]
+    for row in rows:
+        d=dict(row)
+        try:
+            record=json.loads(d.pop("source_json") or "{}")
+        except (TypeError,ValueError):
+            record={}
+        original=employment.get((str(d["id_pica"]),d["incarico_key"]),{})
+        candidate={name:(record.get(name) or original.get(name) or "") for name in
+                   ("occupazione","azienda_ente","profilo_professionale")}
+        d.update(candidate)
+        d["verifica_ente"]=evaluate_ente(d.get("ente_richiesto"),**{
+            "occupazione":candidate["occupazione"],
+            "azienda":candidate["azienda_ente"],
+            "profilo":candidate["profilo_professionale"]})
+        output.append(d)
+    return {"candidature":output}
 
 
 @app.post("/api/pica/preview")
@@ -958,8 +1169,8 @@ async def preview_pica(file: UploadFile = File(...)):
         # Evitare di esporre a browser dettagli di parser/file.
         fail("Impossibile leggere il file PICA: verifica che sia un Excel valido")
     with connect() as db:
-        exists = db.execute("SELECT 1 FROM bandi WHERE codice=?", (parsed["code"],)).fetchone()
-    if exists:
+        exists = db.execute("SELECT stato FROM bandi WHERE codice=?", (parsed["code"],)).fetchone()
+    if exists and exists["stato"]!="In preparazione":
         fail("Il bando " + parsed["code"] + " è già stato importato. Nessuna sovrascrittura automatica.", 409)
     token = secrets.token_urlsafe(24)
     metadata = {"parsed": parsed, "filename": filename, "sha256": hashlib.sha256(content).hexdigest()}
@@ -994,11 +1205,24 @@ def commit_pica(body: CommitRequest):
     with connect() as db:
         try:
             db.execute("BEGIN IMMEDIATE")
-            cur = db.execute("""
-                INSERT INTO bandi(codice, created_at, source_filename, source_hash, import_at)
-                VALUES(?,?,?,?,?)
-            """, (code, now, meta["filename"], meta["sha256"], now))
-            bando_id = cur.lastrowid
+            existing=db.execute("SELECT id,stato FROM bandi WHERE codice=?",(code,)).fetchone()
+            if existing:
+                if existing["stato"]!="In preparazione":
+                    fail("Candidature già importate: nessuna sovrascrittura",409)
+                if db.execute("SELECT 1 FROM candidature WHERE bando_id=?",(existing["id"],)).fetchone():
+                    fail("Il bando contiene già candidature",409)
+                if db.execute("SELECT 1 FROM incarichi WHERE bando_id=?",(existing["id"],)).fetchone():
+                    fail("Il bando contiene già incarichi: importazione PICA non automatica",409)
+                bando_id=existing["id"]
+                db.execute("""UPDATE bandi SET stato='Candidature importate',
+                    source_filename=?,source_hash=?,import_at=? WHERE id=?""",
+                    (meta["filename"],meta["sha256"],now,bando_id))
+            else:
+                cur = db.execute("""
+                    INSERT INTO bandi(codice, created_at, source_filename, source_hash, import_at)
+                    VALUES(?,?,?,?,?)
+                """, (code, now, meta["filename"], meta["sha256"], now))
+                bando_id = cur.lastrowid
             assignment_ids = {}
             for record in parsed["rows"]:
                 item = record["incarico"]
