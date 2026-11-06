@@ -29,7 +29,7 @@ from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_ente import status as ai_ollama_status, AIEmployerError
+from ai_ente import status as ai_ollama_status, review_occupation, AIEmployerError
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -1268,6 +1268,46 @@ def list_candidature(code: str):
             "profilo":candidate["profilo_professionale"]})
         output.append(d)
     return {"candidature":output}
+
+
+
+class RichiestaIAOccupazione(BaseModel):
+    id_pica: str = Field(min_length=1, max_length=100)
+    incarico_key: str = Field(min_length=24, max_length=24)
+
+
+@app.post("/api/bandi/{code}/candidature/ai/anteprima")
+def anteprima_occupazione_ai(code: str, body: RichiestaIAOccupazione,
+                            request: Request):
+    """Controllo locale di una sola candidatura, senza identità né PDF nel prompt."""
+    require_admin(request)
+    code = valid_code(code)
+    if not re.fullmatch(r"[0-9a-f]{24}", body.incarico_key):
+        fail("Chiave incarico non valida")
+    records = list_candidature(code)["candidature"]
+    selected = [r for r in records
+                if str(r["id_pica"]) == body.id_pica
+                and r["incarico_key"] == body.incarico_key]
+    if len(selected) != 1:
+        fail("Candidatura non trovata o associazione non univoca", 404)
+    row = selected[0]
+    requirement = row.get("ente_richiesto") or ""
+    if not requirement:
+        fail("Requisito dell'incarico non ancora classificato", 409)
+    if requirement == "NESSUNA RISERVA":
+        fail("Questo incarico non prevede riserva di appartenenza", 400)
+    try:
+        outcome = review_occupation(
+            requirement,
+            row.get("occupazione") or "",
+            row.get("azienda_ente") or "",
+            row.get("profilo_professionale") or "",
+            _ollama_settings(),
+        )
+    except AIEmployerError as exc:
+        fail(str(exc), 503)
+    return {"risultato": outcome,
+            "avviso": "Solo supporto istruttorio. Conferma amministrativa obbligatoria."}
 
 
 @app.post("/api/pica/preview")
