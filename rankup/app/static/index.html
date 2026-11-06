@@ -660,6 +660,8 @@
            '<p class="caption">Il PDF rimane nell’add-on. Le evidenze testuali richiedono verifica amministrativa.</p>'+
            '<p class="caption">I requisiti sono determinati dal dizionario PICA, non da Ollama o dal PDF.</p>'+
            '<button class="btn secondary" id="ai-ente-status" type="button">Verifica Ollama locale</button>'+
+           '<button class="btn secondary" id="pica-dictionary-open" type="button">Gestisci dizionario PICA</button>'+
+           '<div id="pica-dictionary-panel"></div>'+
            '</div><div id="bando-ente-preview"></div>':'')+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
           '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Ente richiesto</th><th>Anno corso</th><th>Candidature</th></tr>'+
@@ -674,6 +676,40 @@
                 : "Ollama raggiungibile, ma modello "+stateOllama.modello+" non installato.",!stateOllama.modello_installato);
             }catch(err){note(err.message,true);}
             finally{button.disabled=false;}
+          };
+          $("pica-dictionary-open").onclick=async function(){
+            var holder=$("pica-dictionary-panel");
+            holder.innerHTML='<p class="caption">Caricamento dizionario...</p>';
+            try{
+              var info=await api("pica/tipologie"), types=info.tipologie||[];
+              holder.innerHTML='<h4>Dizionario condiviso della colonna L</h4>'+
+                '<p class="caption">Le modifiche vengono registrate e valgono anche per i bandi già acquisiti, salvo conferme manuali dei singoli incarichi.</p>'+
+                '<div class="tablebox"><table><thead><tr><th>Dicitura</th><th>Requisito</th><th>Motivo rettifica</th><th></th></tr></thead><tbody>'+
+                types.map(function(t,i){
+                  return '<tr><td>'+esc(t.dicitura)+'</td><td><select data-dict-req="'+i+'">'+
+                    TIPO_REQUISITI.map(function(c){
+                      return '<option value="'+esc(c[0])+'"'+(c[0]===t.requisito?' selected':'')+'>'+esc(c[1])+'</option>';
+                    }).join('')+'</select></td><td><input maxlength="500" data-dict-reason="'+i+'" placeholder="Obbligatoria se cambia"></td>'+
+                    '<td><button class="btn secondary" data-dict-save="'+i+'" type="button">Salva</button></td></tr>';
+                }).join('')+'</tbody></table></div>';
+              holder.querySelectorAll("[data-dict-save]").forEach(function(btn){
+                btn.onclick=async function(){
+                  var i=Number(btn.dataset.dictSave),t=types[i];
+                  var req=holder.querySelector('[data-dict-req="'+i+'"]').value;
+                  var reason=holder.querySelector('[data-dict-reason="'+i+'"]').value.trim();
+                  if(req===t.requisito){note("Nessuna modifica.",false);return;}
+                  if(!reason){note("Motivazione obbligatoria per la rettifica.",true);return;}
+                  if(!confirm("Aggiornare questa corrispondenza per tutti i bandi privi di rettifica manuale?"))return;
+                  btn.disabled=true;
+                  try{
+                    await api("pica/tipologie",{method:"PUT",headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify({chiave:t.chiave,requisito:req,motivo:reason})});
+                    note("Dizionario aggiornato con storico della rettifica.",false);
+                    await renderList("incarichi");
+                  }catch(err){note(err.message,true);btn.disabled=false;}
+                };
+              });
+            }catch(err){note(err.message,true);holder.innerHTML="";}
           };
           $("bando-pdf-ente-upload").onclick=async function(){
             var f=$("bando-pdf-ente").files[0];
