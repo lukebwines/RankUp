@@ -25,7 +25,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
@@ -655,7 +655,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.1", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -891,7 +891,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.0"}
+    return {"status": "ok", "version": "0.9.1"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2928,6 +2928,86 @@ def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
     filename="RankUP_"+_safe_filename(code,40)+"_graduatoria_"+_safe_filename(cds,50)+".pdf"
     return Response(content=data,media_type="application/pdf",
         headers={"Content-Disposition":'attachment; filename="'+filename+'"',"Cache-Control":"no-store"})
+
+
+@app.get("/api/bandi/{code}/verbali/graduatorie/pdf-completo")
+def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request):
+    """Un SOLO PDF: graduatoria/verbale CdS + originali restituiti acquisiti.
+
+    Il frontespizio deriva dalla graduatoria corrente o dalla sua istantanea
+    definitiva. Gli allegati sono le sole valutazioni attive, verificate tramite
+    percorso confinato e impronta SHA256. Non si altera alcun PDF originale.
+    """
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        saved=db.execute("""SELECT stato,dati_json FROM graduatorie_cds
+            WHERE bando_id=? AND cds=? AND sede=?""",(b["id"],cds,sede)).fetchone()
+        if saved:
+            snapshot=json.loads(saved["dati_json"])
+            snapshot["stato"]=saved["stato"]
+        else:
+            snapshot=_graduatoria_status(db,b["id"],cds,sede)
+            snapshot["stato"]="BOZZA NON DEFINITIVA"
+        if not snapshot["incarichi"]:
+            fail("Nessun incarico trovato",404)
+        ids=[]
+        for job in snapshot["incarichi"]:
+            ordered=sorted(job["candidature"],key=lambda c:(
+                0 if c.get("decisione")=="idoneo" else 1,
+                c["posizione"] if c.get("posizione") is not None else 999999,
+                str(c.get("id_pica") or ""),c["candidatura_id"]))
+            for candidate in ordered:
+                docid=candidate.get("valutazione_id")
+                if docid is None:
+                    # Le bozze possono avere schede non ancora restituite.
+                    # Il testo della graduatoria le evidenzia come mancanti.
+                    if saved:
+                        fail("Graduatoria definitiva senza scheda acquisita: verificare lo storico",409)
+                    continue
+                ids.append(int(docid))
+        if len(ids)!=len(set(ids)):
+            fail("Scheda duplicata negli allegati: verificare le associazioni",409)
+        # Individuare i file dal DB, mai da un nome/percorso fornito dal client.
+        attachments=[]
+        root=(SOURCES/code/"schede_restituite").resolve()
+        for pdf_id in ids:
+            row=db.execute("""SELECT v.percorso,v.sha256,v.candidatura_id,
+                        v.stato,v.attiva,c.id_pica,i.cds,i.sede
+                FROM valutazioni_pdf v
+                JOIN candidature c ON c.id=v.candidatura_id
+                JOIN incarichi i ON i.id=c.incarico_id
+                WHERE v.id=? AND v.bando_id=?""",(pdf_id,b["id"])).fetchone()
+            if (not row or row["stato"]!="Acquisita" or row["attiva"]!=1 or
+                row["cds"]!=cds or row["sede"]!=sede):
+                fail("Scheda non acquisita/associata alla graduatoria selezionata",409)
+            location=(BASE/row["percorso"]).resolve()
+            if not location.is_relative_to(root) or not location.is_file():
+                fail("Originale scheda non disponibile per ID PICA "+str(row["id_pica"]),409)
+            if location.stat().st_size>MAX_PDF_BYTES:
+                fail("Originale scheda oltre il limite consentito",409)
+            payload=location.read_bytes()
+            if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
+                fail("Integrita originale PDF non verificata: ID PICA "+str(row["id_pica"]),409)
+            attachments.append(payload)
+    if not attachments:
+        fail("Nessuna scheda compilata e acquisita da allegare per questo CdS",409)
+    front=render_graduatoria_pdf(code,snapshot)
+    try:
+        writer=PdfWriter()
+        writer.append(BytesIO(front))
+        for pdf in attachments:
+            writer.append(BytesIO(pdf))
+        target=BytesIO()
+        writer.write(target)
+    except Exception:
+        fail("Impossibile concatenare una delle schede PDF restituite: verificare i file",409)
+    filename=("RankUP_"+_safe_filename(code,40)+"_verbale_schede_"+
+              _safe_filename(cds,50)+"_"+_safe_filename(sede,30)+".pdf")
+    return Response(content=target.getvalue(),media_type="application/pdf",
+        headers={"Content-Disposition":'attachment; filename="'+filename+'"',
+                 "Cache-Control":"no-store"})
 
 
 class PreparaApprovazione(BaseModel):
