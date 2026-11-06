@@ -291,6 +291,10 @@ def test_assignment_ente_requires_admin_and_source(tmp_path,monkeypatch):
         with server.connect() as db:
             r=db.execute("SELECT confermato_da FROM incarichi_ente_requisiti WHERE key_incarico=?",(key,)).fetchone()
             assert r["confermato_da"]=="test-admin"
+            events=db.execute("SELECT autore,precedente_json,successivo_json FROM incarichi_ente_eventi WHERE key_incarico=?",(key,)).fetchall()
+            assert len(events)==1
+            assert events[0]["autore"]=="test-admin"
+            assert json.loads(events[0]["successivo_json"])["ente_richiesto"]=="AOUI"
 
 
 def test_ente_check_is_conservative():
