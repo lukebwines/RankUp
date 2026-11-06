@@ -38,6 +38,7 @@ from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
+from graduatorie import build_graduatoria, render_graduatoria_pdf
 from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 
@@ -335,6 +336,47 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS ix_ai_occupazione_pdf
             ON valutazioni_occupazione_ai(valutazione_pdf_id, id DESC)
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_cds (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                cds TEXT NOT NULL,
+                sede TEXT NOT NULL,
+                stato TEXT NOT NULL CHECK(stato IN ('definitiva','approvata')),
+                dati_json TEXT NOT NULL,
+                hash_dati TEXT NOT NULL,
+                confermata_da TEXT NOT NULL,
+                confermata_il TEXT NOT NULL,
+                approvazione_id INTEGER,
+                UNIQUE(bando_id,cds,sede)
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_approvazioni (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                stato TEXT NOT NULL CHECK(stato IN ('bozza','approvata')),
+                dati_json TEXT NOT NULL,
+                estremi_atto TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                creata_da TEXT NOT NULL,
+                creata_il TEXT NOT NULL,
+                approvata_da TEXT,
+                approvata_il TEXT
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_eventi (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                oggetto TEXT NOT NULL,
+                oggetto_id INTEGER NOT NULL,
+                evento TEXT NOT NULL,
+                dettagli_json TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -601,7 +643,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.9", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.0", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -837,7 +879,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.9"}
+    return {"status": "ok", "version": "0.9.0"}
 
 
 class NuovoBandoInput(BaseModel):
