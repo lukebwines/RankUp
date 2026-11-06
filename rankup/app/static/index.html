@@ -605,12 +605,50 @@
            '<label for="bando-pdf-ente"><strong>Documento ufficiale: bando PDF</strong></label>'+
            '<input type="file" accept=".pdf,application/pdf" id="bando-pdf-ente">'+
            '<button class="btn secondary" id="bando-pdf-ente-upload" type="button">Analizza testo del bando</button>'+
-           '<p class="caption">Il PDF rimane nell’add-on. L’analisi propone solo evidenze testuali: conferma l’ente su ogni incarico.</p>'+
+           '<p class="caption">Il PDF rimane nell’add-on. Le evidenze testuali richiedono verifica amministrativa.</p>'+
+           '<label style="display:block;margin-top:10px"><input type="checkbox" id="ai-ente-consent"> Confermo che il PDF è un bando pubblico e autorizzo l’invio del solo testo del bando al servizio IA configurato (nessuna candidatura PICA).</label>'+
+           '<button class="btn secondary" id="ai-ente-preview" type="button">Suggerisci requisiti con IA</button>'+
+           '<div id="ai-ente-results" style="margin-top:12px"></div>'+
            '</div><div id="bando-ente-preview"></div>':'')+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
           '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Ente richiesto</th><th>Anno corso</th><th>Candidature</th></tr>'+
           '</thead><tbody>'+content+'</tbody></table></div></div>');
         if(state.role==="admin"){
+          $("ai-ente-preview").onclick=async function(){
+            if(!$("ai-ente-consent").checked){note("Occorre confermare esplicitamente l'invio del solo bando pubblico.",true);return;}
+            var button=this;button.disabled=true;
+            try{
+              var result=await api("bandi/"+encodeURIComponent(code)+"/ente/ai/anteprima",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({consenso_documento_pubblico:true})});
+              var proposals=result.proposte||[];
+              var dest=$("ai-ente-results");
+              dest.innerHTML='<p class="caption">'+esc(proposals.length)+' proposte IA da verificare su '+esc(result.totale_incarichi)+' incarichi. '+esc(result.avviso)+'</p>'+
+                '<div class="tablebox"><table><thead><tr><th>Incarico</th><th>Proposta</th><th>Citazione PDF</th><th>Azione</th></tr></thead><tbody>'+
+                proposals.map(function(p,i){
+                  var r=rows.find(function(x){return x.key===p.key;})||{};
+                  return '<tr><td>'+esc(r.modulo||"Incarico non trovato")+' · '+esc(r.cds||"")+
+                    '</td><td>'+esc(p.ente_proposto)+'</td><td>'+esc(p.citazione)+'</td>'+
+                    '<td><button class="btn secondary" data-ai-approve="'+i+'" type="button">Conferma requisito</button></td></tr>';
+                }).join('')+'</tbody></table></div>';
+              dest.querySelectorAll("[data-ai-approve]").forEach(function(btn){
+                btn.onclick=async function(){
+                  var p=proposals[Number(btn.dataset.aiApprove)];
+                  if(!p||!confirm("Hai verificato la proposta rispetto al PDF ufficiale per questo incarico?"))return;
+                  btn.disabled=true;
+                  try{
+                    await api("bandi/"+encodeURIComponent(code)+"/incarichi/"+encodeURIComponent(p.key)+"/ente",{
+                      method:"PUT",headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify({ente_richiesto:p.ente_proposto,
+                        fonte:"Bando PDF ufficiale: "+p.citazione.slice(0,350)})});
+                    note("Requisito approvato e registrato.",false);
+                    await renderList("incarichi");
+                  }catch(err){note(err.message,true);btn.disabled=false;}
+                };
+              });
+            }catch(err){note(err.message,true);}
+            finally{button.disabled=false;}
+          };
           $("bando-pdf-ente-upload").onclick=async function(){
             var f=$("bando-pdf-ente").files[0];
             if(!f){note("Seleziona un bando PDF ufficiale",true);return;}
