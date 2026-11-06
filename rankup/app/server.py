@@ -1221,7 +1221,7 @@ def list_candidature(code: str):
     with connect() as db:
         rows = db.execute("""
            SELECT c.id_pica, c.cognome, c.nome, c.stato, c.source_json,
-                  i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo,
+                  i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo, i.tipo_cds,
                   er.ente_richiesto
            FROM candidature c
            JOIN incarichi i ON i.id=c.incarico_id
@@ -1233,6 +1233,7 @@ def list_candidature(code: str):
                     c.cognome COLLATE NOCASE, c.nome COLLATE NOCASE
            LIMIT 10000
         """, (code,)).fetchall()
+        dictionary = _dizionario(db)
     # Vecchie importazioni: recupera le dichiarazioni dal PICA originale
     # conservato nell'add-on, SENZA reimportare le candidature.
     employment={}
@@ -1256,6 +1257,9 @@ def list_candidature(code: str):
         candidate={name:(record.get(name) or original.get(name) or "") for name in
                    ("occupazione","azienda_ente","profilo_professionale")}
         d.update(candidate)
+        if not d.get("ente_richiesto"):
+            mapping = dictionary.get(tipo_cds_key(d.get("tipo_cds")))
+            d["ente_richiesto"] = mapping["requisito"] if mapping else None
         d["verifica_ente"]=evaluate_ente(d.get("ente_richiesto"),**{
             "occupazione":candidate["occupazione"],
             "azienda":candidate["azienda_ente"],
