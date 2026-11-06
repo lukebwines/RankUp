@@ -38,6 +38,7 @@ from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
+from graduatorie import build_graduatoria, render_graduatoria_pdf
 from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 
@@ -335,6 +336,59 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS ix_ai_occupazione_pdf
             ON valutazioni_occupazione_ai(valutazione_pdf_id, id DESC)
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_vincitori_proposti (
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                incarico_id INTEGER NOT NULL REFERENCES incarichi(id) ON DELETE CASCADE,
+                candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL,
+                PRIMARY KEY(bando_id,incarico_id)
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_cds (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                cds TEXT NOT NULL,
+                sede TEXT NOT NULL,
+                stato TEXT NOT NULL CHECK(stato IN ('definitiva','approvata')),
+                dati_json TEXT NOT NULL,
+                hash_dati TEXT NOT NULL,
+                confermata_da TEXT NOT NULL,
+                confermata_il TEXT NOT NULL,
+                approvazione_id INTEGER,
+                UNIQUE(bando_id,cds,sede)
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_approvazioni (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                stato TEXT NOT NULL CHECK(stato IN ('bozza','approvata')),
+                dati_json TEXT NOT NULL,
+                estremi_atto TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                creata_da TEXT NOT NULL,
+                creata_il TEXT NOT NULL,
+                approvata_da TEXT,
+                approvata_il TEXT
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS graduatorie_eventi (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                oggetto TEXT NOT NULL,
+                oggetto_id INTEGER NOT NULL,
+                evento TEXT NOT NULL,
+                dettagli_json TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -601,7 +655,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.9", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.0", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -837,7 +891,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.9"}
+    return {"status": "ok", "version": "0.9.0"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2295,6 +2349,19 @@ async def preview_valutazioni(code: str, files: list[UploadFile] = File(...),
                     for_index.setdefault(result["candidatura_id"],[]).append(index)
             (staging/result["temp_file"]).write_bytes(data)
             items.append(result)
+        # La preview non modifica i documenti, ma non deve consentire
+        # una successiva conferma su posizioni gia definite.
+        with connect() as lock_db:
+            for item in items:
+                if item.get("candidatura_id") is None:
+                    continue
+                belonging=lock_db.execute("""
+                    SELECT i.cds,i.sede FROM candidature c
+                    JOIN incarichi i ON i.id=c.incarico_id
+                    WHERE c.id=? AND c.bando_id=?
+                """,(item["candidatura_id"],b["id"])).fetchone()
+                if belonging:
+                    _assert_graduatoria_open(lock_db,b["id"],belonging["cds"],belonging["sede"])
         for positions in for_index.values():
             if len(positions)>1:
                 for idx in positions:
@@ -2362,6 +2429,14 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
                 if item["stato"]=="duplicato":
                     counts["duplicate"]+=1
                     continue
+                if item.get("candidatura_id") is not None:
+                    location=db.execute("""
+                        SELECT i.cds,i.sede FROM candidature c
+                        JOIN incarichi i ON i.id=c.incarico_id
+                        WHERE c.id=? AND c.bando_id=?
+                    """,(item["candidatura_id"],b["id"])).fetchone()
+                    if location:
+                        _assert_graduatoria_open(db,b["id"],location["cds"],location["sede"])
                 data=(processing/item["temp_file"]).read_bytes()
                 if hashlib.sha256(data).hexdigest()!=item["sha256"]:
                     fail("Il PDF dell'anteprima è cambiato: interrompere l'acquisizione",409)
@@ -2485,6 +2560,7 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
         """,(body.candidatura_id,b["id"],b["id"])).fetchone()
         if not candidate or candidate["stato"]!="Attiva":
             fail("Candidatura PICA non presente o non attiva nel bando",409)
+        _assert_graduatoria_open(db,b["id"],candidate["cds"],candidate["sede"])
         if document["candidatura_id"] is not None and document["candidatura_id"]!=candidate["id"]:
             fail("La scheda era già associata a un'altra candidatura: associazione manuale vietata",409)
         # Verifica l'originale archiviato, senza fidarsi di percorsi scritti dal client.
@@ -2692,6 +2768,312 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
         "pdf_non_associati":unmatched,
         "archivio":archivio,
     }
+
+
+
+def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
+    ranked = build_graduatoria(db, bando_id, cds, sede)
+    commissions = [dict(x) for x in db.execute("""
+        SELECT cds,sede,presidente,componenti FROM commissioni WHERE bando_id=?
+    """,(bando_id,))]
+    match, commission = resolve_commission(commission_index(commissions),cds,sede)
+    ranked["commissione"] = commission if match=="associata" else None
+    if match!="associata" or not commission or not commission.get("presidente") or not commission.get("componenti"):
+        ranked["criticita"].append("Commissione non associata univocamente a CdS e sede")
+        ranked["pronta"]=False
+    saved = db.execute("""
+        SELECT id,stato,hash_dati,confermata_da,confermata_il,approvazione_id
+        FROM graduatorie_cds WHERE bando_id=? AND cds=? AND sede=?
+    """,(bando_id,cds,sede)).fetchone()
+    ranked["conferma"] = dict(saved) if saved else None
+    ranked["stato"] = saved["stato"] if saved else ("pronta" if ranked["pronta"] else "in_lavorazione")
+    return ranked
+
+
+def _assert_graduatoria_open(db, bando_id: int, cds: str, sede: str):
+    closed=db.execute("""
+        SELECT stato FROM graduatorie_cds
+        WHERE bando_id=? AND cds=? AND sede=?
+    """,(bando_id,cds,sede)).fetchone()
+    if closed:
+        fail("Graduatoria gia definitiva o approvata per "+cds+" / "+sede+
+             ": blocco delle modifiche; serve una procedura di rettifica formale",409)
+
+
+@app.get("/api/bandi/{code}/verbali/graduatorie")
+def verbali_graduatorie(code: str, cds: str="", sede: str=""):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        where=["bando_id=?"]
+        args=[b["id"]]
+        if cds:
+            where.append("cds=?");args.append(cds)
+        if sede:
+            where.append("sede=?");args.append(sede)
+        locations=db.execute("""
+            SELECT DISTINCT cds,sede FROM incarichi WHERE """+" AND ".join(where)+"""
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE
+        """,args).fetchall()
+        output=[_graduatoria_status(db,b["id"],r["cds"],r["sede"]) for r in locations]
+    return {"graduatorie":output}
+
+
+class FinalizzaGraduatoria(BaseModel):
+    cds: str = Field(min_length=1,max_length=250)
+    sede: str = Field(min_length=1,max_length=100)
+
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/definitiva")
+def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        _assert_graduatoria_open(db,b["id"],body.cds,body.sede)
+        result=_graduatoria_status(db,b["id"],body.cds,body.sede)
+        if not result["pronta"]:
+            fail("Impossibile rendere definitiva la graduatoria: "+
+                 "; ".join(result["criticita"][:8]),409)
+        stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        snapshot=json.dumps(result,ensure_ascii=False,sort_keys=True)
+        digest=hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
+        cursor=db.execute("""
+            INSERT INTO graduatorie_cds
+            (bando_id,cds,sede,stato,dati_json,hash_dati,confermata_da,confermata_il)
+            VALUES(?,?,?,'definitiva',?,?,?,?)
+        """,(b["id"],body.cds,body.sede,snapshot,digest,request_actor(),stamp))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"cds",cursor.lastrowid,"Graduatoria definitiva",
+              json.dumps({"cds":body.cds,"sede":body.sede,"hash":digest}),
+              request_actor(),stamp))
+        db.commit()
+    return {"ok":True,"stato":"definitiva","hash":digest}
+
+
+class CambiaVincitoreProposto(BaseModel):
+    candidatura_id: int = Field(gt=0)
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.put("/api/bandi/{code}/verbali/graduatorie/{incarico_id}/vincitore")
+def vincitore_proposto_istruttorio(code: str,incarico_id: int,
+                                 body: CambiaVincitoreProposto,request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        job=db.execute("""SELECT cds,sede FROM incarichi WHERE id=? AND bando_id=?""",
+                       (incarico_id,b["id"])).fetchone()
+        if not job:fail("Incarico non trovato",404)
+        _assert_graduatoria_open(db,b["id"],job["cds"],job["sede"])
+        choice=db.execute("""
+            SELECT c.id FROM candidature c
+            JOIN valutazioni_pdf v ON v.candidatura_id=c.id
+                 AND v.attiva=1 AND v.stato='Acquisita' AND v.decisione='idoneo'
+            WHERE c.id=? AND c.incarico_id=? AND c.stato='Attiva'
+                AND v.totale_calcolato IS NOT NULL
+        """,(body.candidatura_id,incarico_id)).fetchone()
+        if not choice:
+            fail("Il vincitore proposto deve essere una candidatura idonea con punteggio acquisito",409)
+        before=db.execute("""SELECT * FROM graduatorie_vincitori_proposti
+            WHERE bando_id=? AND incarico_id=?""",(b["id"],incarico_id)).fetchone()
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_vincitori_proposti
+            (bando_id,incarico_id,candidatura_id,motivazione,riferimento,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+            ON CONFLICT(bando_id,incarico_id) DO UPDATE SET
+            candidatura_id=excluded.candidatura_id,motivazione=excluded.motivazione,
+            riferimento=excluded.riferimento,autore=excluded.autore,quando=excluded.quando
+        """,(b["id"],incarico_id,body.candidatura_id,
+             body.motivazione.strip(),body.riferimento.strip(),request_actor(),now))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"incarico",incarico_id,"Vincitore proposto indicato dall'Admin",
+             json.dumps({"precedente":dict(before) if before else None,
+                         "candidatura_id":body.candidatura_id,
+                         "motivazione":body.motivazione.strip(),
+                         "riferimento":body.riferimento.strip()},ensure_ascii=False),
+             request_actor(),now))
+        db.commit()
+    return {"ok":True}
+
+
+@app.get("/api/bandi/{code}/verbali/graduatorie/pdf")
+def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        saved=db.execute("""SELECT stato,dati_json FROM graduatorie_cds
+            WHERE bando_id=? AND cds=? AND sede=?""",(b["id"],cds,sede)).fetchone()
+        if saved:
+            snapshot=json.loads(saved["dati_json"])
+            snapshot["stato"]=saved["stato"]
+        else:
+            snapshot=_graduatoria_status(db,b["id"],cds,sede)
+            snapshot["stato"]="BOZZA NON DEFINITIVA"
+    if not snapshot["incarichi"]:
+        fail("Nessun incarico trovato",404)
+    data=render_graduatoria_pdf(code,snapshot)
+    filename="RankUP_"+_safe_filename(code,40)+"_graduatoria_"+_safe_filename(cds,50)+".pdf"
+    return Response(content=data,media_type="application/pdf",
+        headers={"Content-Disposition":'attachment; filename="'+filename+'"',"Cache-Control":"no-store"})
+
+
+class PreparaApprovazione(BaseModel):
+    graduatorie_ids: list[int] = Field(min_length=1,max_length=100)
+
+
+@app.get("/api/bandi/{code}/graduatorie/approvazioni")
+def elenco_approvazioni(code: str):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        rows=db.execute("""SELECT id,stato,estremi_atto,note,
+           creata_da,creata_il,approvata_da,approvata_il,dati_json
+           FROM graduatorie_approvazioni WHERE bando_id=? ORDER BY id DESC
+        """,(b["id"],)).fetchall()
+    return {"approvazioni":[{
+        **{k:row[k] for k in ("id","stato","estremi_atto","note","creata_da","creata_il","approvata_da","approvata_il")},
+        "ambiti":[{"cds":x["cds"],"sede":x["sede"]} for x in json.loads(row["dati_json"])["selezioni"]]
+    } for row in rows]}
+
+
+@app.post("/api/bandi/{code}/graduatorie/approvazioni")
+def prepara_approvazione(code: str, body: PreparaApprovazione, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    ids=list(dict.fromkeys(body.graduatorie_ids))
+    if len(ids)!=len(body.graduatorie_ids):
+        fail("Graduatorie duplicate non consentite")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        result=[]
+        for gid in ids:
+            r=db.execute("""SELECT id,cds,sede,dati_json,stato
+                FROM graduatorie_cds WHERE bando_id=? AND id=?
+            """,(b["id"],gid)).fetchone()
+            if not r or r["stato"]!="definitiva":
+                fail("Selezionare soltanto graduatorie definitive, non approvate",409)
+            # Una graduatoria non puo gia essere inclusa in un'altra bozza.
+            existing=db.execute("""
+                SELECT dati_json FROM graduatorie_approvazioni
+                WHERE bando_id=? AND stato='bozza'
+            """,(b["id"],)).fetchall()
+            if any(gid in json.loads(x["dati_json"]).get("ids",[]) for x in existing):
+                fail("Graduatoria gia presente in una bozza di approvazione",409)
+            result.append(json.loads(r["dati_json"]))
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        snapshot={"ids":ids,"selezioni":result}
+        cursor=db.execute("""INSERT INTO graduatorie_approvazioni
+            (bando_id,stato,dati_json,creata_da,creata_il)
+            VALUES(?,'bozza',?,?,?)
+        """,(b["id"],json.dumps(snapshot,ensure_ascii=False),request_actor(),now))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"approvazione",cursor.lastrowid,"Bozza approvazione creata",
+              json.dumps({"ids":ids}),request_actor(),now))
+        db.commit()
+    return {"id":cursor.lastrowid,"stato":"bozza"}
+
+
+class ConfermaApprovazione(BaseModel):
+    estremi_atto: str = Field(min_length=5,max_length=500)
+    nota: str = Field(default="",max_length=1000)
+
+
+@app.post("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/conferma")
+def registra_approvazione(code: str, approval_id: int, body: ConfermaApprovazione, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    if not body.estremi_atto.strip() or "[DA VERIFICARE]" in body.estremi_atto.upper():
+        fail("Indicare gli estremi verificati del provvedimento di approvazione")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        approval=db.execute("""SELECT id,stato,dati_json FROM graduatorie_approvazioni
+            WHERE id=? AND bando_id=?""",(approval_id,b["id"])).fetchone()
+        if not approval or approval["stato"]!="bozza":
+            fail("Approvazione inesistente o gia registrata",409)
+        snapshot=json.loads(approval["dati_json"])
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        for gid in snapshot["ids"]:
+            r=db.execute("""SELECT stato FROM graduatorie_cds WHERE id=? AND bando_id=?""",
+                         (gid,b["id"])).fetchone()
+            if not r or r["stato"]!="definitiva":
+                fail("Una graduatoria non e piu disponibile: annullare la bozza",409)
+        for gid in snapshot["ids"]:
+            db.execute("""UPDATE graduatorie_cds SET stato='approvata',approvazione_id=?
+                WHERE id=? AND bando_id=?""",(approval_id,gid,b["id"]))
+        db.execute("""UPDATE graduatorie_approvazioni SET stato='approvata',
+            estremi_atto=?,note=?,approvata_da=?,approvata_il=?
+            WHERE id=? AND bando_id=?""",(body.estremi_atto.strip(),body.nota.strip(),
+                                           request_actor(),now,approval_id,b["id"]))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"approvazione",approval_id,"Atti approvati - incarichi chiusi",
+              json.dumps({"graduatorie_ids":snapshot["ids"],
+                          "estremi_atto":body.estremi_atto.strip()},ensure_ascii=False),
+              request_actor(),now))
+        db.commit()
+    return {"ok":True,"stato":"approvata","graduatorie_chiuse":len(snapshot["ids"])}
+
+
+@app.delete("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}")
+def annulla_bozza_approvazione(code: str, approval_id: int, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        row=db.execute("""SELECT stato,dati_json FROM graduatorie_approvazioni
+            WHERE bando_id=? AND id=?""",(b["id"],approval_id)).fetchone()
+        if not row or row["stato"]!="bozza":
+            fail("Solo le bozze non approvate possono essere annullate",409)
+        stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_eventi
+           (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+           VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"approvazione",approval_id,"Bozza annullata",row["dati_json"],
+             request_actor(),stamp))
+        db.execute("DELETE FROM graduatorie_approvazioni WHERE id=? AND bando_id=?",
+                  (approval_id,b["id"]))
+        db.commit()
+    return {"ok":True}
+
+
+@app.get("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/pdf")
+def pdf_approvazione(code: str, approval_id: int, request: Request):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        row=db.execute("""SELECT stato,estremi_atto,dati_json FROM graduatorie_approvazioni
+            WHERE id=? AND bando_id=?""",(approval_id,b["id"])).fetchone()
+    if not row:fail("Approvazione non trovata",404)
+    payload=json.loads(row["dati_json"])
+    pdf=render_graduatoria_pdf(code,payload,general=True,
+             approved=row["stato"]=="approvata",reference=row["estremi_atto"])
+    return Response(content=pdf,media_type="application/pdf",
+        headers={"Content-Disposition":'attachment; filename="RankUP_'+_safe_filename(code,40)+'_graduatoria_generale.pdf"',
+                 "Cache-Control":"no-store"})
 
 
 @app.get("/api/bandi/{code}/valutazioni/candidature")

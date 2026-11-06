@@ -171,7 +171,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.8.0 · Prototipo tecnico<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.0 · Modulo graduatorie<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -313,7 +313,7 @@
           '<div class="card"><h3 class="section-heading">Importa esportazione PICA</h3><div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div><p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file.</p></div>'+
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
           ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
-          '</div><p class="caption">Verbali e graduatorie saranno introdotti nelle fasi successive.</p></div></div>');
+          '</div><p class="caption">Graduatorie CdS, PDF e approvazioni parziali ora disponibili nelle relative sezioni.</p></div></div>');
         bindBandButtons();$("preview-btn").onclick=preview;
         $("new-bando").onsubmit=async function(event){
           event.preventDefault();
@@ -344,10 +344,181 @@
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="schede")return renderSchede();
         if(state.page==="valutazioni")return renderValutazioni();
-        if(state.page==="verbali")return html(panel("Verbali delle commissioni", "Generazione di un verbale per CdS dopo l'acquisizione delle valutazioni: funzionalità prevista, non ancora implementata."));
-        if(state.page==="graduatorie")return html(panel("Graduatorie per CdS e generali", "Saranno distinti i nominativi in chiaro per le commissioni e l'identificazione selettiva dei vincitori per l'approvazione degli atti."));
+        if(state.page==="verbali")return renderVerbaliGraduatorie();
+        if(state.page==="graduatorie")return renderApprovazioniGraduatorie();
         if(state.page==="archivio")return html(panel("Archivio bandi", "Esportazione ZIP completa, ripristino e cancellazione controllata: funzionalità futura. Attualmente nessun comando di eliminazione è attivo."));
       }
+      // Graduatorie CdS nei verbali: tutti i nominativi sono visibili
+      // per la commissione; la graduatoria generale mostra solo i vincitori.
+      async function renderVerbaliGraduatorie(){
+        if(!cur()){html(panel("Seleziona bando","Apri un bando per consultare i verbali."));return;}
+        var code=state.active;
+        html(panel("Verbali della Commissione","Caricamento graduatorie per CdS..."));
+        try{
+          var data=await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie");
+          if(state.page!=="verbali"||state.active!==code)return;
+          var rows=data.graduatorie||[];
+          var names=[...new Set(rows.map(function(r){return r.cds;}))].sort();
+          var selected=state.verbaliCds||"";
+          if(selected&&!names.includes(selected))selected="";
+          var seats=[...new Set(rows.filter(function(r){return !selected||r.cds===selected;}).map(function(r){return r.sede;}))].sort();
+          var seat=state.verbaliSede||"";
+          if(seat&&!seats.includes(seat))seat="";
+          var shown=rows.filter(function(r){return (!selected||r.cds===selected)&&(!seat||r.sede===seat);});
+          var controls='<div class="card mb"><h3 class="section-heading">Verbali e graduatorie per CdS</h3>'+
+            '<p class="caption">Dati delle schede acquisite; le note della Commissione sono riprodotte integralmente. Le parità non vengono risolte automaticamente.</p>'+
+            '<div class="actions"><label>Corso di Studio<select id="verb-cds"><option value="">Tutti i CdS</option>'+
+            names.map(function(name){return '<option value="'+esc(name)+'"'+(name===selected?' selected':'')+'>'+esc(name)+'</option>';}).join('')+
+            '</select></label><label>Sede<select id="verb-sede"><option value="">Tutte le sedi</option>'+
+            seats.map(function(name){return '<option value="'+esc(name)+'"'+(name===seat?' selected':'')+'>'+esc(name)+'</option>';}).join('')+
+            '</select></label></div></div>';
+          var blocks=shown.map(function(g,i){
+            var issues=g.criticita||[];
+            var ready=g.stato==="pronta",final=g.stato==="definitiva",approved=g.stato==="approvata";
+            var heading='<div class="card mb"><h3 class="section-heading">'+esc(g.cds)+' · '+esc(g.sede)+'</h3>'+
+              '<p><strong>Stato: '+esc(approved?"Atti approvati":final?"Definitiva":ready?"Pronta":"In lavorazione")+'</strong> · '+esc(g.totale_candidature)+' candidature</p>'+
+              (issues.length?'<div class="notice"><strong>Controlli da risolvere:</strong> '+
+                issues.map(function(t){return '<div>'+esc(t)+'</div>';}).join('')+'</div>':'')+
+              '<div class="actions"><a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
+              '/verbali/graduatorie/pdf?cds='+encodeURIComponent(g.cds)+'&sede='+encodeURIComponent(g.sede)+
+              '">Scarica PDF graduatoria CdS</a>'+
+              ((state.role==="admin"&&ready)?'<button class="btn" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
+              '</div>';
+            return heading+g.incarichi.map(function(job){
+              return '<h4>'+esc(job.insegnamento)+' · '+esc(job.modulo)+' · SSD '+esc(job.ssd||"[DA VERIFICARE]")+'</h4>'+
+                '<p class="caption">Vincitore proposto: '+esc((job.candidature.find(function(x){return x.candidatura_id===job.vincitore_id;})||{}).id_pica||"DA VERIFICARE")+
+                (job.vincitore_motivazione?' · Motivazione registrata: '+esc(job.vincitore_motivazione):'')+'</p>'+
+                (state.role==="admin"&&!final&&!approved
+                  ? '<div class="actions"><label>Vincitore proposto (solo candidati idonei) <select data-winner-choice="'+esc(job.id)+'">'+
+                    '<option value="">Seleziona candidato</option>'+
+                    job.candidature.filter(function(c){return c.decisione==="idoneo"&&c.punteggio!=null;}).map(function(c){
+                      return '<option value="'+esc(c.candidatura_id)+'"'+
+                        (job.vincitore_id===c.candidatura_id?' selected':'')+'>'+esc(c.id_pica+" · "+c.cognome+" "+c.nome+" · "+c.punteggio)+'</option>';
+                    }).join('')+'</select></label><button class="btn secondary" data-winner-save="'+esc(job.id)+'">Conferma con motivazione</button></div>'
+                  : '')+
+                '<div class="tablebox"><table><thead><tr><th>Posizione</th><th>ID PICA</th><th>Candidato</th><th>Punti</th><th>Esito</th><th>Note della Commissione</th></tr></thead><tbody>'+
+                job.candidature.map(function(c){
+                  return '<tr><td>'+esc(c.posizione==null?"—":c.posizione)+'</td><td>'+esc(c.id_pica)+
+                    '</td><td>'+esc(c.cognome+' '+c.nome)+'</td><td>'+esc(c.punteggio==null?"Non attribuito":c.punteggio)+
+                    '</td><td>'+esc(c.esito||"Da acquisire")+'</td><td>'+esc(c.note||"—")+'</td></tr>';
+                }).join('')+'</tbody></table></div>';
+            }).join('')+'</div>';
+          }).join('');
+          html(controls+(blocks||panel("Nessuna graduatoria","Nessun incarico corrisponde ai filtri.")));
+          $("verb-cds").onchange=function(){state.verbaliCds=this.value;state.verbaliSede="";renderVerbaliGraduatorie();};
+          $("verb-sede").onchange=function(){state.verbaliSede=this.value;renderVerbaliGraduatorie();};
+          document.querySelectorAll("[data-winner-save]").forEach(function(btn){
+            btn.onclick=async function(){
+              var assignment=btn.dataset.winnerSave;
+              var value=document.querySelector('[data-winner-choice="'+assignment+'"]');
+              if(!value||!value.value){note("Seleziona una candidatura idonea",true);return;}
+              var reason=prompt("Motivazione documentata della scelta del vincitore proposto:");
+              if(!reason||reason.trim().length<10){note("Motivazione obbligatoria di almeno 10 caratteri",true);return;}
+              var reference=prompt("Riferimento verificabile della decisione della Commissione:");
+              if(!reference||reference.trim().length<5){note("Riferimento obbligatorio",true);return;}
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/"+
+                    encodeURIComponent(assignment)+"/vincitore",{
+                    method:"PUT",headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({candidatura_id:Number(value.value),
+                      motivazione:reason.trim(),riferimento:reference.trim()})});
+                note("Scelta del vincitore proposta registrata e tracciata.",false);
+                renderVerbaliGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          document.querySelectorAll("[data-verb-final]").forEach(function(btn){
+            btn.onclick=async function(){
+              var g=shown[Number(btn.dataset.verbFinal)];
+              if(!g||!confirm("Confermare definitiva la graduatoria di "+g.cds+" / "+g.sede+
+                "? Le valutazioni saranno bloccate fino a eventuale procedura di rettifica."))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/definitiva",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({cds:g.cds,sede:g.sede})});
+                note("Graduatoria CdS resa definitiva e registrata nello storico.",false);
+                renderVerbaliGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+        }catch(err){note(err.message,true);html(panel("Graduatorie CdS",esc(err.message)));}
+      }
+
+      async function renderApprovazioniGraduatorie(){
+        if(!cur()){html(panel("Seleziona bando","Apri un bando per predisporre l'approvazione degli atti."));return;}
+        var code=state.active;
+        html(panel("Graduatoria generale","Caricamento approvazioni..."));
+        try{
+          var results=await Promise.all([
+            api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie"),
+            api("bandi/"+encodeURIComponent(code)+"/graduatorie/approvazioni")
+          ]);
+          if(state.page!=="graduatorie"||state.active!==code)return;
+          var ready=(results[0].graduatorie||[]).filter(function(g){return g.stato==="definitiva"&&g.conferma;});
+          var all=results[1].approvazioni||[];
+          var content='<div class="card mb"><h3 class="section-heading">Graduatoria generale definitiva anche parziale</h3>'+
+            '<p class="caption">Seleziona solo graduatorie CdS definitive non ancora approvate. Una bozza non chiude alcuna posizione; la chiusura segue la registrazione degli estremi dell\'atto.</p>'+
+            (ready.length?ready.map(function(g){
+              return '<label style="display:block;padding:8px"><input type="checkbox" data-grad-select="'+esc(g.conferma.id)+'"'+
+                (state.role!=="admin"?' disabled':'')+'> '+esc(g.cds)+' · '+esc(g.sede)+' · '+esc(g.totale_candidature)+' candidature</label>';
+            }).join(''):'<p class="muted">Nessuna graduatoria CdS definitiva disponibile per una nuova approvazione.</p>')+
+            (state.role==="admin"?'<button class="btn" id="grad-draft"'+(ready.length?'':' disabled')+'>Crea bozza graduatoria generale</button>':'')+
+            '</div><div class="card"><h3 class="section-heading">Approvazioni atti</h3>'+
+            (all.length?all.map(function(a){
+              return '<div class="card mb"><strong>Procedura '+esc(a.id)+' · '+esc(a.stato==="approvata"?"Atti approvati":"Bozza da approvare")+'</strong>'+
+                '<div class="caption">'+esc(a.ambiti.map(function(g){return g.cds+" / "+g.sede;}).join("; "))+'</div>'+
+                (a.estremi_atto?'<p>Estremi atto: '+esc(a.estremi_atto)+'</p>':'')+
+                '<div class="actions"><a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
+                '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
+                (state.role==="admin"&&a.stato==="bozza"
+                  ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
+                   '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
+                '</div></div>';
+            }).join(''):'<p class="muted">Nessuna procedura di approvazione ancora creata.</p>')+'</div>';
+          html(content);
+          if($("grad-draft"))$("grad-draft").onclick=async function(){
+            var ids=[...document.querySelectorAll("[data-grad-select]:checked")].map(function(x){return Number(x.dataset.gradSelect);});
+            if(!ids.length){note("Seleziona almeno una graduatoria definitiva.",true);return;}
+            this.disabled=true;
+            try{
+              await api("bandi/"+encodeURIComponent(code)+"/graduatorie/approvazioni",{
+                method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({graduatorie_ids:ids})});
+              note("Bozza graduatoria generale predisposta. Le posizioni non sono ancora chiuse.",false);
+              renderApprovazioniGraduatorie();
+            }catch(err){note(err.message,true);this.disabled=false;}
+          };
+          document.querySelectorAll("[data-grad-approve]").forEach(function(btn){
+            btn.onclick=async function(){
+              var ref=prompt("Inserisci gli estremi verificati del provvedimento di approvazione atti (obbligatori).");
+              if(!ref||ref.trim().length<5)return;
+              if(!confirm("Confermare l'approvazione degli atti e chiudere tutti gli incarichi inclusi?"))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/graduatorie/approvazioni/"+
+                  encodeURIComponent(btn.dataset.gradApprove)+"/conferma",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({estremi_atto:ref.trim()})});
+                note("Approvazione registrata. Le posizioni comprese sono chiuse.",false);
+                renderApprovazioniGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          document.querySelectorAll("[data-grad-cancel]").forEach(function(btn){
+            btn.onclick=async function(){
+              if(!confirm("Annullare questa bozza non approvata? Le graduatorie CdS resteranno definitive."))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/graduatorie/approvazioni/"+
+                   encodeURIComponent(btn.dataset.gradCancel),{method:"DELETE"});
+                renderApprovazioniGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+        }catch(err){note(err.message,true);html(panel("Graduatoria generale",esc(err.message)));}
+      }
+
       async function renderUtenti(){
         if(state.role!=="admin"){
           html(panel("Accesso riservato","Gestione degli utenti consentita soltanto all'amministratore."));
