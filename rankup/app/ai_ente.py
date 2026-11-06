@@ -11,7 +11,7 @@ import re
 import socket
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
 VALID = {"SSN", "AOUI", "ASUIT", "UNITN", "SSP", "ASUIT O UNITN", "NESSUNA RISERVA"}
@@ -27,7 +27,7 @@ class _NoRedirect(HTTPRedirectHandler):
         raise AIEmployerError("Reindirizzamento Ollama non consentito")
 
 
-_opener = build_opener(_NoRedirect)
+_opener = build_opener(ProxyHandler({}), _NoRedirect)
 
 
 def local_endpoint(url: str) -> str:
@@ -46,7 +46,7 @@ def local_endpoint(url: str) -> str:
     host = parsed.hostname.lower()
     try:
         address = ipaddress.ip_address(host)
-        if not (address.is_private or address.is_loopback) or address.is_link_local:
+        if not (address.is_private or address.is_loopback) or address.is_link_local or address.is_unspecified or address.is_multicast:
             raise AIEmployerError("Il servizio Ollama deve trovarsi su una rete privata")
     except ValueError:
         if not (
@@ -63,7 +63,7 @@ def local_endpoint(url: str) -> str:
             raise AIEmployerError("Hostname Ollama senza indirizzi IP")
         for item in resolved:
             ip = ipaddress.ip_address(item[4][0])
-            if not (ip.is_private or ip.is_loopback) or ip.is_link_local:
+            if not (ip.is_private or ip.is_loopback) or ip.is_link_local or ip.is_unspecified or ip.is_multicast:
                 raise AIEmployerError("Endpoint Ollama risolto su rete non privata")
     return (url or "").strip().rstrip("/")
 
