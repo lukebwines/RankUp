@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
+from ente_check import evaluate_ente
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -980,18 +981,48 @@ def list_candidature(code: str):
     code = valid_code(code)
     with connect() as db:
         rows = db.execute("""
-           SELECT c.id_pica, c.cognome, c.nome, c.stato,
-                  i.cds, i.sede, i.insegnamento, i.modulo
+           SELECT c.id_pica, c.cognome, c.nome, c.stato, c.source_json,
+                  i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo,
+                  er.ente_richiesto
            FROM candidature c
            JOIN incarichi i ON i.id=c.incarico_id
            JOIN bandi b ON b.id=c.bando_id
+           LEFT JOIN incarichi_ente_requisiti er ON er.bando_id=b.id AND er.key_incarico=i.key
            WHERE b.codice=?
            ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                     i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
                     c.cognome COLLATE NOCASE, c.nome COLLATE NOCASE
            LIMIT 10000
         """, (code,)).fetchall()
-    return {"candidature": [dict(row) for row in rows]}
+    # Vecchie importazioni: recupera le dichiarazioni dal PICA originale
+    # conservato nell'add-on, SENZA reimportare le candidature.
+    employment={}
+    folder=SOURCES / code
+    for path in (folder / "pica_originale.xls",folder / "pica_originale.xlsx"):
+        if not path.is_file():continue
+        try:
+            original=parse_pica(path.name,path.read_bytes())
+            employment={(str(r["id_pica"]),r["incarico"]["key"]):r for r in original["rows"]}
+        except (ValueError,OSError):
+            employment={}
+        break
+    output=[]
+    for row in rows:
+        d=dict(row)
+        try:
+            record=json.loads(d.pop("source_json") or "{}")
+        except (TypeError,ValueError):
+            record={}
+        original=employment.get((str(d["id_pica"]),d["incarico_key"]),{})
+        candidate={name:(record.get(name) or original.get(name) or "") for name in
+                   ("occupazione","azienda_ente","profilo_professionale")}
+        d.update(candidate)
+        d["verifica_ente"]=evaluate_ente(d.get("ente_richiesto"),**{
+            "occupazione":candidate["occupazione"],
+            "azienda":candidate["azienda_ente"],
+            "profilo":candidate["profilo_professionale"]})
+        output.append(d)
+    return {"candidature":output}
 
 
 @app.post("/api/pica/preview")
