@@ -2337,6 +2337,19 @@ async def preview_valutazioni(code: str, files: list[UploadFile] = File(...),
                     for_index.setdefault(result["candidatura_id"],[]).append(index)
             (staging/result["temp_file"]).write_bytes(data)
             items.append(result)
+        # La preview non modifica i documenti, ma non deve consentire
+        # una successiva conferma su posizioni gia definite.
+        with connect() as lock_db:
+            for item in items:
+                if item.get("candidatura_id") is None:
+                    continue
+                belonging=lock_db.execute("""
+                    SELECT i.cds,i.sede FROM candidature c
+                    JOIN incarichi i ON i.id=c.incarico_id
+                    WHERE c.id=? AND c.bando_id=?
+                """,(item["candidatura_id"],b["id"])).fetchone()
+                if belonging:
+                    _assert_graduatoria_open(lock_db,b["id"],belonging["cds"],belonging["sede"])
         for positions in for_index.values():
             if len(positions)>1:
                 for idx in positions:
@@ -2404,6 +2417,14 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
                 if item["stato"]=="duplicato":
                     counts["duplicate"]+=1
                     continue
+                if item.get("candidatura_id") is not None:
+                    location=db.execute("""
+                        SELECT i.cds,i.sede FROM candidature c
+                        JOIN incarichi i ON i.id=c.incarico_id
+                        WHERE c.id=? AND c.bando_id=?
+                    """,(item["candidatura_id"],b["id"])).fetchone()
+                    if location:
+                        _assert_graduatoria_open(db,b["id"],location["cds"],location["sede"])
                 data=(processing/item["temp_file"]).read_bytes()
                 if hashlib.sha256(data).hexdigest()!=item["sha256"]:
                     fail("Il PDF dell'anteprima è cambiato: interrompere l'acquisizione",409)
@@ -2527,6 +2548,7 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
         """,(body.candidatura_id,b["id"],b["id"])).fetchone()
         if not candidate or candidate["stato"]!="Attiva":
             fail("Candidatura PICA non presente o non attiva nel bando",409)
+        _assert_graduatoria_open(db,b["id"],candidate["cds"],candidate["sede"])
         if document["candidatura_id"] is not None and document["candidatura_id"]!=candidate["id"]:
             fail("La scheda era già associata a un'altra candidatura: associazione manuale vietata",409)
         # Verifica l'originale archiviato, senza fidarsi di percorsi scritti dal client.
@@ -2947,6 +2969,30 @@ def registra_approvazione(code: str, approval_id: int, body: ConfermaApprovazion
               request_actor(),now))
         db.commit()
     return {"ok":True,"stato":"approvata","graduatorie_chiuse":len(snapshot["ids"])}
+
+
+@app.delete("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}")
+def annulla_bozza_approvazione(code: str, approval_id: int, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        row=db.execute("""SELECT stato,dati_json FROM graduatorie_approvazioni
+            WHERE bando_id=? AND id=?""",(b["id"],approval_id)).fetchone()
+        if not row or row["stato"]!="bozza":
+            fail("Solo le bozze non approvate possono essere annullate",409)
+        stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_eventi
+           (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+           VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"approvazione",approval_id,"Bozza annullata",row["dati_json"],
+             request_actor(),stamp))
+        db.execute("DELETE FROM graduatorie_approvazioni WHERE id=? AND bando_id=?",
+                  (approval_id,b["id"]))
+        db.commit()
+    return {"ok":True}
 
 
 @app.get("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/pdf")
