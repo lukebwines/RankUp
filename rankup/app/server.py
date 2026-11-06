@@ -252,6 +252,17 @@ def initialize() -> None:
         user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
         if "eliminato" not in user_columns:
             db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS incarichi_ente_requisiti (
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                key_incarico TEXT NOT NULL,
+                ente_richiesto TEXT NOT NULL,
+                fonte TEXT NOT NULL,
+                confermato_da TEXT NOT NULL,
+                confermato_il TEXT NOT NULL,
+                PRIMARY KEY(bando_id,key_incarico)
+            )
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -900,11 +911,14 @@ def list_incarichi(code: str):
                  i.codice_partizione, i.partizione_studenti,
                  i.peso_copertura, i.ore, i.stato_coperture,
                  cl.tipo AS modello_ssd,
+                 er.ente_richiesto AS ente_richiesto,
+                 er.fonte AS ente_fonte,
                  COUNT(c.id) AS candidature
           FROM incarichi i
           JOIN bandi b ON b.id=i.bando_id
           LEFT JOIN candidature c ON c.incarico_id=i.id
           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+          LEFT JOIN incarichi_ente_requisiti er ON er.bando_id=b.id AND er.key_incarico=i.key
           WHERE b.codice=?
           GROUP BY i.id
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
@@ -923,6 +937,42 @@ def list_incarichi(code: str):
         "incarichi": [dict(row) for row in rows],
         "acquisizione_metadati": dict(migration) if migration else None,
     }
+
+
+class RequisitoEnteInput(BaseModel):
+    ente_richiesto: str = Field(max_length=50)
+    fonte: str = Field(min_length=1,max_length=500)
+
+
+ENTE_AMMESSI={"SSN","AOUI","ASUIT","UNITN","SSP","ASUIT O UNITN","NESSUNA RISERVA"}
+
+
+@app.put("/api/bandi/{code}/incarichi/{key}/ente")
+def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: Request):
+    """Configurazione esplicita e tracciata: nessun ente viene dedotto dal PICA."""
+    who=require_admin(request)
+    code=valid_code(code)
+    if not re.fullmatch(r"[0-9a-f]{24}",key):fail("Identificativo incarico non valido")
+    ente=" ".join(body.ente_richiesto.upper().strip().split())
+    if ente not in ENTE_AMMESSI:fail("Ente richiesto non riconosciuto")
+    fonte=body.fonte.strip()
+    if not fonte:fail("Indicare la fonte ufficiale del requisito")
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("""SELECT i.bando_id FROM incarichi i
+                          JOIN bandi b ON b.id=i.bando_id
+                          WHERE b.codice=? AND i.key=?""",(code,key)).fetchone()
+        if not row:fail("Incarico non trovato",404)
+        db.execute("""INSERT INTO incarichi_ente_requisiti
+                 (bando_id,key_incarico,ente_richiesto,fonte,confermato_da,confermato_il)
+                 VALUES(?,?,?,?,?,?)
+                 ON CONFLICT(bando_id,key_incarico) DO UPDATE SET
+                 ente_richiesto=excluded.ente_richiesto,fonte=excluded.fonte,
+                 confermato_da=excluded.confermato_da,confermato_il=excluded.confermato_il
+                 """,(row["bando_id"],key,ente,fonte,who["username"],now))
+        db.commit()
+    return {"ok":True,"key":key,"ente_richiesto":ente,"fonte":fonte}
 
 
 @app.get("/api/bandi/{code}/candidature")
