@@ -27,6 +27,10 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
         assert early.json()["graduatorie"][0]["pronta"] is False
         body={"cds":early.json()["graduatorie"][0]["cds"],"sede":early.json()["graduatorie"][0]["sede"]}
         assert _post(client,base+"/verbali/graduatorie/definitiva",json=body).status_code==409
+        complete_after=client.get(base+"/verbali/graduatorie/pdf-completo",params=body)
+        assert complete_after.status_code==200
+        assert len(PdfReader(BytesIO(complete_after.content)).pages)==len(merged.pages)
+
         _complete_all(client,sheets)
         view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
         assert view["pronta"] is True, view["criticita"]
@@ -36,6 +40,17 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
         text="\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf.content)).pages)
         assert "Nota di valutazione della commissione" in text
         assert "Candidato" in text
+        joined=client.get(base+"/verbali/graduatorie/pdf-completo",params=body)
+        assert joined.status_code==200,joined.text[:200] if joined.status_code!=200 else ""
+        assert joined.headers["content-type"]=="application/pdf"
+        merged=PdfReader(BytesIO(joined.content))
+        original_pages=sum(len(PdfReader(BytesIO(x)).pages) for x in sheets.values())
+        assert len(merged.pages)==len(PdfReader(BytesIO(pdf.content)).pages)+original_pages
+        joined_text="\\n".join(page.extract_text() or "" for page in merged.pages)
+        assert "Graduatoria della Commissione" in joined_text
+        assert "Nota di valutazione della commissione" in joined_text
+        assert "NOTE-COMM" in (merged.get_fields() or {})
+
 
         sealed=_post(client,base+"/verbali/graduatorie/definitiva",json=body)
         assert sealed.status_code==200,sealed.text
