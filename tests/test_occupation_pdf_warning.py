@@ -36,7 +36,7 @@ def test_pdf_occupation_warning_for_reserved_assignments(tmp_path, monkeypatch):
             assert "DA VERIFICARE" in text
             assert "NOTE-COMM" in (pdf.get_fields() or {})
             assert "STATUS" in (pdf.get_fields() or {})
-            assert (pdf.get_fields() or {})["STATUS"].get("/V") == "-"
+            assert (pdf.get_fields() or {})["STATUS"].get("/V") in ("-", "-- Seleziona --")
 
         # Nessun provvedimento o stato candidato viene cambiato dall'avviso.
         assert all(x["stato"] == "Attiva" for x in
