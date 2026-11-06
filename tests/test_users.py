@@ -224,3 +224,46 @@ def test_user_management_navigation_is_admin_only():
     assert 'minlength="8"' in html
     assert "Gestione account RankUp" in html
     assert "Acquisisci manualmente" in html
+
+
+def test_delete_user_revokes_access_and_preserves_audit(tmp_path,monkeypatch):
+    server,admin=_empty_setup(tmp_path,monkeypatch)
+    with admin:
+        created=_post(admin,"/api/utenti",json={
+            "username":"eliminabile","password":"password8"
+        })
+        assert created.status_code==200,created.text
+        uid=created.json()["utente"]["id"]
+        with TestClient(server.app) as user:
+            logged=_post(user,"/api/auth/login",json={
+                "username":"eliminabile","password":"password8"
+            })
+            assert logged.status_code==200,logged.text
+            assert user.delete(f"/api/utenti/{uid}",headers={"X-RankUp-Request":"1"}).status_code==403
+            removed=admin.delete(f"/api/utenti/{uid}",headers={"X-RankUp-Request":"1"})
+            assert removed.status_code==200,removed.text
+            assert removed.json()["eliminato"] is True
+            assert user.get("/api/bandi").status_code==401
+            assert _post(user,"/api/auth/login",json={
+                "username":"eliminabile","password":"password8"
+            }).status_code==401
+        assert admin.get("/api/utenti").json()["utenti"]==[]
+        assert admin.delete(f"/api/utenti/{uid}",headers={"X-RankUp-Request":"1"}).status_code==404
+        assert admin.put(f"/api/utenti/{uid}/stato",
+            headers={"X-RankUp-Request":"1"},json={"attivo":True}).status_code==404
+        with server.connect() as db:
+            record=db.execute("SELECT attivo,eliminato FROM rankup_utenti WHERE id=?",(uid,)).fetchone()
+            assert record["attivo"]==0 and record["eliminato"]==1
+            actions=[x["azione"] for x in db.execute(
+                "SELECT azione FROM rankup_utenti_eventi WHERE utente_id=? ORDER BY id",(uid,))]
+            assert actions==["Creato account operativo","Eliminato (storico conservato)"]
+
+
+def test_dashboard_hosts_pica_import_and_assessment_flags():
+    path=Path(__file__).resolve().parents[1]/"rankup"/"app"/"static"/"index.html"
+    html=path.read_text(encoding="utf-8")
+    assert 'data-page="bandi"' not in html
+    assert 'id="pica-file"' in html
+    assert '$("preview-btn").onclick=preview' in html
+    assert "NOT PASSED" in html and "PASSED" in html
+    assert "data-user-delete" in html
