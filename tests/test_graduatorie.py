@@ -25,12 +25,20 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
         early=client.get(base+"/verbali/graduatorie")
         assert early.status_code==200,early.text
         assert early.json()["graduatorie"][0]["pronta"] is False
+        assert early.json()["graduatorie"][0]["schede_validate"]==0
+        assert early.json()["graduatorie"][0]["schede_da_risolvere"]==3
+        assert early.json()["graduatorie"][0]["verbale_generabile"] is False
         body={"cds":early.json()["graduatorie"][0]["cds"],"sede":early.json()["graduatorie"][0]["sede"]}
         assert _post(client,base+"/verbali/graduatorie/definitiva",json=body).status_code==409
+        assert client.get(base+"/verbali/graduatorie/pdf",params=body).status_code==409
+        assert client.get(base+"/verbali/graduatorie/pdf-completo",params=body).status_code==409
 
         _complete_all(client,sheets)
         view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
         assert view["pronta"] is True, view["criticita"]
+        assert view["schede_validate"]==view["totale_candidature"]==3
+        assert view["schede_da_risolvere"]==0
+        assert view["verbale_generabile"] is True
         assert len(view["incarichi"])==2
         pdf=client.get(base+"/verbali/graduatorie/pdf",params=body)
         assert pdf.status_code==200,pdf.text[:300] if pdf.status_code!=200 else ""
@@ -113,4 +121,5 @@ def test_parita_blocca_graduatoria(tmp_path,monkeypatch):
         assert fixed.status_code==200,fixed.text
         refreshed=client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]
         assert refreshed["pronta"],refreshed["criticita"]
+        assert refreshed["verbale_generabile"] is True
         assert next(x for x in refreshed["incarichi"] if x["id"]==tied["id"])["vincitore_id"]==selected
