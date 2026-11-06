@@ -267,3 +267,39 @@ def test_dashboard_hosts_pica_import_and_assessment_flags():
     assert '$("preview-btn").onclick=preview' in html
     assert "NOT PASSED" in html and "PASSED" in html
     assert "data-user-delete" in html
+
+
+def test_assignment_ente_requires_admin_and_source(tmp_path,monkeypatch):
+    server,admin,_=_setup(tmp_path,monkeypatch)
+    with admin:
+        data=admin.get("/api/bandi/26-02/incarichi")
+        assert data.status_code==200,data.text
+        assignment=data.json()["incarichi"][0]
+        key=assignment["key"]
+        uri=f"/api/bandi/26-02/incarichi/{key}/ente"
+        bad=admin.put(uri,headers={"X-RankUp-Request":"1"},json={
+            "ente_richiesto":"AOUI","fonte":""})
+        assert bad.status_code==422,bad.text
+        saved=admin.put(uri,headers={"X-RankUp-Request":"1"},json={
+            "ente_richiesto":"AOUI","fonte":"Riga verificata dell'allegato ufficiale"})
+        assert saved.status_code==200,saved.text
+        found=admin.get("/api/bandi/26-02/incarichi").json()["incarichi"]
+        assert next(r for r in found if r["key"]==key)["ente_richiesto"]=="AOUI"
+        candidates=admin.get("/api/bandi/26-02/candidature")
+        assert candidates.status_code==200,candidates.text
+        assert "verifica_ente" in candidates.json()["candidature"][0]
+        with server.connect() as db:
+            r=db.execute("SELECT confermato_da FROM incarichi_ente_requisiti WHERE key_incarico=?",(key,)).fetchone()
+            assert r["confermato_da"]=="admin_fittizio"
+
+
+def test_ente_check_is_conservative():
+    from ente_check import evaluate_ente
+    assert evaluate_ente("AOUI","dipendente",
+        "Azienda Ospedaliera Universitaria Integrata di Verona","")["stato"]=="COERENTE (PRELIMINARE)"
+    assert evaluate_ente("ASUIT","dipendente",
+        "Azienda Ospedaliera Universitaria Integrata di Verona","")["stato"]=="DA VERIFICARE"
+    assert evaluate_ente("SSN","","Studio privato non convenzionato","")["stato"]=="DA VERIFICARE"
+    assert evaluate_ente("UNITN","","Università di Trento","")["stato"]=="DA VERIFICARE"
+    assert evaluate_ente("NESSUNA RISERVA","","","")["stato"]=="NESSUNA RISERVA"
+    assert evaluate_ente(None,"","","")["stato"]=="DA CONFIGURARE"
