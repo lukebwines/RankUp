@@ -311,6 +311,29 @@ def initialize() -> None:
             """, (" ".join(label.split()).casefold(), label, requirement,
                   "Corrispondenza comunicata dall'amministratore",
                   "configurazione iniziale", datetime.now(timezone.utc).isoformat()))
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS valutazioni_occupazione_ai (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id),
+                candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+                requisito_analizzato TEXT NOT NULL,
+                tipo_cds_pica TEXT NOT NULL,
+                occupazione_pica TEXT NOT NULL,
+                azienda_pica TEXT NOT NULL,
+                profilo_pica TEXT NOT NULL,
+                stato TEXT NOT NULL,
+                motivo TEXT NOT NULL,
+                evidenza TEXT NOT NULL,
+                modello_locale INTEGER NOT NULL DEFAULT 0,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS ix_ai_occupazione_pdf
+            ON valutazioni_occupazione_ai(valutazione_pdf_id, id DESC)
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -577,7 +600,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.8", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.8.9", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -813,7 +836,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.8"}
+    return {"status": "ok", "version": "0.8.9"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1284,7 +1307,7 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
         fail("Identificativo scheda non valido")
     with connect() as db:
         archived = db.execute("""
-            SELECT c.id_pica, i.key AS incarico_key
+            SELECT c.id AS candidatura_id, c.id_pica, i.key AS incarico_key, v.bando_id
             FROM valutazioni_pdf v
             JOIN bandi b ON b.id=v.bando_id
             JOIN candidature c ON c.id=v.candidatura_id
@@ -1314,9 +1337,31 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
             _ollama_settings())
     except AIEmployerError as exc:
         fail(str(exc), 503)
-    return {"risultato": result,
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        # Confermare il collegamento anche al momento della registrazione.
+        if not db.execute("""SELECT 1 FROM valutazioni_pdf
+            WHERE id=? AND bando_id=? AND candidatura_id=?
+        """, (pdf_id, archived["bando_id"], archived["candidatura_id"])).fetchone():
+            fail("Scheda variata: ripetere la verifica", 409)
+        db.execute("""INSERT INTO valutazioni_occupazione_ai
+            (bando_id,valutazione_pdf_id,candidatura_id,requisito_analizzato,
+             tipo_cds_pica,occupazione_pica,azienda_pica,profilo_pica,
+             stato,motivo,evidenza,modello_locale,autore,quando)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (archived["bando_id"], pdf_id, archived["candidatura_id"],
+              requirement, str(candidate.get("tipo_cds") or ""),
+              str(candidate.get("occupazione") or ""),
+              str(candidate.get("azienda_ente") or ""),
+              str(candidate.get("profilo_professionale") or ""),
+              result["stato"], result["motivo"], result.get("evidenza") or "",
+              1 if result.get("modello_locale") else 0,
+              request_actor(), now))
+        db.commit()
+    return {"risultato": result, "registrato_il": now,
             "avviso": "Controllo riservato ad Admin, istruttorio e non vincolante. "
-                      "Nessun punteggio o esito della commissione modificato."}
+                      "Storico conservato; nessun punteggio o esito della commissione modificato."}
 
 
 @app.post("/api/pica/preview")
