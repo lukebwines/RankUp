@@ -1108,6 +1108,8 @@ def _tipologie(parsed):
     for record in parsed["rows"]:
         inc = record["incarico"]
         key = tipo_cds_key(inc.get("tipo_cds"))
+        if not key:
+            continue  # Valore assente: nessun requisito desumibile, non creare una regola.
         entry = items.setdefault(key, {"chiave": key, "dicitura": inc.get("tipo_cds") or "",
                                        "incarichi": set()})
         entry["incarichi"].add(inc["key"])
