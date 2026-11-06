@@ -940,6 +940,53 @@ def list_incarichi(code: str):
     }
 
 
+@app.post("/api/bandi/{code}/ente/bando-pdf")
+async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile = File(...)):
+    """Conserva l'originale e presenta EVIDENZE TESTUALI, senza assegnare riserve automaticamente.
+
+    Il testo PDF non viene inviato a servizi esterni. Per PDF senza testo
+    estraibile va effettuata una lettura documentale manuale.
+    """
+    require_admin(request)
+    code=valid_code(code)
+    filename=(file.filename or "").split("/")[-1].split("\\\\")[-1]
+    if not filename.lower().endswith(".pdf"):
+        fail("Caricare il bando ufficiale in formato PDF")
+    content=await file.read(12*1024*1024+1)
+    if not content or len(content)>12*1024*1024:
+        fail("PDF vuoto o superiore al limite di 12 MB")
+    try:
+        reader=PdfReader(BytesIO(content))
+        if len(reader.pages)>100:fail("Il PDF supera il limite di 100 pagine")
+        evidence=[]
+        for page_no,page in enumerate(reader.pages,start=1):
+            text=page.extract_text() or ""
+            for line_no,line in enumerate(text.splitlines(),start=1):
+                line=" ".join(line.split())
+                if re.search(r"(?<![A-Z])(SSN|AOUI|ASUIT|UNITN|SSP)(?![A-Z])",line,re.I):
+                    evidence.append({"pagina":page_no,"riga":line_no,"testo":line[:450]})
+                    if len(evidence)>=150:break
+            if len(evidence)>=150:break
+    except HTTPException:
+        raise
+    except Exception:
+        fail("Impossibile estrarre il testo del PDF: verificare il documento",400)
+    with connect() as db:
+        if not db.execute("SELECT 1 FROM bandi WHERE codice=?",(code,)).fetchone():
+            fail("Bando non trovato",404)
+    folder=SOURCES / code
+    folder.mkdir(parents=True,exist_ok=True)
+    dest=folder / "bando_requisiti_originale.pdf"
+    digest=hashlib.sha256(content).hexdigest()
+    if dest.exists() and hashlib.sha256(dest.read_bytes()).hexdigest()!=digest:
+        fail("È già presente un bando PDF diverso: conservare la versione originale e verificare prima della sostituzione",409)
+    if not dest.exists():
+        dest.write_bytes(content)
+    return {"ok":True,"file":filename[:150],"sha256":digest,"pagine":len(reader.pages),
+            "evidenze":evidence,"avviso":
+            "Le occorrenze sono indizi testuali, non requisiti automaticamente assegnati agli incarichi. Confermare ogni requisito con la tabella ufficiale."}
+
+
 class RequisitoEnteInput(BaseModel):
     ente_richiesto: str = Field(max_length=50)
     fonte: str = Field(min_length=1,max_length=500)
