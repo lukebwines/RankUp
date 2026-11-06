@@ -577,7 +577,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.7", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.8.8", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -813,7 +813,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.7"}
+    return {"status": "ok", "version": "0.8.8"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1271,43 +1271,52 @@ def list_candidature(code: str):
 
 
 
-class RichiestaIAOccupazione(BaseModel):
-    id_pica: str = Field(min_length=1, max_length=100)
-    incarico_key: str = Field(min_length=24, max_length=24)
+@app.post("/api/bandi/{code}/valutazioni/{pdf_id}/ai/occupazione")
+def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Request):
+    """Controllo amministrativo soltanto DOPO la ricezione di una scheda.
 
-
-@app.post("/api/bandi/{code}/candidature/ai/anteprima")
-def anteprima_occupazione_ai(code: str, body: RichiestaIAOccupazione,
-                            request: Request):
-    """Controllo locale di una sola candidatura, senza identità né PDF nel prompt."""
+    Solo Admin. Nessun PDF, nome, CF, ID PICA o esito della commissione
+    viene trasmesso a Ollama. La risposta non modifica valutazioni o graduatorie.
+    """
     require_admin(request)
     code = valid_code(code)
-    if not re.fullmatch(r"[0-9a-f]{24}", body.incarico_key):
-        fail("Chiave incarico non valida")
+    if pdf_id <= 0:
+        fail("Identificativo scheda non valido")
+    with connect() as db:
+        archived = db.execute("""
+            SELECT c.id_pica, i.key AS incarico_key
+            FROM valutazioni_pdf v
+            JOIN bandi b ON b.id=v.bando_id
+            JOIN candidature c ON c.id=v.candidatura_id
+            JOIN incarichi i ON i.id=c.incarico_id
+            WHERE b.codice=? AND v.id=? AND v.candidatura_id IS NOT NULL
+              AND v.stato IN ('Acquisita','Da verificare')
+        """, (code, pdf_id)).fetchone()
+    if not archived:
+        fail("Scheda restituita non trovata o candidatura non associata", 404)
     records = list_candidature(code)["candidature"]
-    selected = [r for r in records
-                if str(r["id_pica"]) == body.id_pica
-                and r["incarico_key"] == body.incarico_key]
-    if len(selected) != 1:
-        fail("Candidatura non trovata o associazione non univoca", 404)
-    row = selected[0]
-    requirement = row.get("ente_richiesto") or ""
+    matches = [r for r in records
+               if str(r["id_pica"]) == str(archived["id_pica"])
+               and r["incarico_key"] == archived["incarico_key"]]
+    if len(matches) != 1:
+        fail("Dichiarazioni occupazionali non associabili univocamente", 409)
+    candidate = matches[0]
+    requirement = candidate.get("ente_richiesto") or ""
     if not requirement:
-        fail("Requisito dell'incarico non ancora classificato", 409)
+        fail("Requisito ente non classificato: verificare il dizionario PICA", 409)
     if requirement == "NESSUNA RISERVA":
-        fail("Questo incarico non prevede riserva di appartenenza", 400)
+        fail("Nessuna riserva occupazionale da controllare", 400)
     try:
-        outcome = review_occupation(
-            requirement,
-            row.get("occupazione") or "",
-            row.get("azienda_ente") or "",
-            row.get("profilo_professionale") or "",
-            _ollama_settings(),
-        )
+        result = review_occupation(
+            requirement, candidate.get("occupazione") or "",
+            candidate.get("azienda_ente") or "",
+            candidate.get("profilo_professionale") or "",
+            _ollama_settings())
     except AIEmployerError as exc:
         fail(str(exc), 503)
-    return {"risultato": outcome,
-            "avviso": "Solo supporto istruttorio. Conferma amministrativa obbligatoria."}
+    return {"risultato": result,
+            "avviso": "Controllo riservato ad Admin, istruttorio e non vincolante. "
+                      "Nessun punteggio o esito della commissione modificato."}
 
 
 @app.post("/api/pica/preview")
