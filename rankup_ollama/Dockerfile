@@ -1,6 +1,6 @@
 FROM ollama/ollama:0.40.15
 ARG BUILD_ARCH
-ARG BUILD_VERSION=0.1.0
+ARG BUILD_VERSION=0.1.1
 LABEL io.hass.type="app" io.hass.arch="${BUILD_ARCH}" io.hass.version="${BUILD_VERSION}"
 ENV OLLAMA_HOST=0.0.0.0:11434 \
     OLLAMA_MODELS=/data/models \
