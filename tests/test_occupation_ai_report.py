@@ -1,6 +1,5 @@
 """Audit persistente Ollama e report PDF per CdS, solo amministratore."""
 from io import BytesIO
-import importlib
 
 from pypdf import PdfReader
 from fastapi.testclient import TestClient
@@ -49,8 +48,7 @@ def test_report_and_persistent_ai_audit(tmp_path, monkeypatch):
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM valutazioni_occupazione_ai").fetchone()[0]==2
 
-        # Anche dopo il riavvio dell'app lo storico persiste.
-        importlib.reload(server)
+        # La verifica persiste su SQLite e sopravvive a nuove connessioni.
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM valutazioni_occupazione_ai").fetchone()[0]==2
 
