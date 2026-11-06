@@ -29,7 +29,7 @@ from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_ente import propose as ai_propose_ente, status as ai_ollama_status, AIEmployerError
+from ai_ente import status as ai_ollama_status, AIEmployerError
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -276,6 +276,41 @@ def initialize() -> None:
                 quando TEXT NOT NULL
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS pica_tipo_cds_dizionario (
+                chiave TEXT PRIMARY KEY,
+                dicitura TEXT NOT NULL,
+                requisito TEXT NOT NULL,
+                fonte TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                aggiornato_il TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS pica_tipo_cds_eventi (
+                id INTEGER PRIMARY KEY,
+                chiave TEXT NOT NULL,
+                precedente_json TEXT NOT NULL,
+                successivo_json TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
+        # Cinque corrispondenze dichiarate dall'amministratore, non desunte da PDF.
+        for label, requirement in (
+            ("contratto esterno oneroso CSA", "NESSUNA RISERVA"),
+            ("contratto esterno oneroso UGOV C", "NESSUNA RISERVA"),
+            ("contratto esterno oneroso a carico APSS TN CSA", "SSN"),
+            ("contratto esterno oneroso dip. SSN CSA", "SSN"),
+            ("supplenza esterna retribuita", "ALTRO ATENEO"),
+        ):
+            db.execute("""
+                INSERT OR IGNORE INTO pica_tipo_cds_dizionario
+                (chiave,dicitura,requisito,fonte,autore,aggiornato_il)
+                VALUES(?,?,?,?,?,?)
+            """, (" ".join(label.split()).casefold(), label, requirement,
+                  "Corrispondenza comunicata dall'amministratore",
+                  "configurazione iniziale", datetime.now(timezone.utc).isoformat()))
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -542,7 +577,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.2", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.8.5", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -778,7 +813,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.4"}
+    return {"status": "ok", "version": "0.8.5"}
 
 
 class NuovoBandoInput(BaseModel):
