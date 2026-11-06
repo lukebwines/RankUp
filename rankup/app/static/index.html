@@ -767,7 +767,7 @@
               '<p class="caption">Controllo istruttorio; non determina ammissioni o esclusioni. Il dato dichiarato è riportato senza modifiche.</p>'+
               select+'<p class="caption" id="cand-counter"></p><div class="tablebox"><table><thead><tr>'+
               '<th>ID PICA</th><th>Candidato</th><th>CdS</th><th>Modulo</th><th>Ente richiesto</th>'+
-              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th><th>Ollama locale</th></tr></thead>'+
+              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th></tr></thead>'+
               '<tbody id="cand-rows"></tbody></table></div></div>');
             function showCandidates(){
               var course=$("cand-cds").value,status=$("cand-ente-stato").value;
@@ -782,30 +782,9 @@
                   '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
                   '</td><td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
                   '<div class="caption">'+esc(e.motivo||"")+'</div></td>'+
-                  '<td>'+(state.role==="admin"&&r.ente_richiesto&&r.ente_richiesto!=="NESSUNA RISERVA"
-                    ? '<button type="button" class="btn secondary" data-ai-cand="'+rows.indexOf(r)+'">Verifica occupazione</button>'
-                    : '<span class="caption">Non richiesta</span>')+
-                  (r.ai_occupazione?'<p class="caption"><strong>'+esc(r.ai_occupazione.stato)+'</strong> — '+
-                   esc(r.ai_occupazione.motivo)+' <em>'+esc(r.ai_occupazione.evidenza||"")+'</em></p>':'')+
-                  '</td></tr>';
+                  '</tr>';
               }).join('');
             }
-            $("cand-rows").onclick=async function(event){
-              var button=event.target.closest("button[data-ai-cand]");
-              if(!button)return;
-              var row=rows[Number(button.dataset.aiCand)];
-              if(!row)return;
-              button.disabled=true;button.textContent="Analisi locale...";
-              try{
-                var response=await api("bandi/"+encodeURIComponent(code)+"/candidature/ai/anteprima",{
-                  method:"POST",headers:{"Content-Type":"application/json"},
-                  body:JSON.stringify({id_pica:String(row.id_pica),incarico_key:row.incarico_key})
-                });
-                row.ai_occupazione=response.risultato;
-                showCandidates();
-                note("Analisi IA locale completata; esito esclusivamente istruttorio.",false);
-              }catch(error){note(error.message,true);button.disabled=false;button.textContent="Verifica occupazione";}
-            };
             $("cand-cds").onchange=showCandidates;$("cand-ente-stato").onchange=showCandidates;
             showCandidates();return;
           }
@@ -1099,6 +1078,9 @@
                     '<td>'+esc(r.stato==="Da verificare"?r.motivo:(r.note||r.motivazione_tecnica||"—"))+'</td>'+
                     '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
                     '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
+                    (state.role==="admin" && r.candidatura_id
+                      ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'">Verifica occupazione IA</button>'
+                      : '')+
                     (r.stato==="Da verificare"?
                       (state.role==="admin"?
                         '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>'+
@@ -1127,6 +1109,29 @@
             btn.onclick=function(){
               var record=archive.find(function(r){return String(r.id)===btn.dataset.valManual;});
               if(record)renderManualEvaluation(code,record);
+            };
+          });
+          document.querySelectorAll("[data-archive-ai]").forEach(function(btn){
+            btn.onclick=async function(){
+              if(state.role!=="admin")return;
+              var item=archive.find(function(r){return String(r.id)===btn.dataset.archiveAi;});
+              if(!item)return;
+              btn.disabled=true;btn.textContent="Analisi locale...";
+              try{
+                var outcome=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+
+                  encodeURIComponent(item.id)+"/ai/occupazione",{
+                  method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
+                });
+                item.ai_occupazione=outcome.risultato;
+                var info=btn.parentNode.querySelector("[data-ai-result]");
+                if(!info){info=document.createElement("div");info.className="caption";info.dataset.aiResult="1";btn.parentNode.appendChild(info);}
+                info.textContent="IA locale: "+outcome.risultato.stato+" — "+
+                  outcome.risultato.motivo+
+                  (outcome.risultato.evidenza?" · Fonte PICA: "+outcome.risultato.evidenza:"");
+                btn.textContent="Ripeti controllo IA";
+                note("Controllo occupazionale istruttorio completato. Nessuna decisione modificata.",false);
+              }catch(error){note(error.message,true);btn.textContent="Verifica occupazione IA";}
+              finally{btn.disabled=false;}
             };
           });
           $("pdf-eval-preview").onclick=async function(){
