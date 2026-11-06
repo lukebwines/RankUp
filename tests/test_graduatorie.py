@@ -86,3 +86,15 @@ def test_parita_blocca_graduatoria(tmp_path,monkeypatch):
         attempt=_post(client,"/api/bandi/26-02/verbali/graduatorie/definitiva",
                       json={"cds":g["cds"],"sede":g["sede"]})
         assert attempt.status_code==409
+        tied=next(x for x in g["incarichi"] if len(x["candidature"])>1)
+        selected=tied["candidature"][0]["candidatura_id"]
+        fixed=client.put("/api/bandi/26-02/verbali/graduatorie/"+
+                         str(tied["id"])+"/vincitore",
+                         headers={"X-RankUp-Request":"1"},
+                         json={"candidatura_id":selected,
+                               "motivazione":"Decisione motivata della Commissione nel collaudo",
+                               "riferimento":"Documento formale sintetico di prova"})
+        assert fixed.status_code==200,fixed.text
+        refreshed=client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]
+        assert refreshed["pronta"],refreshed["criticita"]
+        assert next(x for x in refreshed["incarichi"] if x["id"]==tied["id"])["vincitore_id"]==selected
