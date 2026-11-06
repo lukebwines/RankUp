@@ -1055,64 +1055,108 @@ async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile =
             "Le occorrenze sono indizi testuali, non requisiti automaticamente assegnati agli incarichi. Confermare ogni requisito con la tabella ufficiale."}
 
 
-class RichiestaIAEnte(BaseModel):
-    cds: str = Field(default="", max_length=250)
-
-
 def _ollama_settings():
     try:
-        options=json.loads((BASE / "options.json").read_text(encoding="utf-8"))
-    except (OSError,ValueError):
-        options={}
-    endpoint=(options.get("ollama_url") or "").strip()
+        options = json.loads((BASE / "options.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        options = {}
+    endpoint = (options.get("ollama_url") or "").strip()
     if not endpoint:
-        fail("Configurare l'indirizzo del servizio Ollama LOCALE nelle opzioni di RankUP",503)
+        fail("Configurare Ollama locale nelle opzioni di RankUP", 503)
     return endpoint
 
 
 @app.get("/api/ai/ollama/status")
 def stato_ollama(request: Request):
     require_admin(request)
-    endpoint=_ollama_settings()
     try:
-        return ai_ollama_status(endpoint)
+        return ai_ollama_status(_ollama_settings())
     except AIEmployerError as exc:
-        fail(str(exc),503)
+        fail(str(exc), 503)
 
 
-@app.post("/api/bandi/{code}/ente/ai/anteprima")
-def anteprima_ente_ai(code: str, body: RichiestaIAEnte, request: Request):
-    """Richieste soltanto alla rete privata: mai dati o file PICA."""
+# Il PDF ufficiale non viene analizzato da Ollama.
+def tipo_cds_key(label: str | None) -> str:
+    return " ".join(str(label or "").split()).casefold()
+
+
+ENTE_AMMESSI = {"SSN", "AOUI", "ASUIT", "UNITN", "SSP",
+                "ASUIT O UNITN", "NESSUNA RISERVA", "ALTRO ATENEO", "APSS"}
+
+
+def _dizionario(db):
+    return {r["chiave"]: dict(r) for r in
+            db.execute("SELECT * FROM pica_tipo_cds_dizionario")}
+
+
+def _tipologie(parsed):
+    items = {}
+    for record in parsed["rows"]:
+        inc = record["incarico"]
+        key = tipo_cds_key(inc.get("tipo_cds"))
+        entry = items.setdefault(key, {"chiave": key, "dicitura": inc.get("tipo_cds") or "",
+                                       "incarichi": set()})
+        entry["incarichi"].add(inc["key"])
+    return items
+
+
+class VocePICA(BaseModel):
+    chiave: str = Field(min_length=1, max_length=400)
+    requisito: str = Field(min_length=1, max_length=50)
+    motivo: str = Field(default="", max_length=500)
+
+
+def _salva_dizionario(db, chiave: str, raw: str, requirement: str,
+                       who: str, reason: str = "") -> None:
+    if requirement not in ENTE_AMMESSI:
+        fail("Requisito non riconosciuto")
+    previous = db.execute("SELECT * FROM pica_tipo_cds_dizionario WHERE chiave=?",
+                          (chiave,)).fetchone()
+    if previous and previous["requisito"] == requirement:
+        return
+    if previous and not reason.strip():
+        fail("Motivazione obbligatoria per cambiare una corrispondenza già approvata")
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    source = ("Conferma amministratore da importazione PICA" if not previous
+              else "Rettifica amministrativa: " + reason.strip())
+    db.execute("""INSERT INTO pica_tipo_cds_dizionario
+        (chiave,dicitura,requisito,fonte,autore,aggiornato_il)
+        VALUES(?,?,?,?,?,?)
+        ON CONFLICT(chiave) DO UPDATE SET
+          requisito=excluded.requisito,fonte=excluded.fonte,
+          autore=excluded.autore,aggiornato_il=excluded.aggiornato_il
+    """, (chiave, raw, requirement, source, who, now))
+    db.execute("""INSERT INTO pica_tipo_cds_eventi
+        (chiave,precedente_json,successivo_json,autore,quando)
+        VALUES(?,?,?,?,?)
+    """, (chiave, json.dumps(dict(previous) if previous else {}, ensure_ascii=False),
+          json.dumps({"dicitura": raw, "requisito": requirement, "fonte": source},
+                     ensure_ascii=False), who, now))
+
+
+@app.get("/api/pica/tipologie")
+def elenco_tipologie_pica(request: Request):
     require_admin(request)
-    code=valid_code(code)
-    endpoint=_ollama_settings()
-    path=SOURCES / code / "bando_requisiti_originale.pdf"
-    if not path.is_file():
-        fail("Caricare prima il bando PDF ufficiale",404)
-    try:
-        pdf=PdfReader(str(path))
-        if len(pdf.pages)>100:fail("PDF troppo lungo")
-        text="\n".join((p.extract_text() or "") for p in pdf.pages)
-    except HTTPException:
-        raise
-    except Exception:
-        fail("Il bando PDF non è leggibile",400)
     with connect() as db:
-        rows=db.execute("""SELECT i.key,i.cds,i.sede,i.insegnamento,i.modulo
-                         FROM incarichi i JOIN bandi b ON b.id=i.bando_id
-                         WHERE b.codice=? AND (?='' OR i.cds=?)
-                         ORDER BY i.cds,i.sede,i.modulo""",
-                        (code,body.cds,body.cds)).fetchall()
-    if not rows:fail("Nessun incarico per il CdS selezionato",404)
-    if len(rows)>12:
-        fail("Selezionare prima un CdS dal filtro Incarichi: massimo 12 incarichi per analisi",400)
-    try:
-        proposals=ai_propose_ente(text,[dict(x) for x in rows],endpoint)
-    except AIEmployerError as exc:
-        fail(str(exc),503)
-    return {"proposte":proposals,"totale_incarichi":len(rows),
-            "modello_locale":True,
-            "avviso":"Proposte del modello LOCALE non applicate. Verificare la fonte ufficiale e confermare singolarmente."}
+        rows = db.execute("""SELECT * FROM pica_tipo_cds_dizionario
+                             ORDER BY dicitura COLLATE NOCASE""").fetchall()
+    return {"tipologie": [dict(r) for r in rows]}
+
+
+@app.put("/api/pica/tipologie")
+def aggiorna_tipologia_pica(body: VocePICA, request: Request):
+    who = require_admin(request)["username"]
+    key = tipo_cds_key(body.chiave)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        previous = db.execute("SELECT dicitura FROM pica_tipo_cds_dizionario WHERE chiave=?",
+                              (key,)).fetchone()
+        if not previous:
+            fail("Dicitura sconosciuta: acquisirla attraverso l'anteprima PICA", 404)
+        _salva_dizionario(db, key, previous["dicitura"], body.requisito,
+                          who, body.motivo)
+        db.commit()
+    return {"ok": True}
 
 
 class RequisitoEnteInput(BaseModel):
@@ -1120,12 +1164,9 @@ class RequisitoEnteInput(BaseModel):
     fonte: str = Field(min_length=1,max_length=500)
 
 
-ENTE_AMMESSI={"SSN","AOUI","ASUIT","UNITN","SSP","ASUIT O UNITN","NESSUNA RISERVA"}
-
-
 @app.put("/api/bandi/{code}/incarichi/{key}/ente")
 def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: Request):
-    """Configurazione esplicita e tracciata: nessun ente viene dedotto dal PICA."""
+    """Eccezione manuale tracciata: prevale sempre sul dizionario PICA."""
     who=require_admin(request)
     code=valid_code(code)
     if not re.fullmatch(r"[0-9a-f]{24}",key):fail("Identificativo incarico non valido")
