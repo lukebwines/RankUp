@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from reportlab.pdfgen import canvas
+from occupazione_pdf import draw_occupazione_warning
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, white, black
 from pypdf import PdfReader, PdfWriter
@@ -168,6 +169,7 @@ def make_ordinary(record: dict) -> bytes:
     text(53, 191, "Requisiti richiesti per l'accesso alla docenza:", 7.2, True)
     field("REQUISITI", 53, 203, 497, 19,
           record.get("requisiti") or "[DA VERIFICARE]", fontsize=7.2)
+    draw_occupazione_warning(pdf, record, H)
 
     headings = [
         (50, 83, ("Titoli e Attività", "da esaminare")),
