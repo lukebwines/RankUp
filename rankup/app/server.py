@@ -770,6 +770,27 @@ def health():
     return {"status": "ok", "version": "0.8.1"}
 
 
+class NuovoBandoInput(BaseModel):
+    codice: str = Field(min_length=3,max_length=50)
+
+
+@app.post("/api/bandi")
+def prepara_bando(body: NuovoBandoInput,request: Request):
+    """Crea contenitore vuoto per PDF e requisiti PRIMA delle candidature PICA."""
+    require_admin(request)
+    code=valid_code(body.codice.strip().upper())
+    now=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as db:
+        try:
+            db.execute("""INSERT INTO bandi
+                (codice,stato,created_at,source_filename,source_hash,import_at)
+                VALUES(?,'In preparazione',?,'','',?)""",(code,now,now))
+            db.commit()
+        except sqlite3.IntegrityError:
+            fail("Bando già presente",409)
+    return {"ok":True,"codice":code,"stato":"In preparazione"}
+
+
 @app.get("/api/bandi")
 def list_bandi():
     with connect() as db:
@@ -1128,8 +1149,8 @@ async def preview_pica(file: UploadFile = File(...)):
         # Evitare di esporre a browser dettagli di parser/file.
         fail("Impossibile leggere il file PICA: verifica che sia un Excel valido")
     with connect() as db:
-        exists = db.execute("SELECT 1 FROM bandi WHERE codice=?", (parsed["code"],)).fetchone()
-    if exists:
+        exists = db.execute("SELECT stato FROM bandi WHERE codice=?", (parsed["code"],)).fetchone()
+    if exists and exists["stato"]!="In preparazione":
         fail("Il bando " + parsed["code"] + " è già stato importato. Nessuna sovrascrittura automatica.", 409)
     token = secrets.token_urlsafe(24)
     metadata = {"parsed": parsed, "filename": filename, "sha256": hashlib.sha256(content).hexdigest()}
@@ -1164,11 +1185,24 @@ def commit_pica(body: CommitRequest):
     with connect() as db:
         try:
             db.execute("BEGIN IMMEDIATE")
-            cur = db.execute("""
-                INSERT INTO bandi(codice, created_at, source_filename, source_hash, import_at)
-                VALUES(?,?,?,?,?)
-            """, (code, now, meta["filename"], meta["sha256"], now))
-            bando_id = cur.lastrowid
+            existing=db.execute("SELECT id,stato FROM bandi WHERE codice=?",(code,)).fetchone()
+            if existing:
+                if existing["stato"]!="In preparazione":
+                    fail("Candidature già importate: nessuna sovrascrittura",409)
+                if db.execute("SELECT 1 FROM candidature WHERE bando_id=?",(existing["id"],)).fetchone():
+                    fail("Il bando contiene già candidature",409)
+                if db.execute("SELECT 1 FROM incarichi WHERE bando_id=?",(existing["id"],)).fetchone():
+                    fail("Il bando contiene già incarichi: importazione PICA non automatica",409)
+                bando_id=existing["id"]
+                db.execute("""UPDATE bandi SET stato='Candidature importate',
+                    source_filename=?,source_hash=?,import_at=? WHERE id=?""",
+                    (meta["filename"],meta["sha256"],now,bando_id))
+            else:
+                cur = db.execute("""
+                    INSERT INTO bandi(codice, created_at, source_filename, source_hash, import_at)
+                    VALUES(?,?,?,?,?)
+                """, (code, now, meta["filename"], meta["sha256"], now))
+                bando_id = cur.lastrowid
             assignment_ids = {}
             for record in parsed["rows"]:
                 item = record["incarico"]
