@@ -38,6 +38,7 @@ from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
+from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
@@ -311,6 +312,29 @@ def initialize() -> None:
             """, (" ".join(label.split()).casefold(), label, requirement,
                   "Corrispondenza comunicata dall'amministratore",
                   "configurazione iniziale", datetime.now(timezone.utc).isoformat()))
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS valutazioni_occupazione_ai (
+                id INTEGER PRIMARY KEY,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id),
+                candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+                requisito_analizzato TEXT NOT NULL,
+                tipo_cds_pica TEXT NOT NULL,
+                occupazione_pica TEXT NOT NULL,
+                azienda_pica TEXT NOT NULL,
+                profilo_pica TEXT NOT NULL,
+                stato TEXT NOT NULL,
+                motivo TEXT NOT NULL,
+                evidenza TEXT NOT NULL,
+                modello_locale INTEGER NOT NULL DEFAULT 0,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS ix_ai_occupazione_pdf
+            ON valutazioni_occupazione_ai(valutazione_pdf_id, id DESC)
+        """)
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -577,7 +601,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.8.8", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.8.9", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -813,7 +837,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.8"}
+    return {"status": "ok", "version": "0.8.9"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1284,7 +1308,7 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
         fail("Identificativo scheda non valido")
     with connect() as db:
         archived = db.execute("""
-            SELECT c.id_pica, i.key AS incarico_key
+            SELECT c.id AS candidatura_id, c.id_pica, i.key AS incarico_key, v.bando_id
             FROM valutazioni_pdf v
             JOIN bandi b ON b.id=v.bando_id
             JOIN candidature c ON c.id=v.candidatura_id
@@ -1314,9 +1338,134 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
             _ollama_settings())
     except AIEmployerError as exc:
         fail(str(exc), 503)
-    return {"risultato": result,
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        # Confermare il collegamento anche al momento della registrazione.
+        if not db.execute("""SELECT 1 FROM valutazioni_pdf
+            WHERE id=? AND bando_id=? AND candidatura_id=?
+        """, (pdf_id, archived["bando_id"], archived["candidatura_id"])).fetchone():
+            fail("Scheda variata: ripetere la verifica", 409)
+        db.execute("""INSERT INTO valutazioni_occupazione_ai
+            (bando_id,valutazione_pdf_id,candidatura_id,requisito_analizzato,
+             tipo_cds_pica,occupazione_pica,azienda_pica,profilo_pica,
+             stato,motivo,evidenza,modello_locale,autore,quando)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (archived["bando_id"], pdf_id, archived["candidatura_id"],
+              requirement, str(candidate.get("tipo_cds") or ""),
+              str(candidate.get("occupazione") or ""),
+              str(candidate.get("azienda_ente") or ""),
+              str(candidate.get("profilo_professionale") or ""),
+              result["stato"], result["motivo"], result.get("evidenza") or "",
+              1 if result.get("modello_locale") else 0,
+              request_actor(), now))
+        db.commit()
+    return {"risultato": result, "registrato_il": now,
             "avviso": "Controllo riservato ad Admin, istruttorio e non vincolante. "
-                      "Nessun punteggio o esito della commissione modificato."}
+                      "Storico conservato; nessun punteggio o esito della commissione modificato."}
+
+
+
+
+@app.get("/api/bandi/{code}/valutazioni/ai/occupazione/storico")
+def storico_occupazione_ai(code: str, request: Request):
+    """Soli amministratori vedono storico e risultati delle verifiche IA."""
+    require_admin(request)
+    code = valid_code(code)
+    with connect() as db:
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        records = db.execute("""
+            SELECT a.valutazione_pdf_id, a.requisito_analizzato,
+                a.stato,a.motivo,a.evidenza,a.autore,a.quando,
+                a.id AS audit_id
+            FROM valutazioni_occupazione_ai a
+            WHERE a.bando_id=?
+            ORDER BY a.id DESC
+        """, (b["id"],)).fetchall()
+    latest = {}
+    counts = {}
+    for row in records:
+        key = str(row["valutazione_pdf_id"])
+        counts[key] = counts.get(key, 0) + 1
+        if key not in latest:
+            latest[key] = dict(row)
+    for key, value in latest.items():
+        value["numero_controlli"] = counts[key]
+    return {"controlli": latest}
+
+
+@app.get("/api/bandi/{code}/valutazioni/ai/occupazione/report.pdf")
+def report_occupazione_cds(code: str, cds: str, request: Request, sede: str = ""):
+    """Report per CdS, riservato Admin; soltanto controlli IA registrati."""
+    require_admin(request)
+    code = valid_code(code)
+    cds = cds.strip()
+    sede = sede.strip()
+    if not cds or len(cds) > 250 or len(sede) > 100:
+        fail("Selezionare un Corso di Studio valido", 400)
+    with connect() as db:
+        bando = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if not bando:
+            fail("Bando non trovato", 404)
+        conditions = ["i.bando_id=?", "i.cds=?", "c.stato='Attiva'"]
+        args = [bando["id"], cds]
+        if sede:
+            conditions.append("i.sede=?")
+            args.append(sede)
+        rows = db.execute("""
+            SELECT c.id AS candidatura_id,c.id_pica,c.cognome,c.nome,
+                i.cds,i.sede,i.insegnamento,i.modulo,i.tipo_cds,i.key,
+                er.ente_richiesto AS requisito_manuale,
+                v.id AS pdf_id,v.stato AS scheda_stato
+            FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+            LEFT JOIN incarichi_ente_requisiti er
+              ON er.bando_id=i.bando_id AND er.key_incarico=i.key
+            LEFT JOIN valutazioni_pdf v ON v.id=(
+                SELECT vv.id FROM valutazioni_pdf vv
+                WHERE vv.candidatura_id=c.id AND vv.bando_id=i.bando_id
+                ORDER BY CASE WHEN vv.attiva=1 THEN 0 ELSE 1 END, vv.id DESC
+                LIMIT 1)
+            WHERE """+" AND ".join(conditions)+"""
+            ORDER BY i.sede COLLATE NOCASE, i.insegnamento COLLATE NOCASE,
+                     i.modulo COLLATE NOCASE, c.cognome COLLATE NOCASE,
+                     c.nome COLLATE NOCASE, c.id
+        """, args).fetchall()
+        dictionary = _dizionario(db)
+        latest = {}
+        for record in rows:
+            pdf_id = record["pdf_id"]
+            if pdf_id is not None and pdf_id not in latest:
+                audit = db.execute("""
+                    SELECT requisito_analizzato,stato,motivo,evidenza,autore,quando
+                    FROM valutazioni_occupazione_ai WHERE valutazione_pdf_id=?
+                    ORDER BY id DESC LIMIT 1
+                """, (pdf_id,)).fetchone()
+                latest[pdf_id] = dict(audit) if audit else None
+    if not rows:
+        fail("Nessuna candidatura attiva per il CdS e la sede selezionati", 404)
+    candidates = {
+        (str(x["id_pica"]), x["incarico_key"]): x
+        for x in list_candidature(code)["candidature"]
+    }
+    entries = []
+    for record in rows:
+        item = dict(record)
+        candidate = candidates.get((str(item["id_pica"]), item["key"]), {})
+        match = dictionary.get(tipo_cds_key(item["tipo_cds"]))
+        item["requisito"] = (item["requisito_manuale"] or
+                            (match["requisito"] if match else None))
+        for field in ("occupazione", "azienda_ente", "profilo_professionale"):
+            item[field] = candidate.get(field) or ""
+        item["ai"] = latest.get(item["pdf_id"])
+        entries.append(item)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    report = report_cds_pdf(code, cds, entries, now)
+    filename = "RankUP_" + _safe_filename(code, 40) + "_occupazione_" + _safe_filename(cds, 55) + ".pdf"
+    return Response(content=report, media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="' + filename + '"',
+                 "Cache-Control": "no-store"})
 
 
 @app.post("/api/pica/preview")

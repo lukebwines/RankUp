@@ -1013,10 +1013,12 @@
           if(filter.sede)query.set("sede",filter.sede);
           var responses=await Promise.all([
             api("bandi/"+encodeURIComponent(code)),
-            api("bandi/"+encodeURIComponent(code)+"/valutazioni?"+query.toString())
+            api("bandi/"+encodeURIComponent(code)+"/valutazioni?"+query.toString()),
+            state.role==="admin" ? api("bandi/"+encodeURIComponent(code)+"/valutazioni/ai/occupazione/storico") : Promise.resolve({controlli:{}})
           ]);
           if(state.active!==code||state.page!=="valutazioni")return;
           var locations=responses[0].cds_sedi||[],report=responses[1];
+          var aiHistory=(responses[2]&&responses[2].controlli)||{};
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
           var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
             .map(function(x){return x.sede;}))].sort();
@@ -1032,7 +1034,18 @@
             sites.map(function(site){return '<option value="'+esc(site)+'"'+(filter.sede===site?' selected':'')+'>'+esc(site)+'</option>';}).join('')+
             '</select></div><p class="caption">La selezione filtra il prospetto, lo storico e le candidature disponibili per la trascrizione manuale. Le schede non associate a una candidatura PICA sono visibili selezionando «Tutti i Corsi di Studio».</p></div>';
           var scope=filter.cds?filter.cds+(filter.sede?' · '+filter.sede:''):"Tutti i CdS";
-          var content=selectors+
+          var reportLink = state.role==="admin"
+            ? '<div class="card mb"><h3 class="section-heading">Report controllo occupazionale · CdS</h3>'+
+              (filter.cds
+                ? '<p class="caption">Comprende le candidature del CdS selezionato, le dichiarazioni PICA, la riserva prevista e gli esiti Ollama effettivamente registrati. I controlli non eseguiti sono indicati espressamente.</p>'+
+                  '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
+                  '/valutazioni/ai/occupazione/report.pdf?cds='+encodeURIComponent(filter.cds)+
+                  (filter.sede?'&sede='+encodeURIComponent(filter.sede):'')+
+                  '">Scarica report PDF occupazione</a>'
+                : '<p class="caption">Seleziona prima un CdS per generare il relativo report PDF.</p>')+
+              '</div>'
+            : '';
+          var content=selectors+reportLink+
             '<div class="card mb"><h3 class="section-heading">Reimportazione schede PDF · '+esc(scope)+'</h3>'+
             '<p class="muted">Carica i PDF compilati o uno ZIP. La lettura è preliminare: nessun punteggio viene registrato senza conferma. Le schede di CdS diversi da quello selezionato saranno segnalate.</p>'+
             '<div class="upload"><label for="pdf-eval-files"><strong>Schede PDF o ZIP</strong></label>'+
@@ -1052,6 +1065,7 @@
               (r.complete?'Completo · Apri':'Apri CdS')+'</button></td></tr>';}).join('')+
             '</tbody></table></div></div>';
           var archive=report.archivio||[];
+          archive.forEach(function(r){r.ai_occupazione_storico=aiHistory[String(r.id)]||null;});
           if(archive.length){
             var groups=new Map();
             archive.forEach(function(r){
@@ -1079,7 +1093,13 @@
                     '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
                     '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
                     (state.role==="admin" && r.candidatura_id
-                      ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'">Verifica occupazione IA</button>'
+                      ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'">Verifica occupazione IA</button>'+
+                        (r.ai_occupazione_storico
+                          ? '<div class="caption"><strong>Ultima analisi IA: '+esc(r.ai_occupazione_storico.stato)+'</strong> · '+
+                            esc(r.ai_occupazione_storico.quando)+' · Controlli registrati: '+
+                            esc(r.ai_occupazione_storico.numero_controlli)+
+                            '<div>'+esc(r.ai_occupazione_storico.motivo)+'</div></div>'
+                          : '<div class="caption">Controllo IA non ancora eseguito</div>')
                       : '')+
                     (r.stato==="Da verificare"?
                       (state.role==="admin"?
@@ -1123,6 +1143,7 @@
                   method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
                 });
                 item.ai_occupazione=outcome.risultato;
+                btn.textContent="Ripeti controllo IA";
                 var info=btn.parentNode.querySelector("[data-ai-result]");
                 if(!info){info=document.createElement("div");info.className="caption";info.dataset.aiResult="1";btn.parentNode.appendChild(info);}
                 info.textContent="IA locale: "+outcome.risultato.stato+" — "+

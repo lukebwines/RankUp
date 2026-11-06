@@ -349,11 +349,6 @@ def make_professional(record: dict) -> bytes:
     field("COMPONENTI", 115, 760, 435, 14, record.get("componenti"),
           fontsize=7.5, background=PALE)
     rect(50, 781, 500, 1, INK)
-    centered(50, 789, 500,
-             "Documento da compilare e sottoporre successivamente a firma digitale.",
-             8.2, True, INK)
-    centered(50, 801, 500,
-             "Firma e protocollo sono gestiti fuori da RankUp.", 7.6)
     field("RANKUP-ID", 53, 818, 497, 11,
           record.get("scheda_id") or "[DA VERIFICARE]",
           fontsize=6, background=white)
