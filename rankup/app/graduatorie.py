@@ -72,10 +72,16 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
         ties={}
         for c in eligible:
             ties.setdefault(c["posizione"],[]).append(c)
+        selection=db.execute("""SELECT candidatura_id,motivazione,riferimento
+            FROM graduatorie_vincitori_proposti
+            WHERE bando_id=? AND incarico_id=?
+        """,(bando_id,job["id"])).fetchone()
+        selected=next((c for c in eligible if selection and
+                       c["candidatura_id"]==selection["candidatura_id"]),None)
         for position, group in ties.items():
-            if len(group)>1:
+            if len(group)>1 and not (position==1 and selected):
                 warnings.append("Parita di punteggio non risolta alla posizione "+str(position))
-        winner=(eligible[0] if eligible and len(ties.get(1,[]))==1 else None)
+        winner=selected or (eligible[0] if eligible and len(ties.get(1,[]))==1 else None)
         for c in candidates:
             if c["decisione"]=="idoneo":
                 matching=next((e for e in eligible if e["candidatura_id"]==c["candidatura_id"]),None)
@@ -84,7 +90,9 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
             else:
                 c["posizione"]=None
                 c["punteggio"]=None
-        jobdata={k:job[k] for k in ("key","cds","sede","insegnamento","modulo","ssd","id_copertura")}
+        jobdata={k:job[k] for k in ("id","key","cds","sede","insegnamento","modulo","ssd","id_copertura")}
+        jobdata["vincitore_motivazione"]=(selection["motivazione"] if selection and selected else "")
+        jobdata["vincitore_riferimento"]=(selection["riferimento"] if selection and selected else "")
         jobdata.update(candidature=candidates, vincitore_id=winner["candidatura_id"] if winner else None,
                        vincitore_pica=winner["id_pica"] if winner else None,
                        criticita=warnings,pronta=not warnings)
@@ -126,6 +134,17 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
             story.append(Paragraph("Insegnamento: "+escape(job["insegnamento"])+
                             " | Modulo: "+escape(job["modulo"])+
                             " | SSD: "+escape(job.get("ssd") or "[DA VERIFICARE]"),style["Heading3"]))
+            if not general and job.get("vincitore_id"):
+                winner=next((x for x in job["candidature"]
+                             if x["candidatura_id"]==job["vincitore_id"]),None)
+                if winner:
+                    story.append(Paragraph("Vincitore proposto: "+
+                        escape(str(winner["cognome"])+" "+str(winner["nome"]))+
+                        " (ID PICA "+escape(str(winner["id_pica"]))+")",sub))
+                    if job.get("vincitore_motivazione"):
+                        story.append(Paragraph("Motivazione scelta amministrativa: "+
+                            escape(job["vincitore_motivazione"])+
+                            " | Riferimento: "+escape(job["vincitore_riferimento"]),sub))
             head=["Pos.","Candidato / ID PICA","Punti","Esito",("Note Commissione" if not general else "Note")]
             rows=[[p(x) for x in head]]
             cand=sorted(job["candidature"],key=lambda x:(
