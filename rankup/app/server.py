@@ -655,7 +655,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.1", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.2", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -891,7 +891,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.1"}
+    return {"status": "ok", "version": "0.9.2"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2786,7 +2786,20 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         FROM graduatorie_cds WHERE bando_id=? AND cds=? AND sede=?
     """,(bando_id,cds,sede)).fetchone()
     ranked["conferma"] = dict(saved) if saved else None
-    ranked["stato"] = saved["stato"] if saved else ("pronta" if ranked["pronta"] else "in_lavorazione")
+    # "Passed" significa acquisita e validata, inclusi esclusi/non idonei motivati.
+    ranked["schede_validate"] = sum(
+        1 for job in ranked["incarichi"] for c in job["candidature"]
+        if c["valutazione_id"] is not None
+        and c["decisione"] in ("idoneo", "non_idoneo", "escluso")
+        and (c["decisione"] != "idoneo" or c["punteggio"] is not None)
+        and (c["decisione"] == "idoneo" or bool(str(c.get("note") or "").strip()))
+    )
+    ranked["schede_da_risolvere"] = ranked["totale_candidature"] - ranked["schede_validate"]
+    ranked["verbale_generabile"] = (
+        ranked["pronta"] and ranked["schede_da_risolvere"] == 0
+        and ranked["totale_candidature"] > 0
+    )
+    ranked["stato"] = saved["stato"] if saved else ("pronta" if ranked["verbale_generabile"] else "in_lavorazione")
     return ranked
 
 
@@ -2835,7 +2848,7 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
         if not b:fail("Bando non trovato",404)
         _assert_graduatoria_open(db,b["id"],body.cds,body.sede)
         result=_graduatoria_status(db,b["id"],body.cds,body.sede)
-        if not result["pronta"]:
+        if not result["verbale_generabile"]:
             fail("Impossibile rendere definitiva la graduatoria: "+
                  "; ".join(result["criticita"][:8]),409)
         stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -2883,7 +2896,23 @@ def vincitore_proposto_istruttorio(code: str,incarico_id: int,
                 AND v.totale_calcolato IS NOT NULL
         """,(body.candidatura_id,incarico_id)).fetchone()
         if not choice:
-            fail("Il vincitore proposto deve essere una candidatura idonea con punteggio acquisito",409)
+            fail("Il nominativo della Commissione deve avere una scheda idonea acquisita",409)
+        # L'Admin trascrive soltanto una decisione della Commissione su parita'.
+        # Non puo' proporre un vincitore con punteggio inferiore.
+        ranking=build_graduatoria(db,b["id"],job["cds"],job["sede"])
+        assignment=next((x for x in ranking["incarichi"] if x["id"]==incarico_id),None)
+        if not assignment:
+            fail("Incarico non trovato",404)
+        top=[c for c in assignment["candidature"]
+             if c.get("decisione")=="idoneo" and c.get("posizione")==1]
+        if len(top)<2:
+            fail("Punteggio massimo univoco: il nominativo deriva dalle schede della "
+                 "Commissione e non e' modificabile dall'Admin",409)
+        if body.candidatura_id not in {c["candidatura_id"] for c in top}:
+            fail("La decisione documentata puo' risolvere solo la parita' al primo posto",409)
+        if (not body.motivazione.strip() or not body.riferimento.strip()
+                or "[DA VERIFICARE]" in body.riferimento.upper()):
+            fail("Necessari motivazione e riferimento documentale verificato della Commissione",400)
         before=db.execute("""SELECT * FROM graduatorie_vincitori_proposti
             WHERE bando_id=? AND incarico_id=?""",(b["id"],incarico_id)).fetchone()
         now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -2898,7 +2927,7 @@ def vincitore_proposto_istruttorio(code: str,incarico_id: int,
         db.execute("""INSERT INTO graduatorie_eventi
             (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
             VALUES(?,?,?,?,?,?,?)
-        """,(b["id"],"incarico",incarico_id,"Vincitore proposto indicato dall'Admin",
+        """,(b["id"],"incarico",incarico_id,"Decisione della Commissione su parita' registrata dall'Admin",
              json.dumps({"precedente":dict(before) if before else None,
                          "candidatura_id":body.candidatura_id,
                          "motivazione":body.motivazione.strip(),
@@ -2924,6 +2953,8 @@ def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
             snapshot["stato"]="BOZZA NON DEFINITIVA"
     if not snapshot["incarichi"]:
         fail("Nessun incarico trovato",404)
+    if not snapshot.get("pronta") or snapshot.get("criticita"):
+        fail("Verbale non generabile: schede mancanti, incomplete o criticita' non risolte",409)
     data=render_graduatoria_pdf(code,snapshot)
     filename="RankUP_"+_safe_filename(code,40)+"_graduatoria_"+_safe_filename(cds,50)+".pdf"
     return Response(content=data,media_type="application/pdf",
@@ -2952,6 +2983,9 @@ def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request)
             snapshot["stato"]="BOZZA NON DEFINITIVA"
         if not snapshot["incarichi"]:
             fail("Nessun incarico trovato",404)
+        if not snapshot.get("pronta") or snapshot.get("criticita") or snapshot.get("totale_candidature",0)<=0:
+            fail("Verbale non generabile: tutte le schede devono essere acquisite e "
+                 "validate e le criticita' risolte",409)
         ids=[]
         for job in snapshot["incarichi"]:
             ordered=sorted(job["candidature"],key=lambda c:(
@@ -2961,11 +2995,7 @@ def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request)
             for candidate in ordered:
                 docid=candidate.get("valutazione_id")
                 if docid is None:
-                    # Le bozze possono avere schede non ancora restituite.
-                    # Il testo della graduatoria le evidenzia come mancanti.
-                    if saved:
-                        fail("Graduatoria definitiva senza scheda acquisita: verificare lo storico",409)
-                    continue
+                    fail("Scheda mancante: verbale unico non generabile",409)
                 ids.append(int(docid))
         if len(ids)!=len(set(ids)):
             fail("Scheda duplicata negli allegati: verificare le associazioni",409)
