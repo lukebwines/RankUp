@@ -1000,10 +1000,24 @@ def list_incarichi(code: str):
             JOIN bandi b ON b.id=m.bando_id
             WHERE b.codice=?
         """, (code,)).fetchone()
+        mappings = db.execute("SELECT chiave,requisito FROM pica_tipo_cds_dizionario").fetchall()
         if not db.execute("SELECT 1 FROM bandi WHERE codice=?", (code,)).fetchone():
             fail("Bando non trovato", 404)
+    dictionary = {r["chiave"]: r["requisito"] for r in mappings}
+    output = []
+    for row in rows:
+        item = dict(row)
+        mapped = dictionary.get(tipo_cds_key(item.get("tipo_cds")))
+        item["requisito_pica"] = mapped
+        item["stato_requisito"] = ("CONFERMATO MANUALMENTE" if item["ente_richiesto"]
+                                   else "DIZIONARIO PICA" if mapped else "DA VERIFICARE")
+        if not item["ente_richiesto"] and mapped:
+            item["ente_richiesto"] = mapped
+            item["ente_fonte"] = ("Colonna L PICA: " + (item.get("tipo_cds") or "") +
+                                  " · Dizionario approvato")
+        output.append(item)
     return {
-        "incarichi": [dict(row) for row in rows],
+        "incarichi": output,
         "acquisizione_metadati": dict(migration) if migration else None,
     }
 
@@ -1251,7 +1265,8 @@ def list_candidature(code: str):
 
 
 @app.post("/api/pica/preview")
-async def preview_pica(file: UploadFile = File(...)):
+async def preview_pica(request: Request, file: UploadFile = File(...)):
+    require_admin(request)
     filename = (file.filename or "").split("/")[-1].split("\\")[-1]
     if not filename.lower().endswith((".xls", ".xlsx")):
         fail("Carica un file Excel PICA .xls o .xlsx")
@@ -1265,6 +1280,14 @@ async def preview_pica(file: UploadFile = File(...)):
         fail("Impossibile leggere il file PICA: verifica che sia un Excel valido")
     with connect() as db:
         exists = db.execute("SELECT stato FROM bandi WHERE codice=?", (parsed["code"],)).fetchone()
+        dictionary = _dizionario(db)
+    distinct = _tipologie(parsed)
+    typelist = [
+        {"chiave": key, "dicitura": info["dicitura"],
+         "incarichi": len(info["incarichi"]),
+         "requisito": dictionary[key]["requisito"] if key in dictionary else "",
+         "nuova": key not in dictionary}
+        for key, info in sorted(distinct.items())]
     if exists and exists["stato"]!="In preparazione":
         fail("Il bando " + parsed["code"] + " è già stato importato. Nessuna sovrascrittura automatica.", 409)
     token = secrets.token_urlsafe(24)
@@ -1273,15 +1296,17 @@ async def preview_pica(file: UploadFile = File(...)):
     (PENDING / (token + ".input")).write_bytes(content)
     return {"token": token, "codice_bando": parsed["code"],
             "titolo_pica": parsed["source_title"], "riepilogo": parsed["summary"],
-            "file": filename, "gia_presente": False}
+            "file": filename, "gia_presente": False, "tipologie": typelist}
 
 
 class CommitRequest(BaseModel):
     token: str
+    tipologie: list[VocePICA] = Field(default_factory=list)
 
 
 @app.post("/api/pica/commit")
-def commit_pica(body: CommitRequest):
+def commit_pica(body: CommitRequest, request: Request):
+    who = require_admin(request)["username"]
     token = body.token
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,100}", token):
         fail("Token importazione non valido")
@@ -1300,6 +1325,23 @@ def commit_pica(body: CommitRequest):
     with connect() as db:
         try:
             db.execute("BEGIN IMMEDIATE")
+            mapping = _dizionario(db)
+            distinct = _tipologie(parsed)
+            supplied = {}
+            for row in body.tipologie:
+                key = tipo_cds_key(row.chiave)
+                if key not in distinct or key in supplied:
+                    fail("Dicitura PICA duplicata o non presente nel file")
+                supplied[key] = row
+            unresolved = [x for x in distinct if x not in mapping and x not in supplied]
+            if unresolved:
+                fail("Classificare tutte le nuove diciture della colonna L prima dell'importazione")
+            for key, choice in supplied.items():
+                previous = mapping.get(key)
+                if previous and previous["requisito"] != choice.requisito and not choice.motivo.strip():
+                    fail("Motivare la rettifica: " + distinct[key]["dicitura"])
+                _salva_dizionario(db, key, distinct[key]["dicitura"],
+                                  choice.requisito, who, choice.motivo)
             existing=db.execute("SELECT id,stato FROM bandi WHERE codice=?",(code,)).fetchone()
             if existing:
                 if existing["stato"]!="In preparazione":
