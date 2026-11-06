@@ -126,7 +126,7 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
             story.append(Paragraph("Insegnamento: "+escape(job["insegnamento"])+
                             " | Modulo: "+escape(job["modulo"])+
                             " | SSD: "+escape(job.get("ssd") or "[DA VERIFICARE]"),style["Heading3"]))
-            head=["Pos.","Candidato / ID PICA","Punti","Esito","Note Commissione"]
+            head=["Pos.","Candidato / ID PICA","Punti","Esito",("Note Commissione" if not general else "Note")]
             rows=[[p(x) for x in head]]
             cand=sorted(job["candidature"],key=lambda x:(
                 0 if x["decisione"]=="idoneo" else 1,
@@ -138,8 +138,7 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
                           if not general or is_winner else "ID PICA "+str(row["id_pica"]))
                 rows.append([p(row["posizione"] if row["posizione"] is not None else "-"),
                              p(identity),p(row["punteggio"] if row["punteggio"] is not None else "non attribuito"),
-                             p(row["esito"]),p(row["note"] if not general else
-                             (row["note"] if is_winner else "[DA VERIFICARE]" if row["note"] else "-"))])
+                             p(row["esito"]),p(row["note"] if not general else "-")])
             if len(rows)==1:
                 rows.append([p("-"),p("Nessuna candidatura"),p("-"),p("-"),p("-")])
             table=Table(rows,colWidths=[12*mm,55*mm,21*mm,39*mm,51*mm],repeatRows=1,hAlign="LEFT")
