@@ -382,6 +382,9 @@
               '<div class="actions"><a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
               '/verbali/graduatorie/pdf?cds='+encodeURIComponent(g.cds)+'&sede='+encodeURIComponent(g.sede)+
               '">Scarica PDF graduatoria CdS</a>'+
+              '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
+              '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+'&sede='+encodeURIComponent(g.sede)+
+              '">Scarica verbale unico con schede</a>'+
               ((state.role==="admin"&&ready)?'<button class="btn" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
               '</div>';
             return heading+g.incarichi.map(function(job){
