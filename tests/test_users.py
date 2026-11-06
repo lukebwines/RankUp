@@ -290,7 +290,7 @@ def test_assignment_ente_requires_admin_and_source(tmp_path,monkeypatch):
         assert "verifica_ente" in candidates.json()["candidature"][0]
         with server.connect() as db:
             r=db.execute("SELECT confermato_da FROM incarichi_ente_requisiti WHERE key_incarico=?",(key,)).fetchone()
-            assert r["confermato_da"]=="admin_fittizio"
+            assert r["confermato_da"]=="test-admin"
 
 
 def test_ente_check_is_conservative():
