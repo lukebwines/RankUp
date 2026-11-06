@@ -1,7 +1,7 @@
 name: RankUP Local AI (Ollama)
 slug: rankup_ollama
 description: Modello IA locale per analisi dei bandi RankUP, senza servizi cloud
-version: "0.1.0"
+version: "0.1.1"
 url: https://github.com/lukebwines/RankUp
 arch:
   - aarch64
@@ -15,5 +15,5 @@ ports_description:
   11434/tcp: API Ollama - lasciare la porta host disabilitata per accesso solo interno
 options: {}
 schema: {}
-stage: experimental
-watchdog: http://[HOST]:[PORT:11434]/api/tags
+stage: stable
+watchdog: "http://[HOST]:[PORT:11434]/api/tags"
