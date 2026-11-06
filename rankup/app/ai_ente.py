@@ -165,7 +165,7 @@ def review_occupation(requirement: str, occupation: str, employer: str,
         state = "DA VERIFICARE"
     evidence = str(parsed.get("evidenza") or "").strip()[:250]
     source = "\n".join(fields.values())
-    if evidence and evidence.casefold() not in source.casefold():
+    if not evidence or evidence.casefold() not in source.casefold():
         evidence = ""
         state = "DA VERIFICARE"
     reason = str(parsed.get("motivo") or "").strip()[:500]
