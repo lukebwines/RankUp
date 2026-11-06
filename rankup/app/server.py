@@ -249,6 +249,9 @@ def initialize() -> None:
         CREATE INDEX IF NOT EXISTS ix_val_bando ON valutazioni_pdf(bando_id,candidatura_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
         """)
+        user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
+        if "eliminato" not in user_columns:
+            db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -617,7 +620,7 @@ def elenco_utenti(request: Request):
     with connect() as db:
         rows=db.execute("""
             SELECT id,username,attivo,creato_il,aggiornato_il,creato_da
-            FROM rankup_utenti ORDER BY username COLLATE NOCASE
+            FROM rankup_utenti WHERE eliminato=0 ORDER BY username COLLATE NOCASE
         """).fetchall()
     return {"utenti":[dict(r) for r in rows],
             "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
@@ -657,6 +660,22 @@ def crea_utente(body: CreaUtente,request: Request):
     return {"ok":True,"utente":{"id":uid,"username":username,"attivo":1}}
 
 
+@app.delete("/api/utenti/{user_id}")
+def elimina_utente(user_id: int,request: Request):
+    who=require_admin(request)
+    if user_id<=0:fail("Identificativo utente non valido")
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("SELECT id,username,eliminato FROM rankup_utenti WHERE id=?",(user_id,)).fetchone()
+        if not row or row["eliminato"]:fail("Utente non trovato",404)
+        db.execute("UPDATE rankup_utenti SET eliminato=1,attivo=0,credenziali_versione=credenziali_versione+1,aggiornato_il=? WHERE id=?",(now,user_id))
+        db.execute("INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando) VALUES(?,?,?,?)",(user_id,"Eliminato (storico conservato)",who["username"],now))
+        db.commit()
+    AUTH.revoke_user(user_id)
+    return {"ok":True,"id":user_id,"username":row["username"],"eliminato":True}
+
+
 @app.put("/api/utenti/{user_id}/stato")
 def stato_utente(user_id: int,body: CambiaStatoUtente,request: Request):
     who=require_admin(request)
@@ -664,7 +683,7 @@ def stato_utente(user_id: int,body: CambiaStatoUtente,request: Request):
     now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        row=db.execute("SELECT id,username,attivo FROM rankup_utenti WHERE id=?",(user_id,)).fetchone()
+        row=db.execute("SELECT id,username,attivo FROM rankup_utenti WHERE id=? AND eliminato=0",(user_id,)).fetchone()
         if not row:fail("Utente non trovato",404)
         changed=bool(row["attivo"])!=body.attivo
         if changed:
@@ -695,7 +714,7 @@ def password_utente(user_id: int,body: ReimpostaPasswordUtente,request: Request)
     now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        row=db.execute("SELECT username FROM rankup_utenti WHERE id=?",(user_id,)).fetchone()
+        row=db.execute("SELECT username FROM rankup_utenti WHERE id=? AND eliminato=0",(user_id,)).fetchone()
         if not row:fail("Utente non trovato",404)
         db.execute("""
             UPDATE rankup_utenti SET

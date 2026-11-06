@@ -11,17 +11,20 @@ def test_references_are_a_procedure_page_not_in_global_bandi():
     html=(Path(__file__).resolve().parents[1]/"rankup"/"app"/"static"/"index.html").read_text(encoding="utf-8")
     assert '<button data-page="riferimenti"' in html
     nav=html.split('<nav id="nav">',1)[1].split("</nav>",1)[0]
-    assert (nav.index('data-page="bandi"')
+    assert 'data-page="bandi"' not in nav
+    assert (nav.index('data-page="dashboard"')
             < nav.index("PROCEDIMENTO DEL BANDO ATTIVO")
             < nav.index('data-page="riferimenti"')
             < nav.index('data-page="incarichi"'))
     assert 'riferimenti:"Riferimenti del bando"' in html
     assert 'if(state.page==="riferimenti")return renderBandoReferences();' in html
 
-    bandi=html.split("function renderBandi(){",1)[1].split("async function renderBandoReferences()",1)[0]
-    assert "renderBandoReferences()" not in bandi
-    assert "bando-refs" not in bandi
-    assert "Importa esportazione PICA" in bandi
+    dashboard=html.split("function dashboard(){",1)[1].split("function go(page)",1)[0]
+    assert "renderBandoReferences()" not in dashboard
+    assert "bando-refs" not in dashboard
+    assert "Importa esportazione PICA" in dashboard
+    assert 'id="pica-file"' in dashboard
+    assert '$("preview-btn").onclick=preview' in dashboard
 
     refs=html.split("async function renderBandoReferences(){",1)[1].split("async function preview(){",1)[0]
     assert 'if(state.page!=="riferimenti")return;' in refs
