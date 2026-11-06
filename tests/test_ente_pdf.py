@@ -71,3 +71,30 @@ def test_ai_opt_in_is_disabled_by_default_and_does_not_send_candidates(tmp_path,
         # L'AI non scrive requisiti nell'archivio, nemmeno quando propone un ente.
         rows=admin.get("/api/bandi/26-02/incarichi").json()["incarichi"]
         assert all(not row["ente_richiesto"] for row in rows)
+
+
+def test_prepared_bando_can_receive_pdf_before_pica(tmp_path,monkeypatch):
+    from test_users import _empty_setup
+    from test_import import pica_fixture
+    _,admin=_empty_setup(tmp_path,monkeypatch)
+    with admin:
+        created=_post(admin,"/api/bandi",json={"codice":"26-02"})
+        assert created.status_code==200,created.text
+        assert created.json()["stato"]=="In preparazione"
+        saved=_post(admin,"/api/bandi/26-02/ente/bando-pdf",
+                   files={"file":("bando.pdf",sample_pdf(),"application/pdf")})
+        assert saved.status_code==200,saved.text
+        preview=_post(admin,"/api/pica/preview",
+            files={"file":("candidature.xlsx",pica_fixture(),
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        assert preview.status_code==200,preview.text
+        committed=_post(admin,"/api/pica/commit",json={"token":preview.json()["token"]})
+        assert committed.status_code==200,committed.text
+        rows=admin.get("/api/bandi/26-02/candidature").json()["candidature"]
+        assert len(rows)==3
+        assert admin.get("/api/bandi").json()["bandi"][0]["stato"]=="Candidature importate"
+        assert (tmp_path/"sources"/"26-02"/"bando_requisiti_originale.pdf").is_file()
+        duplicate=_post(admin,"/api/pica/preview",
+            files={"file":("candidature.xlsx",pica_fixture(),
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        assert duplicate.status_code==409,duplicate.text
