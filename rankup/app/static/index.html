@@ -191,7 +191,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},role:null,username:""};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},incarichiFilter:{cds:"",sede:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -280,7 +280,7 @@
       var note = function(message,error){$("notification").innerHTML='<div class="'+(error?"error":"success")+' mb">'+esc(message)+'</div>';};
       var clearNote = function(){$("notification").innerHTML="";};
       var cur = function(){return state.bandi.find(function(b){return b.codice===state.active;});};
-      var setActive = function(code){state.active=code;state.valFilter={cds:"",sede:""};localStorage.setItem("rankup_active",code);updateHeader();render();};
+      var setActive = function(code){state.active=code;state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};localStorage.setItem("rankup_active",code);updateHeader();render();};
       function updateHeader(){
         var selected=cur(), code=selected?selected.codice:"nessuno";
         $("side-code").textContent=selected?code:"Nessuno";
@@ -518,6 +518,21 @@
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
       function renderIncarichi(rows,code,acquisition){
+        var filter=state.incarichiFilter;
+        var courses=[...new Set(rows.map(function(r){return r.cds;}).filter(Boolean))].sort();
+        if(filter.cds&&!courses.includes(filter.cds)){filter.cds="";filter.sede="";}
+        var sites=[...new Set(rows.filter(function(r){return !filter.cds||r.cds===filter.cds;})
+          .map(function(r){return r.sede;}).filter(Boolean))].sort();
+        if(filter.sede&&!sites.includes(filter.sede))filter.sede="";
+        var visible=rows.filter(function(r){return (!filter.cds||r.cds===filter.cds)&&(!filter.sede||r.sede===filter.sede);});
+        var filters='<div class="actions" style="margin:14px 0;align-items:end;flex-wrap:wrap">'+
+          '<label>Corso di Studio<select id="incarichi-cds" style="display:block;min-width:250px;max-width:100%">'+
+          '<option value="">Tutti i CdS</option>'+
+          courses.map(function(c){return '<option value="'+esc(c)+'"'+(c===filter.cds?' selected':'')+'>'+esc(c)+'</option>';}).join('')+
+          '</select></label><label>Sede<select id="incarichi-sede" style="display:block;min-width:140px;max-width:100%">'+
+          '<option value="">Tutte le sedi</option>'+
+          sites.map(function(v){return '<option value="'+esc(v)+'"'+(v===filter.sede?' selected':'')+'>'+esc(v)+'</option>';}).join('')+
+          '</select></label><button type="button" class="btn secondary" id="incarichi-reset">Azzera filtri</button></div>';
         function value(v){
           return v===null||v===undefined||String(v).trim()===""
               ? '<span class="data-missing">Non presente in PICA</span>'
@@ -540,7 +555,7 @@
              ' aggiornati. Nessuna candidatura reimportata.'
             :'Dati aggiuntivi acquisiti direttamente dall’esportazione PICA durante l’importazione.')
           :'Acquisizione aggiuntiva da PICA non ancora verificata: controllare il file originale e lo stato dell’add-on.';
-        var content=rows.map(function(r){
+        var content=visible.map(function(r){
           var extra=[
             field("Anno del Corso (I)",value(r.anno_corso)),
             field("Tipo Corso (K)",value(r.tipo_corso)),
@@ -568,11 +583,14 @@
             '</details></td></tr>';
         }).join("");
         html('<div class="card"><h3 class="section-heading">Anagrafica incarichi · Bando '+esc(code)+
-          '</h3><p class="caption">'+rows.length+' incarichi, ordinati per CdS, sede, insegnamento e modulo.</p>'+
-          '<div class="notice mb">'+explanation+'</div>'+
+          '</h3><p class="caption">'+visible.length+' incarichi visualizzati su '+rows.length+', ordinati per CdS, sede, insegnamento e modulo.</p>'+
+          '<div class="notice mb">'+explanation+'</div>'+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
           '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Anno corso</th><th>Candidature</th></tr>'+
           '</thead><tbody>'+content+'</tbody></table></div></div>');
+        $("incarichi-cds").onchange=function(){state.incarichiFilter={cds:this.value,sede:""};renderIncarichi(rows,code,acquisition);};
+        $("incarichi-sede").onchange=function(){state.incarichiFilter.sede=this.value;renderIncarichi(rows,code,acquisition);};
+        $("incarichi-reset").onclick=function(){state.incarichiFilter={cds:"",sede:""};renderIncarichi(rows,code,acquisition);};
       }
       async function renderList(page){
         if(!cur()){html('<div class="card empty"><strong>Seleziona un bando</strong>Importa o apri un bando dalla sezione Bandi.</div>');return;}
