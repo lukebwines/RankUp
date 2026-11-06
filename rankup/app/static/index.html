@@ -308,11 +308,28 @@
       function dashboard(){
         html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Panoramica dei bandi e delle procedure didattiche.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
           (state.bandi.length?state.bandi.map(row).join(''):'<div class="empty"><strong>Non ci sono ancora bandi</strong>Importa un file PICA per creare la prima procedura.</div>')+
-          '</div><div class="card"><h3 class="section-heading">Importa esportazione PICA</h3><div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div><p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file.</p></div>'+
+          '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit">Prepara bando</button></form>'+
+          '<p class="caption">La preparazione consente di caricare il bando PDF prima delle candidature PICA.</p></div>'+
+          '<div class="card"><h3 class="section-heading">Importa esportazione PICA</h3><div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div><p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file.</p></div>'+
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
           ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
           '</div><p class="caption">Verbali e graduatorie saranno introdotti nelle fasi successive.</p></div></div>');
         bindBandButtons();$("preview-btn").onclick=preview;
+        $("new-bando").onsubmit=async function(event){
+          event.preventDefault();
+          if(state.role!=="admin"){note("La preparazione del bando è riservata all'Admin.",true);return;}
+          var btn=this.querySelector("button");btn.disabled=true;
+          try{
+            var code=this.elements.codice.value.trim();
+            var created=await api("bandi",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({codice:code})});
+            await reload();
+            state.active=created.codice;state.page="incarichi";
+            localStorage.setItem("rankup_active",state.active);
+            updateHeader();render();
+            note("Bando "+created.codice+" in preparazione. Carica il PDF ufficiale nella pagina Incarichi.",false);
+          }catch(err){note(err.message,true);btn.disabled=false;}
+        };
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
