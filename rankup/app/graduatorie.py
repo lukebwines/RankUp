@@ -76,8 +76,8 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
             FROM graduatorie_vincitori_proposti
             WHERE bando_id=? AND incarico_id=?
         """,(bando_id,job["id"])).fetchone()
-        selected=next((c for c in eligible if selection and
-                       c["candidatura_id"]==selection["candidatura_id"]),None)
+        selected=next((c for c in eligible if selection and c["posizione"]==1
+                       and c["candidatura_id"]==selection["candidatura_id"]),None)
         for position, group in ties.items():
             if len(group)>1 and not (position==1 and selected):
                 warnings.append("Parita di punteggio non risolta alla posizione "+str(position))
