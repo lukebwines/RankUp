@@ -114,6 +114,28 @@
     @media(max-width:690px){.topbar{flex-wrap:wrap}.theme-toggle{font-size:12px}}
     .rankup-user-input{display:block;width:100%;min-width:220px;max-width:330px;padding:10px;margin:7px 0 10px;border:1px solid #c2d2e2;border-radius:8px;font-size:14px}
     html[data-theme="dark"] .rankup-user-input{background:#0d1d2e;color:#eaf2fb;border-color:#55708c}
+    .ru-verb-card{border-width:2px;transition:border-color .15s ease}
+    .ru-verb-ready{border-color:#299c60;background:#f4fcf7}
+    .ru-verb-pending{border-color:#c5d3e2}
+    .ru-verb-summary{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap}
+    .ru-verb-summary .section-heading{margin-bottom:5px}
+    .ru-verb-status{display:inline-block;padding:7px 12px;border-radius:15px;font-size:12px;font-weight:800;background:#e8eef4;color:#38506a}
+    .ru-status-ready{background:#c9f2dd;color:#155a37}
+    .ru-verb-progress{height:8px;background:#dce6f0;border-radius:9px;overflow:hidden;margin:12px 0}
+    .ru-verb-progress>div{height:100%;background:#3d7aa4;border-radius:9px}
+    .ru-verb-ready .ru-verb-progress>div{background:#248653}
+    .ru-verb-details{margin-top:18px;border-top:1px solid #bacbd9;padding-top:12px}
+    .ru-verb-details>summary{cursor:pointer;font-weight:750;padding:8px 0}
+    .ru-verb-details>summary:focus-visible{outline:2px solid #439bd8}
+    .ru-verb-assignment{margin:15px 0;padding:10px 0;border-top:1px solid #d8e3ef}
+    .ru-verb-assignment h4{margin:8px 0}
+    html[data-theme="dark"] .ru-verb-ready{background:#17392e;border-color:#42b47c;color:#e8fff0}
+    html[data-theme="dark"] .ru-verb-pending{background:#152539;border-color:#35536e}
+    html[data-theme="dark"] .ru-verb-status{background:#29425c;color:#dceaff}
+    html[data-theme="dark"] .ru-status-ready{background:#235f44;color:#dbffeb}
+    html[data-theme="dark"] .ru-verb-progress{background:#29435b}
+    html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
+    html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
 </head>
 <body>
@@ -374,38 +396,63 @@
             '</select></label></div></div>';
           var blocks=shown.map(function(g,i){
             var issues=g.criticita||[];
-            var ready=g.stato==="pronta",final=g.stato==="definitiva",approved=g.stato==="approvata";
-            var heading='<div class="card mb"><h3 class="section-heading">'+esc(g.cds)+' · '+esc(g.sede)+'</h3>'+
-              '<p><strong>Stato: '+esc(approved?"Atti approvati":final?"Definitiva":ready?"Pronta":"In lavorazione")+'</strong> · '+esc(g.totale_candidature)+' candidature</p>'+
+            var final=g.stato==="definitiva",approved=g.stato==="approvata";
+            var ready=!!g.verbale_generabile || final || approved;
+            var complete=Number(g.schede_validate||0),total=Number(g.totale_candidature||0);
+            var percent=total?Math.round(100*complete/total):0;
+            var label=approved?"Atti approvati":final?"Definitiva":ready?"Pronto":"In lavorazione";
+            var heading='<div class="card mb ru-verb-card '+(ready?'ru-verb-ready':'ru-verb-pending')+'">'+
+              '<div class="ru-verb-summary"><div><h3 class="section-heading">'+esc(g.cds)+' · '+esc(g.sede)+'</h3>'+
+              '<p class="caption">Schede validate: <strong>'+complete+' / '+total+'</strong></p></div>'+
+              '<span class="ru-verb-status '+(ready?'ru-status-ready':'')+'">'+esc(label)+'</span></div>'+
+              '<div class="ru-verb-progress" role="progressbar" aria-valuemin="0" aria-valuemax="'+total+
+              '" aria-valuenow="'+complete+'" aria-label="Schede validate"><div style="width:'+percent+'%"></div></div>'+
+              '<p class="caption">'+(ready?'Tutti i controlli completati: verbale PDF unico disponibile.':
+                esc(g.schede_da_risolvere)+' schede da completare o validare; risolvere anche eventuali parità e anomalie.')+'</p>'+
+              '<div class="actions">'+
+              (ready
+                ? '<a class="btn" href="api/bandi/'+encodeURIComponent(code)+
+                  '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
+                  '&sede='+encodeURIComponent(g.sede)+'">Genera verbale PDF unico con schede</a>'
+                : '<button type="button" class="btn" disabled title="Tutte le schede devono essere validate">Verbale non ancora generabile</button>')+
+              ((state.role==="admin"&&g.stato==="pronta"&&g.verbale_generabile)
+                ? '<button class="btn secondary" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
+              '</div>';
+            var detail='<details class="ru-verb-details"><summary>Dettagli: '+g.incarichi.length+
+              ' incarichi, candidature, note e controlli</summary>'+
               (issues.length?'<div class="notice"><strong>Controlli da risolvere:</strong> '+
                 issues.map(function(t){return '<div>'+esc(t)+'</div>';}).join('')+'</div>':'')+
-              '<div class="actions"><a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
-              '/verbali/graduatorie/pdf?cds='+encodeURIComponent(g.cds)+'&sede='+encodeURIComponent(g.sede)+
-              '">Scarica PDF graduatoria CdS</a>'+
-              '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
-              '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+'&sede='+encodeURIComponent(g.sede)+
-              '">Scarica verbale unico con schede</a>'+
-              ((state.role==="admin"&&ready)?'<button class="btn" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
-              '</div>';
-            return heading+g.incarichi.map(function(job){
-              return '<h4>'+esc(job.insegnamento)+' · '+esc(job.modulo)+' · SSD '+esc(job.ssd||"[DA VERIFICARE]")+'</h4>'+
-                '<p class="caption">Vincitore proposto: '+esc((job.candidature.find(function(x){return x.candidatura_id===job.vincitore_id;})||{}).id_pica||"DA VERIFICARE")+
-                (job.vincitore_motivazione?' · Motivazione registrata: '+esc(job.vincitore_motivazione):'')+'</p>'+
-                (state.role==="admin"&&!final&&!approved
-                  ? '<div class="actions"><label>Vincitore proposto (solo candidati idonei) <select data-winner-choice="'+esc(job.id)+'">'+
-                    '<option value="">Seleziona candidato</option>'+
-                    job.candidature.filter(function(c){return c.decisione==="idoneo"&&c.punteggio!=null;}).map(function(c){
-                      return '<option value="'+esc(c.candidatura_id)+'"'+
-                        (job.vincitore_id===c.candidatura_id?' selected':'')+'>'+esc(c.id_pica+" · "+c.cognome+" "+c.nome+" · "+c.punteggio)+'</option>';
-                    }).join('')+'</select></label><button class="btn secondary" data-winner-save="'+esc(job.id)+'">Conferma con motivazione</button></div>'
-                  : '')+
-                '<div class="tablebox"><table><thead><tr><th>Posizione</th><th>ID PICA</th><th>Candidato</th><th>Punti</th><th>Esito</th><th>Note della Commissione</th></tr></thead><tbody>'+
-                job.candidature.map(function(c){
-                  return '<tr><td>'+esc(c.posizione==null?"—":c.posizione)+'</td><td>'+esc(c.id_pica)+
-                    '</td><td>'+esc(c.cognome+' '+c.nome)+'</td><td>'+esc(c.punteggio==null?"Non attribuito":c.punteggio)+
-                    '</td><td>'+esc(c.esito||"Da acquisire")+'</td><td>'+esc(c.note||"—")+'</td></tr>';
-                }).join('')+'</tbody></table></div>';
-            }).join('')+'</div>';
+              g.incarichi.map(function(job){
+                var top=job.candidature.filter(function(c){return c.decisione==="idoneo"&&c.posizione===1;});
+                var chosen=job.candidature.find(function(c){return c.candidatura_id===job.vincitore_id;});
+                var tie=top.length>1;
+                var winner=chosen
+                  ? chosen.cognome+' '+chosen.nome+' (ID PICA '+chosen.id_pica+')'
+                  : 'Non individuato';
+                return '<div class="ru-verb-assignment"><h4>'+esc(job.insegnamento)+' · '+esc(job.modulo)+
+                  ' · SSD '+esc(job.ssd||"[DA VERIFICARE]")+'</h4>'+
+                  '<p class="caption">Primo candidato secondo i punteggi della Commissione: '+esc(winner)+
+                  (tie?' · Parità al primo posto':'')+'</p>'+
+                  (job.vincitore_motivazione
+                    ? '<p class="caption">Decisione documentata della Commissione: '+esc(job.vincitore_motivazione)+
+                      ' · Riferimento: '+esc(job.vincitore_riferimento)+'</p>':'')+
+                  (state.role==="admin"&&!final&&!approved&&tie
+                    ? '<div class="actions"><label>Trascrizione della decisione della Commissione su parità'+
+                      '<select data-winner-choice="'+esc(job.id)+'"><option value="">Seleziona candidato a pari merito</option>'+
+                      top.map(function(c){return '<option value="'+esc(c.candidatura_id)+'"'+
+                        (job.vincitore_id===c.candidatura_id?' selected':'')+'>'+esc(c.id_pica+' · '+c.cognome+' '+c.nome)+'</option>';}).join('')+
+                      '</select></label><button class="btn secondary" data-winner-save="'+esc(job.id)+'">Registra decisione documentata</button></div>'
+                    : '')+
+                  '<div class="tablebox"><table><thead><tr><th>Pos.</th><th>ID PICA</th><th>Candidato</th>'+
+                  '<th>Punti</th><th>Esito</th><th>Note Commissione</th></tr></thead><tbody>'+
+                  job.candidature.map(function(c){
+                    return '<tr><td>'+esc(c.posizione==null?'—':c.posizione)+'</td>'+
+                      '<td>'+esc(c.id_pica)+'</td><td>'+esc(c.cognome+' '+c.nome)+'</td>'+
+                      '<td>'+esc(c.punteggio==null?'Non attribuito':c.punteggio)+'</td>'+
+                      '<td>'+esc(c.esito||'Da acquisire')+'</td><td>'+esc(c.note||'—')+'</td></tr>';
+                  }).join('')+'</tbody></table></div></div>';
+              }).join('')+'</details>';
+            return heading+detail+'</div>';
           }).join('');
           html(controls+(blocks||panel("Nessuna graduatoria","Nessun incarico corrisponde ai filtri.")));
           $("verb-cds").onchange=function(){state.verbaliCds=this.value;state.verbaliSede="";renderVerbaliGraduatorie();};
@@ -415,9 +462,9 @@
               var assignment=btn.dataset.winnerSave;
               var value=document.querySelector('[data-winner-choice="'+assignment+'"]');
               if(!value||!value.value){note("Seleziona una candidatura idonea",true);return;}
-              var reason=prompt("Motivazione documentata della scelta del vincitore proposto:");
+              var reason=prompt("Riporta fedelmente la motivazione della Commissione per la parità al primo posto:");
               if(!reason||reason.trim().length<10){note("Motivazione obbligatoria di almeno 10 caratteri",true);return;}
-              var reference=prompt("Riferimento verificabile della decisione della Commissione:");
+              var reference=prompt("Indica il riferimento al documento della Commissione che stabilisce il vincitore:");
               if(!reference||reference.trim().length<5){note("Riferimento obbligatorio",true);return;}
               btn.disabled=true;
               try{
@@ -426,7 +473,7 @@
                     method:"PUT",headers:{"Content-Type":"application/json"},
                     body:JSON.stringify({candidatura_id:Number(value.value),
                       motivazione:reason.trim(),riferimento:reference.trim()})});
-                note("Scelta del vincitore proposta registrata e tracciata.",false);
+                note("Decisione documentata della Commissione registrata e tracciata.",false);
                 renderVerbaliGraduatorie();
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
