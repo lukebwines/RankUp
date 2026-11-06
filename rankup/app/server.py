@@ -29,7 +29,7 @@ from pypdf import PdfReader
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_ente import propose as ai_propose_ente, AIEmployerError
+from ai_ente import propose as ai_propose_ente, status as ai_ollama_status, AIEmployerError
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -778,7 +778,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.8.2"}
+    return {"status": "ok", "version": "0.8.3"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1021,22 +1021,36 @@ async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile =
 
 
 class RichiestaIAEnte(BaseModel):
-    consenso_documento_pubblico: bool = False
+    cds: str = Field(default="", max_length=250)
 
 
-@app.post("/api/bandi/{code}/ente/ai/anteprima")
-def anteprima_ente_ai(code: str, body: RichiestaIAEnte, request: Request):
-    """Solo PDF ufficiale e dati dei moduli; mai dati personali PICA."""
-    require_admin(request)
-    code=valid_code(code)
-    if not body.consenso_documento_pubblico:
-        fail("Confermare esplicitamente l'invio del solo testo del bando PDF al provider IA")
+def _ollama_settings():
     try:
         options=json.loads((BASE / "options.json").read_text(encoding="utf-8"))
     except (OSError,ValueError):
         options={}
-    if options.get("ai_enabled") is not True or not options.get("ai_api_key"):
-        fail("RankUP AI non attiva: abilitarla nelle opzioni dell'add-on e configurare la chiave API",503)
+    endpoint=(options.get("ollama_url") or "").strip()
+    if not endpoint:
+        fail("Configurare l'indirizzo del servizio Ollama LOCALE nelle opzioni di RankUP",503)
+    return endpoint
+
+
+@app.get("/api/ai/ollama/status")
+def stato_ollama(request: Request):
+    require_admin(request)
+    endpoint=_ollama_settings()
+    try:
+        return ai_ollama_status(endpoint)
+    except AIEmployerError as exc:
+        fail(str(exc),503)
+
+
+@app.post("/api/bandi/{code}/ente/ai/anteprima")
+def anteprima_ente_ai(code: str, body: RichiestaIAEnte, request: Request):
+    """Richieste soltanto alla rete privata: mai dati o file PICA."""
+    require_admin(request)
+    code=valid_code(code)
+    endpoint=_ollama_settings()
     path=SOURCES / code / "bando_requisiti_originale.pdf"
     if not path.is_file():
         fail("Caricare prima il bando PDF ufficiale",404)
@@ -1051,14 +1065,19 @@ def anteprima_ente_ai(code: str, body: RichiestaIAEnte, request: Request):
     with connect() as db:
         rows=db.execute("""SELECT i.key,i.cds,i.sede,i.insegnamento,i.modulo
                          FROM incarichi i JOIN bandi b ON b.id=i.bando_id
-                         WHERE b.codice=? ORDER BY i.cds,i.sede,i.modulo""",(code,)).fetchall()
-    if not rows:fail("Nessun incarico disponibile da confrontare",404)
+                         WHERE b.codice=? AND (?='' OR i.cds=?)
+                         ORDER BY i.cds,i.sede,i.modulo""",
+                        (code,body.cds,body.cds)).fetchall()
+    if not rows:fail("Nessun incarico per il CdS selezionato",404)
+    if len(rows)>12:
+        fail("Selezionare prima un CdS dal filtro Incarichi: massimo 12 incarichi per analisi",400)
     try:
-        proposals=ai_propose_ente(text,[dict(x) for x in rows],options["ai_api_key"])
+        proposals=ai_propose_ente(text,[dict(x) for x in rows],endpoint)
     except AIEmployerError as exc:
-        fail(str(exc),502)
+        fail(str(exc),503)
     return {"proposte":proposals,"totale_incarichi":len(rows),
-            "avviso":"Suggerimenti IA NON applicati. Confermare ogni ente con fonte originale."}
+            "modello_locale":True,
+            "avviso":"Proposte del modello LOCALE non applicate. Verificare la fonte ufficiale e confermare singolarmente."}
 
 
 class RequisitoEnteInput(BaseModel):
