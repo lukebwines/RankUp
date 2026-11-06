@@ -628,6 +628,7 @@
             field("ID Copertura (N)",value(r.id_copertura)),
             field("SSD (O)",value(r.ssd)),
             field("Ente richiesto",enteBadge(r)),
+            field("Origine requisito",esc(r.stato_requisito||"DA VERIFICARE")),
             field("Fonte del requisito",value(r.ente_fonte))
           ].join("");
           return '<tr><td>'+value(r.cds)+'</td><td>'+value(r.sede)+
@@ -641,7 +642,7 @@
               ?'<form data-ente-form="'+esc(r.key)+'" class="actions" style="align-items:end;flex-wrap:wrap;padding:12px">'+
                '<label>Ente richiesto<select name="ente" required>'+
                '<option value="">Seleziona dal bando</option>'+
-               ["SSN","AOUI","ASUIT","UNITN","SSP","ASUIT O UNITN","NESSUNA RISERVA"].map(function(e){
+               ["SSN","AOUI","ASUIT","UNITN","SSP","APSS","ALTRO ATENEO","ASUIT O UNITN","NESSUNA RISERVA"].map(function(e){
                  return '<option value="'+e+'"'+(r.ente_richiesto===e?' selected':'')+'>'+e+'</option>';}).join('')+
                '</select></label><label>Fonte ufficiale<input name="fonte" required maxlength="500" placeholder="Allegato al bando, riga/incarico" value="'+esc(r.ente_fonte||"")+'"></label>'+
                '<button class="btn" type="submit">Conferma requisito</button></form>'
@@ -657,11 +658,8 @@
            '<input type="file" accept=".pdf,application/pdf" id="bando-pdf-ente">'+
            '<button class="btn secondary" id="bando-pdf-ente-upload" type="button">Analizza testo del bando</button>'+
            '<p class="caption">Il PDF rimane nell’add-on. Le evidenze testuali richiedono verifica amministrativa.</p>'+
-           '<p class="caption"><strong>IA locale Ollama</strong> · Il bando viene analizzato sul Raspberry Pi. Nessuna chiave API cloud. Nessun dato candidato è inviato al modello.</p>'+
+           '<p class="caption">I requisiti sono determinati dal dizionario PICA, non da Ollama o dal PDF.</p>'+
            '<button class="btn secondary" id="ai-ente-status" type="button">Verifica Ollama locale</button>'+
-           '<button class="btn secondary" id="ai-ente-preview" type="button">Suggerisci requisiti con IA locale</button>'+
-           '<p class="caption">Per bandi con oltre 12 incarichi, seleziona prima il CdS nel filtro.</p>'+
-           '<div id="ai-ente-results" style="margin-top:12px"></div>'+
            '</div><div id="bando-ente-preview"></div>':'')+filters+
           '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th>'+
           '<th>Insegnamento</th><th>Modulo</th><th>SSD</th><th>Ente richiesto</th><th>Anno corso</th><th>Candidature</th></tr>'+
@@ -674,40 +672,6 @@
               note(stateOllama.modello_installato
                 ? "Ollama locale operativo: modello "+stateOllama.modello+" installato."
                 : "Ollama raggiungibile, ma modello "+stateOllama.modello+" non installato.",!stateOllama.modello_installato);
-            }catch(err){note(err.message,true);}
-            finally{button.disabled=false;}
-          };
-          $("ai-ente-preview").onclick=async function(){
-            var button=this;button.disabled=true;
-            try{
-              var result=await api("bandi/"+encodeURIComponent(code)+"/ente/ai/anteprima",{
-                method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({cds:state.incarichiFilter.cds||""})});
-              var proposals=result.proposte||[];
-              var dest=$("ai-ente-results");
-              dest.innerHTML='<p class="caption">'+esc(proposals.length)+' proposte IA da verificare su '+esc(result.totale_incarichi)+' incarichi. '+esc(result.avviso)+'</p>'+
-                '<div class="tablebox"><table><thead><tr><th>Incarico</th><th>Proposta</th><th>Citazione PDF</th><th>Azione</th></tr></thead><tbody>'+
-                proposals.map(function(p,i){
-                  var r=rows.find(function(x){return x.key===p.key;})||{};
-                  return '<tr><td>'+esc(r.modulo||"Incarico non trovato")+' · '+esc(r.cds||"")+
-                    '</td><td>'+esc(p.ente_proposto)+'</td><td>'+esc(p.citazione)+'</td>'+
-                    '<td><button class="btn secondary" data-ai-approve="'+i+'" type="button">Conferma requisito</button></td></tr>';
-                }).join('')+'</tbody></table></div>';
-              dest.querySelectorAll("[data-ai-approve]").forEach(function(btn){
-                btn.onclick=async function(){
-                  var p=proposals[Number(btn.dataset.aiApprove)];
-                  if(!p||!confirm("Hai verificato la proposta rispetto al PDF ufficiale per questo incarico?"))return;
-                  btn.disabled=true;
-                  try{
-                    await api("bandi/"+encodeURIComponent(code)+"/incarichi/"+encodeURIComponent(p.key)+"/ente",{
-                      method:"PUT",headers:{"Content-Type":"application/json"},
-                      body:JSON.stringify({ente_richiesto:p.ente_proposto,
-                        fonte:"Bando PDF ufficiale: "+p.citazione.slice(0,350)})});
-                    note("Requisito approvato e registrato.",false);
-                    await renderList("incarichi");
-                  }catch(err){note(err.message,true);btn.disabled=false;}
-                };
-              });
             }catch(err){note(err.message,true);}
             finally{button.disabled=false;}
           };
