@@ -245,6 +245,53 @@
         if(!response.ok)throw new Error(data.detail||"Operazione non riuscita");
         return data;
       };
+      // Forza il download dei PDF anche nei percorsi Home Assistant Ingress
+      // e Cloudflare Tunnel. Mostra eventuali errori API anziché navigare
+      // silenziosamente verso una risposta JSON/HTML.
+      async function downloadLinkedPdf(anchor){
+        if(anchor.dataset.downloading==="1")return;
+        var original=anchor.textContent;
+        anchor.dataset.downloading="1";
+        anchor.textContent="Preparazione PDF...";
+        anchor.setAttribute("aria-disabled","true");
+        try{
+          var response=await fetch(anchor.href,{cache:"no-store",credentials:"same-origin"});
+          if(!response.ok){
+            var problem=await response.json().catch(function(){return {};});
+            if(response.status===401)showLogin("Sessione scaduta: effettua nuovamente l'accesso.");
+            throw new Error(problem.detail||"Download PDF non riuscito (HTTP "+response.status+").");
+          }
+          if(!(response.headers.get("content-type")||"").toLowerCase().includes("application/pdf")){
+            throw new Error("Il server non ha restituito un documento PDF.");
+          }
+          var blob=await response.blob();
+          if(blob.size===0)throw new Error("Il PDF restituito dal server è vuoto.");
+          var disposition=response.headers.get("content-disposition")||"";
+          var match=disposition.match(/filename="([^"]+\.pdf)"/i);
+          var filename=match?match[1]:"RankUP_documento.pdf";
+          var url=URL.createObjectURL(blob),link=document.createElement("a");
+          try{
+            link.href=url;link.download=filename;
+            document.body.appendChild(link);link.click();link.remove();
+          }finally{
+            setTimeout(function(){URL.revokeObjectURL(url);},60000);
+          }
+          note("Download PDF avviato.",false);
+        }catch(error){note(error.message,true);}
+        finally{
+          anchor.dataset.downloading="0";
+          anchor.textContent=original;
+          anchor.removeAttribute("aria-disabled");
+        }
+      }
+      document.addEventListener("click",function(event){
+        var element=event.target;
+        if(!element.closest)return;
+        var anchor=element.closest("a[data-pdf-download]");
+        if(!anchor)return;
+        event.preventDefault();
+        downloadLinkedPdf(anchor);
+      });
       function showLogin(message){
         state.role=null;
         state.username="";
@@ -415,7 +462,7 @@
                 esc(g.schede_da_risolvere)+' schede da completare o validare; risolvere anche eventuali parità e anomalie.')+'</p>'+
               '<div class="actions">'+
               (ready
-                ? '<a class="btn" href="api/bandi/'+encodeURIComponent(code)+
+                ? '<a class="btn" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
                   '&sede='+encodeURIComponent(g.sede)+'">Genera verbale PDF unico con schede</a>'
                 : '<button type="button" class="btn" disabled title="Tutte le schede devono essere validate">Verbale non ancora generabile</button>')+
@@ -524,7 +571,7 @@
               return '<div class="card mb"><strong>Procedura '+esc(a.id)+' · '+esc(a.stato==="approvata"?"Atti approvati":"Bozza da approvare")+'</strong>'+
                 '<div class="caption">'+esc(a.ambiti.map(function(g){return g.cds+" / "+g.sede;}).join("; "))+'</div>'+
                 (a.estremi_atto?'<p>Estremi atto: '+esc(a.estremi_atto)+'</p>':'')+
-                '<div class="actions"><a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
+                '<div class="actions"><a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
