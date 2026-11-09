@@ -254,6 +254,24 @@ def initialize() -> None:
         CREATE INDEX IF NOT EXISTS ix_val_bando ON valutazioni_pdf(bando_id,candidatura_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
         """)
+        # Migrazione conservativa del vincolo SSD: terzo modello Inglese.
+        # I dati e i riferimenti delle classificazioni preesistenti sono preservati.
+        classification_sql = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='ssd_classificazioni'"
+        ).fetchone()["sql"]
+        if "'inglese'" not in classification_sql:
+            db.execute("""CREATE TABLE ssd_classificazioni_v3 (
+                ssd TEXT PRIMARY KEY,
+                tipo TEXT NOT NULL CHECK(tipo IN ('professionalizzante','ordinario','inglese')),
+                riferimento TEXT NOT NULL,
+                aggiornato_il TEXT NOT NULL
+            )""")
+            db.execute("""INSERT INTO ssd_classificazioni_v3
+                (ssd,tipo,riferimento,aggiornato_il)
+                SELECT ssd,tipo,riferimento,aggiornato_il FROM ssd_classificazioni
+            """)
+            db.execute("DROP TABLE ssd_classificazioni")
+            db.execute("ALTER TABLE ssd_classificazioni_v3 RENAME TO ssd_classificazioni")
         user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
         if "eliminato" not in user_columns:
             db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
@@ -656,7 +674,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.5", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.6", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -2082,8 +2100,8 @@ def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
         fail("Codice SSD non valido")
     if sector in ("NN", "ND", "N-D", "NON-INDICATO"):
         fail("PICA non attribuisce un SSD specifico a questo incarico: verificare la copertura prima di associare un modello PDF")
-    if body.tipo not in ("professionalizzante", "ordinario"):
-        fail("Selezionare professionalizzante oppure ordinario")
+    if body.tipo not in ("professionalizzante", "ordinario", "inglese"):
+        fail("Selezionare professionalizzante, ordinario oppure Inglese")
     reference = body.riferimento.strip()
     if len(reference)>400:
         fail("Il riferimento facoltativo non può superare 400 caratteri")
@@ -2606,6 +2624,13 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
         if not candidate or candidate["stato"]!="Attiva":
             fail("Candidatura PICA non presente o non attiva nel bando",409)
         _assert_graduatoria_open(db,b["id"],candidate["cds"],candidate["sede"])
+        if total is not None and total > 50:
+            tipo = db.execute("""SELECT cl.tipo FROM candidature c
+                JOIN incarichi i ON i.id=c.incarico_id
+                LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+                WHERE c.id=?""",(candidate["id"],)).fetchone()
+            if tipo and tipo["tipo"]=="inglese":
+                fail("Per il modello Inglese il punteggio massimo e' 50",409)
         if document["candidatura_id"] is not None and document["candidatura_id"]!=candidate["id"]:
             fail("La scheda era già associata a un'altra candidatura: associazione manuale vietata",409)
         # Verifica l'originale archiviato, senza fidarsi di percorsi scritti dal client.
