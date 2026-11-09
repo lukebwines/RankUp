@@ -74,6 +74,24 @@ def connect() -> sqlite3.Connection:
     return db
 
 
+
+def _conserva_commissione_catalogo(db, values: dict, fonte_bando: str):
+    """Archivia composizioni realmente inserite, senza dedurre validita' per altri bandi."""
+    fields=("cds","sede","presidente","componenti","requisiti","anno")
+    data={k:str(values.get(k) or "").strip() for k in fields}
+    # La chiave normalizzata elimina duplicati testuali dello stesso contenuto,
+    # non unisce composizioni diverse e conserva le versioni precedenti.
+    canon=dict(data,cds_key=course_key(data["cds"]),sede_key=seat_key(data["sede"]))
+    fingerprint=hashlib.sha256(json.dumps(canon,ensure_ascii=False,
+                       sort_keys=True).encode("utf-8")).hexdigest()
+    db.execute("""
+        INSERT OR IGNORE INTO commissioni_catalogo
+        (impronta,cds,sede,presidente,componenti,requisiti,anno,fonte_bando,conservata_il)
+        VALUES(?,?,?,?,?,?,?,?,?)
+    """,(fingerprint,*(data[k] for k in fields),fonte_bando,
+         datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+
+
 def initialize() -> None:
     with connect() as db:
         db.executescript("""
@@ -126,6 +144,20 @@ def initialize() -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(bando_id, cds, sede)
         );
+        CREATE TABLE IF NOT EXISTS commissioni_catalogo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            impronta TEXT NOT NULL UNIQUE,
+            cds TEXT NOT NULL,
+            sede TEXT NOT NULL,
+            presidente TEXT NOT NULL,
+            componenti TEXT NOT NULL,
+            requisiti TEXT NOT NULL,
+            anno TEXT NOT NULL,
+            fonte_bando TEXT NOT NULL,
+            conservata_il TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_comm_catalogo_cds_sede
+          ON commissioni_catalogo(cds,sede,anno);
         CREATE TABLE IF NOT EXISTS commissioni_eventi (
             id INTEGER PRIMARY KEY,
             bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -442,6 +474,14 @@ def initialize() -> None:
                 quando TEXT NOT NULL
             );
         """)
+        # Acquisizione non distruttiva delle commissioni gia' registrate nei
+        # bandi, incluse quelle antecedenti alla separazione dell'anagrafica.
+        for row in db.execute("""
+            SELECT cm.cds,cm.sede,cm.presidente,cm.componenti,cm.requisiti,
+                   cm.anno,b.codice AS fonte_bando
+            FROM commissioni cm JOIN bandi b ON b.id=cm.bando_id
+        """).fetchall():
+            _conserva_commissione_catalogo(db,dict(row),row["fonte_bando"])
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -1852,6 +1892,8 @@ def _insert_commission(db, bando_id: int, values: dict, action: str) -> int:
         values["componenti"], values["requisiti"], values["anno"], now,
     ))
     _log_commission_change(db, bando_id, cursor.lastrowid, action, None, values)
+    code=db.execute("SELECT codice FROM bandi WHERE id=?",(bando_id,)).fetchone()["codice"]
+    _conserva_commissione_catalogo(db,values,code)
     return cursor.lastrowid
 
 
@@ -1876,6 +1918,8 @@ def _update_commission(db, bando_id: int, original: dict, values: dict,
         now, original["id"], bando_id,
     ))
     _log_commission_change(db, bando_id, original["id"], action, previous, updated)
+    code=db.execute("SELECT codice FROM bandi WHERE id=?",(bando_id,)).fetchone()["codice"]
+    _conserva_commissione_catalogo(db,updated,code)
     return True
 
 
@@ -1929,6 +1973,66 @@ def edit_commissione(code: str, commission_id: int, body: CommissioneInput):
         db.commit()
     return {"ok": True, "modificata": changed,
             "avviso": "Rigenerare le schede PDF già scaricate per il CdS interessato" if changed else ""}
+
+
+
+@app.get("/api/admin/commissioni-globali")
+def archivio_commissioni_generali(request: Request):
+    """Composizioni conservate a livello applicativo, indipendenti dai bandi."""
+    require_admin(request)
+    with connect() as db:
+        rows=db.execute("""
+            SELECT id,cds,sede,presidente,componenti,requisiti,anno,
+                   fonte_bando,conservata_il
+            FROM commissioni_catalogo
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE,
+                     anno DESC,id DESC
+        """).fetchall()
+    return {"commissioni":[dict(row) for row in rows]}
+
+
+class RecuperaCommissioniGlobali(BaseModel):
+    ids: list[int] = Field(min_length=1,max_length=100)
+    conferma_verifica: bool
+
+
+@app.post("/api/bandi/{code}/commissioni/recupera-globali")
+def recupera_commissioni_globali(code: str,body: RecuperaCommissioniGlobali,
+                                 request: Request):
+    """Solo associazione esplicita e verificata; mai ereditare nomine automaticamente."""
+    require_admin(request)
+    code=valid_code(code)
+    if not body.conferma_verifica:
+        fail("Confermare la verifica dell'atto e della validita' della composizione",400)
+    ids=body.ids
+    if len(ids)!=len(set(ids)):
+        fail("Commissioni duplicate nella selezione",400)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        refs=db.execute("""SELECT anno_accademico FROM bandi_riferimenti
+                           WHERE bando_id=?""",(b["id"],)).fetchone()
+        anno_bando=(refs["anno_accademico"] or "").strip() if refs else ""
+        existing=db.execute("SELECT * FROM commissioni WHERE bando_id=?",(b["id"],)).fetchall()
+        selected=[]
+        for archive_id in ids:
+            row=db.execute("""SELECT cds,sede,presidente,componenti,requisiti,anno
+                              FROM commissioni_catalogo WHERE id=?""",(archive_id,)).fetchone()
+            if not row:fail("Commissione non trovata nell'anagrafica",404)
+            values=dict(row)
+            _validate_commission_course(db,b["id"],values)
+            if (anno_bando and values["anno"] and
+                    anno_bando.casefold()!=values["anno"].casefold()):
+                fail("Anno accademico della commissione non corrispondente al bando: "+
+                     values["cds"]+" / "+values["sede"],409)
+            if _match_commission_row(existing+selected,values["cds"],values["sede"]) is not None:
+                fail("Commissione gia presente o duplicata per "+values["cds"]+" / "+values["sede"],409)
+            selected.append(values)
+        for values in selected:
+            _insert_commission(db,b["id"],values,"recupero_da_catalogo_verificato")
+        db.commit()
+    return {"ok":True,"aggiunte":len(selected)}
 
 
 @app.get("/api/bandi/{code}/commissioni")
