@@ -22,6 +22,11 @@ ORDINARY_MAX = {
     "P09": 10, "P10": 10, "P11": 2, "P12": 3,
     "P13": 10, "P14": 3, "P15": 7,
 }
+ENGLISH_MAX = {
+    **dict(zip((f"P{i:02d}" for i in range(1,8)),(2,3,2,1,1,2,2))),
+    "P08":10, "P09":5, "P10":2, "P11":3,
+    "P12":10, "P13":7,
+}
 PROFESSIONAL_MAX = {
     **dict(zip((f"P{i:02d}" for i in range(1, 7)), (3, 1, 2, 2, 3, 4))),
     "P14": 10, "P15": 2, "P16": 3, "P17": 7,
@@ -146,12 +151,20 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                 raise ValueError("Dati della candidatura discordanti: " + key)
         if candidate["stato"] != "Attiva":
             raise ValueError("Candidatura non attiva: " + candidate["stato"])
-        maximums = PROFESSIONAL_MAX if candidate["modello"] == "professionalizzante" else ORDINARY_MAX
-        if candidate["modello"] not in ("professionalizzante", "ordinario"):
+        model = candidate["modello"]
+        if model not in ("professionalizzante","ordinario","inglese"):
             raise ValueError("SSD non classificato per la generazione PDF")
-        if candidate["modello"] == "professionalizzante" and "P19" not in fields:
+        maximums = (PROFESSIONAL_MAX if model=="professionalizzante"
+                    else ENGLISH_MAX if model=="inglese" else ORDINARY_MAX)
+        marker = str((fields.get("RANKUP-MODEL") or {}).get("/V") or "").strip()
+        if model == "inglese":
+            if marker != "inglese" or "P13" not in fields or "P14" in fields:
+                raise ValueError("Il modello PDF non corrisponde allo SSD di Inglese")
+        elif marker == "inglese":
+            raise ValueError("Il modello PDF di Inglese non corrisponde allo SSD")
+        elif model == "professionalizzante" and "P19" not in fields:
             raise ValueError("Il modello PDF non corrisponde allo SSD professionalizzante")
-        if candidate["modello"] == "ordinario" and "P19" in fields:
+        elif model == "ordinario" and "P19" in fields:
             raise ValueError("Il modello PDF non corrisponde allo SSD non professionalizzante")
         result["esito"] = field_value(fields, "STATUS").strip()
         result["note"] = field_value(fields, "NOTE-COMM").strip()
@@ -174,7 +187,7 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                 value = dec(field_value(fields, name))
                 if value < 0 or value > Decimal(maximum):
                     raise ValueError(f"{name} supera il massimale previsto ({maximum})")
-                if name in ("P14", "P18") and maximum == 3 and value not in (0, 3):
+                if model != "inglese" and name in ("P14", "P18") and maximum == 3 and value not in (0, 3):
                     raise ValueError(f"{name} ammette soltanto 0 o 3 punti")
                 scores[name] = value
             if candidate["modello"] == "professionalizzante":
@@ -198,6 +211,13 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                     scores["P17"], scores["P18"], scores["P19"],
                 ]
                 limits = (15, 10, 15, 7, 3, 10)
+            elif model=="inglese":
+                areas = [
+                    sum(scores[f"P{i:02d}"] for i in range(1,8)),
+                    sum(scores[f"P{i:02d}"] for i in range(8,12)),
+                    scores["P12"], scores["P13"],
+                ]
+                limits = (13,20,10,7)
             else:
                 areas = [
                     sum(scores[f"P{i:02d}"] for i in range(1, 9)),
@@ -210,8 +230,9 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                 if amount > limit:
                     raise ValueError(f"L'area {idx} supera il massimale di {limit} punti")
             total = sum(areas, Decimal("0"))
-            if total > 60:
-                raise ValueError("Punteggio totale superiore a 60")
+            ceiling = 50 if model=="inglese" else 60
+            if total > ceiling:
+                raise ValueError("Punteggio totale superiore a "+str(ceiling))
             result["punteggio"] = float(total)
             result["punteggi"] = {k: str(v) for k, v in scores.items()}
             result["totale_pdf"] = field_value(fields, "TOT").strip()
