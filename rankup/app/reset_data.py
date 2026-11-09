@@ -47,7 +47,7 @@ BUSINESS_TABLES = (
     "bandi",
     "pica_tipo_cds_dizionario",
 )
-PRESERVED_TABLES = ("rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo")
+PRESERVED_TABLES = ("rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "bandi_archivi")
 RESET_CONFIRMATION = "AZZERA TUTTI I DATI RANKUP"
 
 
@@ -80,9 +80,10 @@ def preview(db, sources:Path, pending:Path):
         "originali":sum(1 for folder in (sources,pending)
                         if folder.exists() for p in folder.rglob("*") if p.is_file()),
         "conferma_richiesta":RESET_CONFIRMATION,
-        "preservati":"Credenziali e account, classificazioni globali SSD → modello, archivio commissioni, configurazione Home Assistant",
+        "preservati":"Credenziali e account, classificazioni SSD, anagrafica commissioni e archivi ZIP finali, configurazione Home Assistant",
         "classificazioni_ssd_conservate":db.execute("SELECT COUNT(*) FROM ssd_classificazioni").fetchone()[0],
         "commissioni_conservate":db.execute("SELECT COUNT(*) FROM commissioni_catalogo").fetchone()[0],
+        "zip_finali_conservati":db.execute("SELECT COUNT(*) FROM bandi_archivi").fetchone()[0],
         "backup_obbligatorio":True,
     }
 
@@ -131,7 +132,7 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
                 "tabelle":counts_before,
                 "database_sha256":hashlib.sha256(temp_db.read_bytes()).hexdigest(),
                 "include":"SQLite, originali PICA/PDF, file temporanei",
-                "preservati_dopo_reset":"opzioni, credenziali, account operativi, associazioni globali SSD/modello e commissioni conservate",
+                "preservati_dopo_reset":"opzioni, account, SSD, commissioni e archivi finali ZIP conservati nel percorso dedicato",
             },ensure_ascii=False,indent=2))
         with ZipFile(temp_zip) as archive:
             if archive.testzip() is not None:
