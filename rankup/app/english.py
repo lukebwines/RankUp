@@ -88,7 +88,11 @@ def make_english(record: dict) -> bytes:
                        borderWidth=0, fieldFlags=flags)
 
     def choice(name, x, top, width, height, maximum):
-        vals = [(str(n),str(n)) for n in range(maximum+1)]
+        # Il modello ufficiale attribuisce valori fissi a Dottorato (3)
+        # e Assegni di ricerca (1): non sono massimali graduabili.
+        vals = ([("0","0"),(str(maximum),str(maximum))]
+                if name in ("P02","P05") else
+                [(str(n),str(n)) for n in range(maximum+1)])
         form.choice(name=name, tooltip=name, x=x, y=H-top-height,
                     width=width, height=height, value="0",
                     options=vals, fieldFlags="combo", fontSize=7.5,
@@ -165,7 +169,8 @@ def make_english(record: dict) -> bytes:
         if hints:
             lines(402,top+3,hints,size=5.9,leading=8)
         else:
-            centered(401,top+4,44,"max "+str(maximum),6.6)
+            centered(401,top+4,44,
+                     str(maximum) if key in ("P02","P05") else "max "+str(maximum),6.6)
         choice(key,450,top+1,45,min(height-2,20),maximum)
 
     group(267,119,["Ulteriori titoli","di studio / attivita","di aggiornamento","pertinenti","(ultimi 5 anni)"],13)
