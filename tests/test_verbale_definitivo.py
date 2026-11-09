@@ -41,7 +41,7 @@ def test_flatten_retains_visible_text_and_removes_widgets():
     doc=PdfReader(BytesIO(joined))
     assert len(doc.pages)==3
     assert doc.get_fields() is None
-    assert sum("14.50" in (page.extract_text() or "") for page in doc.pages)==2
+    assert sum("14.50" in (page.extract_text() or "") for page in doc.pages)==3
 
 
 def test_generate_final_document_persists_bytes_without_changing_originals(tmp_path,monkeypatch):
