@@ -751,7 +751,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.10", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.11", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -3222,7 +3222,7 @@ def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Req
 
 
 @app.get("/api/bandi/{code}/verbali/graduatorie/revisioni/{revision_id}/pdf")
-def pdf_verbale_cds_storico(code: str, revision_id: int):
+def pdf_verbale_cds_storico(code: str, revision_id: int, inline: bool = False):
     code=valid_code(code)
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
@@ -3238,7 +3238,7 @@ def pdf_verbale_cds_storico(code: str, revision_id: int):
     filename=("RankUP_"+_safe_filename(code,40)+"_verbale_storico_"+
               _safe_filename(row["cds"],40)+"_"+str(revision_id)+".pdf")
     return Response(content=pdf,media_type="application/pdf",
-        headers={"Content-Disposition":'attachment; filename="'+filename+'"',
+        headers={"Content-Disposition":("inline" if inline else "attachment")+'; filename="'+filename+'"',
                  "Cache-Control":"no-store"})
 
 
@@ -3337,7 +3337,7 @@ def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
 
 
 @app.get("/api/bandi/{code}/verbali/graduatorie/pdf-completo")
-def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request):
+def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request, inline: bool = False):
     """Un SOLO PDF: graduatoria/verbale CdS + originali restituiti acquisiti.
 
     Il frontespizio deriva dalla graduatoria corrente o dalla sua istantanea
@@ -3413,7 +3413,7 @@ def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request)
     filename=("RankUP_"+_safe_filename(code,40)+"_verbale_schede_"+
               _safe_filename(cds,50)+"_"+_safe_filename(sede,30)+".pdf")
     return Response(content=target.getvalue(),media_type="application/pdf",
-        headers={"Content-Disposition":'attachment; filename="'+filename+'"',
+        headers={"Content-Disposition":("inline" if inline else "attachment")+'; filename="'+filename+'"',
                  "Cache-Control":"no-store"})
 
 
@@ -3611,7 +3611,7 @@ def annulla_bozza_approvazione(code: str, approval_id: int, request: Request):
 
 
 @app.get("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/pdf")
-def pdf_approvazione(code: str, approval_id: int, request: Request):
+def pdf_approvazione(code: str, approval_id: int, request: Request, inline: bool = False):
     code=valid_code(code)
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
@@ -3623,7 +3623,8 @@ def pdf_approvazione(code: str, approval_id: int, request: Request):
     pdf=render_graduatoria_pdf(code,payload,general=True,
              approved=row["stato"]=="approvata",reference=row["estremi_atto"])
     return Response(content=pdf,media_type="application/pdf",
-        headers={"Content-Disposition":'attachment; filename="RankUP_'+_safe_filename(code,40)+'_graduatoria_generale.pdf"',
+        headers={"Content-Disposition":("inline" if inline else "attachment")+
+                 '; filename="RankUP_'+_safe_filename(code,40)+'_graduatoria_generale.pdf"',
                  "Cache-Control":"no-store"})
 
 

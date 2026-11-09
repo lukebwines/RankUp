@@ -179,3 +179,7 @@ L'azzeramento include un backup SQLite e dei documenti PICA/PDF, elimina solo da
 - **Attenzione amministrativa:** il comando informatico non determina autonomamente annullamento, revoca o rettifica degli effetti giuridici di un provvedimento approvato. È necessario verificare prima gli atti formali e le competenze dell'amministrazione.
 
 **Installazione:** effettuare un backup dell'add-on e degli originali PDF/PICA; aggiornare solo dopo i test automatici e un collaudo su Home Assistant, inclusi Ingress e Cloudflare Tunnel.
+
+### RankUP 0.9.11 — Apertura PDF nel browser
+
+Oltre ai pulsanti di scaricamento, verbali CdS (correnti e storici) e graduatorie generali hanno ora il comando **Apri PDF nel browser**. Il comando è un normale collegamento HTML aperto direttamente dal clic dell'utente: evita le limitazioni di Chrome sui download avviati programmaticamente dopo una richiesta asincrona. Il server restituisce lo stesso PDF con `Content-Disposition: inline`, mantenendo autenticazione e controlli di integrità. Il PDF può essere salvato dal visualizzatore integrato di Chrome. La modalità ordinaria di download continua a funzionare; il messaggio distingue la corretta ricezione del PDF dal salvataggio effettivamente confermato dal browser.
