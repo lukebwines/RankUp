@@ -123,3 +123,28 @@ def test_parita_blocca_graduatoria(tmp_path,monkeypatch):
         assert refreshed["pronta"],refreshed["criticita"]
         assert refreshed["verbale_generabile"] is True
         assert next(x for x in refreshed["incarichi"] if x["id"]==tied["id"])["vincitore_id"]==selected
+
+
+def test_verbale_idoneo_senza_note_non_indica_da_verificare():
+    """La nota facoltativa assente non è un dato amministrativo da verificare."""
+    from graduatorie import render_graduatoria_pdf
+    data = {
+        "cds": "CdS sintetico", "sede": "Sede sintetica", "stato": "BOZZA",
+        "incarichi": [{
+            "insegnamento": "Insegnamento sintetico",
+            "modulo": "Modulo sintetico", "ssd": "SSD sintetico",
+            "vincitore_id": 1,
+            "candidature": [{
+                "candidatura_id": 1, "id_pica": "00001",
+                "cognome": "Candidato", "nome": "Prova",
+                "decisione": "idoneo", "esito": "CANDIDATO IDONEO",
+                "posizione": 1, "punteggio": "12.00", "note": ""
+            }]
+        }]
+    }
+    pdf = render_graduatoria_pdf("TEST", data)
+    text = "\\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+    assert "CANDIDATO IDONEO" in text
+    assert "12.00" in text
+    assert "[DA VERIFICARE]" not in text
+    assert "—" in text or "-" in text
