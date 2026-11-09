@@ -819,11 +819,11 @@ def esegui_azzeramento(request: Request, body: RichiestaAzzeramento):
         archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup")
     except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile) as exc:
         fail("Azzeramento non eseguito o incompleto: "+str(exc),409)
-    # Ricrea le corrispondenze PICA di sistema; account e opzioni restano.
+    # Ricrea le corrispondenze PICA di sistema; account, opzioni e SSD restano.
     initialize()
     return {"ok":True,"backup":archive,
             "message":"Azzeramento dati completato. Backup scaricabile solo da Admin.",
-            "preservati":"Account RankUP, password e configurazione add-on"}
+            "preservati":"Account RankUP, password, associazioni globali SSD/modello e configurazione add-on"}
 
 
 @app.get("/api/admin/azzeramento/backup/{filename}")
@@ -2096,7 +2096,32 @@ async def import_commissioni(
 
 class ClassificazioneSSD(BaseModel):
     tipo: str
-    riferimento: str = ""
+    riferimento: str | None = None
+
+
+@app.get("/api/admin/ssd/classificazioni")
+def classificazioni_globali_ssd(request: Request):
+    """Configurazione globale, consultabile anche senza bandi importati."""
+    require_admin(request)
+    with connect() as db:
+        rows=db.execute("""
+            SELECT sectors.ssd,cl.tipo,cl.riferimento,cl.aggiornato_il,
+                   COALESCE(jobs.totale,0) AS incarichi
+            FROM (
+                SELECT ssd FROM ssd_classificazioni
+                UNION
+                SELECT DISTINCT UPPER(TRIM(ssd)) FROM incarichi
+                WHERE TRIM(COALESCE(ssd,''))<>''
+                  AND UPPER(TRIM(ssd)) NOT IN ('NN','ND','N-D','NON-INDICATO')
+            ) sectors
+            LEFT JOIN ssd_classificazioni cl ON cl.ssd=sectors.ssd
+            LEFT JOIN (
+                SELECT UPPER(TRIM(ssd)) AS ssd,COUNT(*) AS totale FROM incarichi
+                GROUP BY UPPER(TRIM(ssd))
+            ) jobs ON jobs.ssd=sectors.ssd
+            ORDER BY sectors.ssd
+        """).fetchall()
+    return {"ssd":[dict(row) for row in rows]}
 
 
 @app.get("/api/bandi/{code}/ssd")
@@ -2131,7 +2156,8 @@ def elenco_ssd_bando(code: str):
 
 
 @app.put("/api/ssd/{ssd:path}/classificazione")
-def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
+def assegna_classificazione(ssd: str, body: ClassificazioneSSD, request: Request):
+    require_admin(request)
     sector = ssd.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]+(?:[-/][A-Z0-9]+)*", sector) or len(sector)>32:
         fail("Codice SSD non valido")
@@ -2139,13 +2165,16 @@ def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
         fail("PICA non attribuisce un SSD specifico a questo incarico: verificare la copertura prima di associare un modello PDF")
     if body.tipo not in ("professionalizzante", "ordinario", "inglese"):
         fail("Selezionare professionalizzante, ordinario oppure Inglese")
-    reference = body.riferimento.strip()
-    if len(reference)>400:
+    if body.riferimento is not None and len(body.riferimento.strip())>400:
         fail("Il riferimento facoltativo non può superare 400 caratteri")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as db:
-        if not db.execute("SELECT 1 FROM incarichi WHERE UPPER(TRIM(ssd))=? LIMIT 1",(sector,)).fetchone():
-            fail("SSD non trovato nei bandi importati", 404)
+        before=db.execute("SELECT riferimento FROM ssd_classificazioni WHERE ssd=?",
+                          (sector,)).fetchone()
+        reference=(body.riferimento.strip() if body.riferimento is not None
+                   else (before["riferimento"] if before else ""))
+        # La classificazione è una configurazione generale. Non richiede bandi
+        # importati e si applica automaticamente a ogni futuro incarico SSD.
         db.execute("""
             INSERT INTO ssd_classificazioni(ssd,tipo,riferimento,aggiornato_il)
             VALUES(?,?,?,?)
