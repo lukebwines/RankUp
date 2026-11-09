@@ -208,7 +208,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.14 · Modulo valutazioni<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.15 · Modulo archivio<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -441,7 +441,8 @@
         if(state.page==="valutazioni")return renderValutazioni();
         if(state.page==="verbali")return renderVerbaliGraduatorie();
         if(state.page==="graduatorie")return renderApprovazioniGraduatorie();
-        if(state.page==="archivio")return html(panel("Archivio bandi", "Esportazione ZIP completa, ripristino e cancellazione controllata: funzionalità futura. Attualmente nessun comando di eliminazione è attivo."));
+        if(state.page==="archivio")return state.role==="admin"?renderArchivioFinale():
+          html(panel("Archivio bandi","La chiusura, i ZIP completi e la riapertura formale sono riservati all’Admin."));
       }
       // Graduatorie CdS nei verbali: tutti i nominativi sono visibili
       // per la commissione; la graduatoria generale mostra solo i vincitori.
@@ -734,6 +735,107 @@
             };
           });
         }catch(err){note(err.message,true);html(panel("Graduatoria generale",esc(err.message)));}
+      }
+
+      async function renderArchivioFinale(){
+        if(state.role!=="admin")return;
+        html(panel("Archivio finale bandi","Verifica delle approvazioni e dei ZIP conservati..."));
+        try{
+          var active=state.active;
+          var checks=await Promise.all([
+            api("archivio"),
+            active?api("bandi/"+encodeURIComponent(active)+"/archivio/verifica"):Promise.resolve(null)
+          ]);
+          if(state.page!=="archivio"||state.active!==active)return;
+          var archives=checks[0].archivi||[],check=checks[1];
+          var content='<div class="card mb"><h3 class="section-heading">Fase finale del bando</h3>'+
+            '<p class="caption">Lo ZIP definitivo può essere creato solo quando tutti i CdS/sedi sono approvati '+
+            'con graduatorie definitive e tutti gli atti sono registrati. Non elimina nessun dato '+
+            'e blocca le modifiche al bando fino a riapertura formale.</p>';
+          if(check){
+            var errors=check.criticita||[];
+            content+='<p><strong>Bando '+esc(active)+'</strong> · '+esc(check.stato_bando)+'</p>'+
+              '<div class="summary">'+
+              '<div><strong>'+esc(check.cds_sedi_approvati)+'/'+esc(check.cds_sedi_totali)+
+              '</strong><small>CdS/sedi approvati</small></div>'+
+              '<div><strong>'+esc(check.approvazioni_completate)+
+              '</strong><small>Approvazioni registrate</small></div>'+
+              '<div><strong>'+esc(check.bozze_aperte)+
+              '</strong><small>Bozze ancora aperte</small></div></div>'+
+              (errors.length?'<div class="notice"><strong>Condizioni ancora da completare</strong>'+
+                errors.map(function(x){return '<div>'+esc(x)+'</div>';}).join("")+'</div>':
+                '<div class="success">Controlli degli atti completati. Il bando è idoneo all’archiviazione definitiva.</div>')+
+              (check.pronto
+                ? '<div class="actions" style="margin-top:13px"><button class="btn" id="archive-close-bando">'+
+                  'Chiudi bando e genera archivio ZIP</button></div>'
+                : '');
+            if(check.stato_bando==="Archiviato")
+              content+='<p class="caption">Il bando è bloccato. Lo ZIP resta scaricabile anche dopo '+
+                'l’azzeramento degli archivi operativi.</p>'+
+                '<div class="actions"><button class="btn secondary" id="archive-reopen-bando">'+
+                'Riapri bando con motivazione</button></div>';
+          }else{
+            content+='<p class="caption">Seleziona un bando attivo per verificare la chiusura. '+
+              'Gli ZIP precedentemente archiviati restano elencati qui sotto.</p>';
+          }
+          content+='</div><div class="card mb"><h3 class="section-heading">ZIP finali conservati</h3>'+
+            '<p class="caption">Ogni pacchetto comprende fonti PICA, PDF originali, verbali CdS, '+
+            'graduatorie generali e dati di audit, insieme a un manifest con impronte SHA-256. '+
+            'Anche le versioni precedenti rimangono consultabili.</p>'+
+            (archives.length?'<div class="tablebox"><table><thead><tr>'+
+              '<th>Bando</th><th>Generato il</th><th>File</th><th>Dimensione</th><th>Impronta SHA-256</th><th>Stato</th><th>Azioni</th>'+
+              '</tr></thead><tbody>'+archives.map(function(a){
+                return '<tr><td><strong>'+esc(a.codice)+'</strong></td>'+
+                '<td>'+esc(a.creato_il)+'</td><td>'+esc(a.file_count)+'</td>'+
+                '<td>'+esc((a.bytes/1048576).toFixed(2))+' MB</td>'+
+                '<td><code title="'+esc(a.sha256)+'">'+esc(String(a.sha256).slice(0,16))+'…</code></td>'+
+                '<td>'+esc(a.riaperto_il?'Versione storica · bando riaperto':
+                  a.stato_bando==="Archiviato"?'Archiviato':'ZIP conservato')+'</td>'+
+                '<td><a class="btn secondary" href="api/archivio/'+encodeURIComponent(a.id)+
+                '/zip" style="text-decoration:none">Scarica ZIP</a></td></tr>';
+              }).join("")+'</tbody></table></div>':
+              '<p class="muted">Nessun ZIP finale ancora generato.</p>')+
+            '<p class="caption">Il pacchetto può contenere dati personali e non è cifrato: '+
+            'custodirlo secondo le regole dell’Ateneo. '+
+            'L’archiviazione nell’add-on non equivale alla conservazione digitale a norma.</p></div>';
+          html(content);
+          if($("archive-close-bando"))$("archive-close-bando").onclick=async function(){
+            if(!confirm("Chiudere definitivamente il bando "+active+
+              " e conservare uno ZIP completo? La procedura diventerà non modificabile "+
+              "fino a una riapertura formale documentata."))return;
+            this.disabled=true;this.textContent="Creazione e verifica ZIP...";
+            try{
+              var saved=await api("bandi/"+encodeURIComponent(active)+"/archivio/chiudi",
+                {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+              await reload();
+              note("Bando archiviato. ZIP verificato e conservato: "+
+                   saved.file_count+" file. Il documento è disponibile nella tabella.",false);
+              renderArchivioFinale();
+            }catch(err){note(err.message,true);this.disabled=false;
+              this.textContent="Chiudi bando e genera archivio ZIP";}
+          };
+          if($("archive-reopen-bando"))$("archive-reopen-bando").onclick=async function(){
+            var reason=prompt("Motivazione documentata della riapertura del bando:");
+            if(reason===null)return;
+            if(reason.trim().length<10){note("Motivazione obbligatoria: almeno 10 caratteri.",true);return;}
+            var reference=prompt("Estremi verificati del provvedimento formale di riapertura:");
+            if(reference===null)return;
+            if(reference.trim().length<5 || reference.toUpperCase().includes("[DA VERIFICARE]")){
+              note("Indicare il riferimento verificato al provvedimento.",true);return;
+            }
+            if(!confirm("Riaprire il bando "+active+"? Il precedente ZIP non sarà cancellato."))return;
+            this.disabled=true;
+            try{
+              await api("bandi/"+encodeURIComponent(active)+"/archivio/riapri",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({motivazione:reason.trim(),riferimento:reference.trim()})});
+              await reload();
+              note("Bando riaperto. ZIP precedente conservato nello storico.",false);
+              renderArchivioFinale();
+            }catch(err){note(err.message,true);this.disabled=false;}
+          };
+        }catch(err){note("Archivio non disponibile: "+err.message,true);
+          html(panel("Archivio bandi",err.message));}
       }
 
       async function renderAzzeramento(){
