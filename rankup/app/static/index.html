@@ -468,7 +468,16 @@
                 : '<button type="button" class="btn" disabled title="Tutte le schede devono essere validate">Verbale non ancora generabile</button>')+
               ((state.role==="admin"&&g.stato==="pronta"&&g.verbale_generabile)
                 ? '<button class="btn secondary" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
-              '</div>';
+              ((state.role==="admin"&&final)
+                ? '<button class="btn secondary" data-verb-regress="'+i+'">Regredisci stato</button>':'')+
+              ((approved && state.role==="admin")
+                ? '<span class="caption">Per riaprire il CdS, regredisci prima l’approvazione generale.</span>':'')+
+              '</div>'+
+              ((g.revisioni||[]).length
+                ? '<div class="caption">Versioni precedenti: '+
+                  g.revisioni.map(function(rev){return '<a data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
+                    '/verbali/graduatorie/revisioni/'+encodeURIComponent(rev.id)+
+                    '/pdf">Verbale storico '+esc(rev.quando)+'</a>';}).join(' · ')+'</div>':'');
             var detail='<details class="ru-verb-details"><summary>Dettagli: '+g.incarichi.length+
               ' incarichi, candidature, note e controlli</summary>'+
               (issues.length?'<div class="notice"><strong>Controlli da risolvere:</strong> '+
@@ -529,6 +538,28 @@
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
           });
+          document.querySelectorAll("[data-verb-regress]").forEach(function(btn){
+            btn.onclick=async function(){
+              var g=shown[Number(btn.dataset.verbRegress)];
+              if(!g)return;
+              var reason=prompt("Motivazione della riapertura del verbale CdS "+g.cds+" / "+g.sede+" (obbligatoria):");
+              if(reason===null)return;
+              if(reason.trim().length<10){note("Motivazione obbligatoria: almeno 10 caratteri.",true);return;}
+              var reference=prompt("Riferimento documentale (facoltativo se il verbale non è stato approvato):","");
+              if(reference===null)return;
+              if(!confirm("Regredire la graduatoria CdS da definitiva a lavorabile? "+
+                "Verrà conservata una copia storica del verbale unico con schede."))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/regredisci-stato",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({cds:g.cds,sede:g.sede,motivazione:reason.trim(),
+                    riferimento:reference.trim()})});
+                note("Verbale riaperto; versione precedente archiviata e scaricabile.",false);
+                renderVerbaliGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
           document.querySelectorAll("[data-verb-final]").forEach(function(btn){
             btn.onclick=async function(){
               var g=shown[Number(btn.dataset.verbFinal)];
@@ -568,14 +599,22 @@
             (state.role==="admin"?'<button class="btn" id="grad-draft"'+(ready.length?'':' disabled')+'>Crea bozza graduatoria generale</button>':'')+
             '</div><div class="card"><h3 class="section-heading">Approvazioni atti</h3>'+
             (all.length?all.map(function(a){
-              return '<div class="card mb"><strong>Procedura '+esc(a.id)+' · '+esc(a.stato==="approvata"?"Atti approvati":"Bozza da approvare")+'</strong>'+
+              return '<div class="card mb"><strong>Procedura '+esc(a.id)+' · '+
+                esc(a.stato==="approvata"?"Atti approvati":a.stato==="regredita"?
+                    "Approvazione regredita · storico":"Bozza da approvare")+'</strong>'+
                 '<div class="caption">'+esc(a.ambiti.map(function(g){return g.cds+" / "+g.sede;}).join("; "))+'</div>'+
                 (a.estremi_atto?'<p>Estremi atto: '+esc(a.estremi_atto)+'</p>':'')+
+                (a.stato==="regredita"
+                  ? '<p class="caption">Precedente approvazione conservata a fini storici. Provvedimento di regressione: '+
+                    esc(a.regressione_riferimento||"Non disponibile")+
+                    '. Il PDF originale resta scaricabile come documento storico.</p>':'')+
                 '<div class="actions"><a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
+                (state.role==="admin"&&a.stato==="approvata"
+                  ?'<button class="btn secondary" data-grad-regress="'+esc(a.id)+'">Regredisci stato</button>':'')+
                 '</div></div>';
             }).join(''):'<p class="muted">Nessuna procedura di approvazione ancora creata.</p>')+'</div>';
           html(content);
@@ -590,6 +629,29 @@
               renderApprovazioniGraduatorie();
             }catch(err){note(err.message,true);this.disabled=false;}
           };
+          document.querySelectorAll("[data-grad-regress]").forEach(function(btn){
+            btn.onclick=async function(){
+              var approval=all.find(function(a){return String(a.id)===btn.dataset.gradRegress;});
+              if(!approval)return;
+              var reason=prompt("Motivazione della regressione dell’approvazione generale (obbligatoria):");
+              if(reason===null)return;
+              if(reason.trim().length<10){note("Motivazione obbligatoria: almeno 10 caratteri.",true);return;}
+              var reference=prompt("Estremi del provvedimento formale che dispone la regressione (obbligatori):");
+              if(reference===null)return;
+              if(reference.trim().length<5){note("Inserire un riferimento documentale verificato.",true);return;}
+              if(!confirm("Confermi che esiste un provvedimento formale che consente la regressione? "+
+                "Le graduatorie CdS torneranno definitive e l’approvazione originaria rimarrà nello storico."))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+"/graduatorie/approvazioni/"+
+                  encodeURIComponent(btn.dataset.gradRegress)+"/regredisci-stato",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({motivazione:reason.trim(),riferimento:reference.trim()})});
+                note("Regressione registrata. La precedente approvazione resta scaricabile nello storico.",false);
+                renderApprovazioniGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
           document.querySelectorAll("[data-grad-approve]").forEach(function(btn){
             btn.onclick=async function(){
               var ref=prompt("Inserisci gli estremi verificati del provvedimento di approvazione atti (obbligatori).");
