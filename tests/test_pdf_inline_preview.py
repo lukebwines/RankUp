@@ -21,6 +21,9 @@ def test_verbale_pdf_can_open_inline_and_download(tmp_path, monkeypatch):
         base="/api/bandi/26-02"
         area=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
         params={"cds":area["cds"],"sede":area["sede"]}
+        assert client.get(base+"/verbali/graduatorie/pdf-completo",params=params).status_code==409
+        finalized=_post(client,base+"/verbali/graduatorie/genera-definitivo",json=params)
+        assert finalized.status_code==200,finalized.text
         original=client.get(base+"/verbali/graduatorie/pdf-completo",params=params)
         pages=_assert_pdf_response(original,"attachment")
         preview=client.get(base+"/verbali/graduatorie/pdf-completo",
@@ -29,8 +32,6 @@ def test_verbale_pdf_can_open_inline_and_download(tmp_path, monkeypatch):
         assert [p.extract_text() for p in PdfReader(BytesIO(original.content)).pages] == [
             p.extract_text() for p in PdfReader(BytesIO(preview.content)).pages]
 
-        finalized=_post(client,base+"/verbali/graduatorie/definitiva",json=params)
-        assert finalized.status_code==200,finalized.text
         regress=_post(client,base+"/verbali/graduatorie/regredisci-stato",
             json={**params,"motivazione":"Collaudo riapertura e archivio completo"})
         assert regress.status_code==200,regress.text
