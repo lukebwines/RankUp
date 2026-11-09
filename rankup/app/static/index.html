@@ -196,7 +196,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.12 · Modulo graduatorie<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.13 · Modulo valutazioni<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -216,7 +216,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},incarichiFilter:{cds:"",sede:""},role:null,username:""};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",incarichiFilter:{cds:"",sede:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -1528,6 +1528,31 @@
           }catch(error){note(error.message,true);btn.disabled=false;}
         };
       }
+      function valutazioneAttivaValida(r){
+        return r.stato==="Acquisita" && Number(r.attiva)===1 &&
+          r.candidatura_stato==="Attiva" &&
+          ["idoneo","non_idoneo","escluso"].includes(r.decisione) &&
+          (r.decisione!=="idoneo"||r.totale_calcolato!=null) &&
+          (r.decisione==="idoneo"||!!String(r.note||"").trim());
+      }
+      function schedeDaMostrare(archivio){
+        // La valutazione per il verbale è quella acquisita e attiva, mai
+        // la versione più recente del PDF in ordine cronologico.
+        var correnti=archivio.filter(valutazioneAttivaValida);
+        var byCandidate=new Map(correnti.map(function(r){return [String(r.candidatura_id),r];}));
+        var latestProblem=new Map();
+        archivio.forEach(function(r){
+          if(r.stato!=="Da verificare" && !(r.stato==="Acquisita" && Number(r.attiva)===1 && !valutazioneAttivaValida(r)))return;
+          if(r.candidatura_id && r.candidatura_stato!=="Attiva")return;
+          // Le schede non associate restano visibili, ma fuori dagli incarichi.
+          var key=r.candidatura_id?"c:"+r.candidatura_id:"pdf:"+r.id;
+          if(latestProblem.has(key))return;
+          var current=r.candidatura_id?byCandidate.get(String(r.candidatura_id)):null;
+          if(current && Number(r.id)<Number(current.id))return;
+          latestProblem.set(key,r);
+        });
+        return {correnti:correnti,anomalie:[...latestProblem.values()]};
+      }
       function statusIcon(ok){
         return ok?'<span aria-label="PASSED" title="Controllo superato" style="color:#26bf77;font-weight:800">✓ PASSED</span>':
           '<span aria-label="NOT PASSED" title="Controllo non superato" style="display:inline-block;padding:3px 7px;background:#a8243a;color:white;border-radius:5px;font-size:11px;font-weight:800">NOT PASSED</span>';
@@ -1594,61 +1619,142 @@
               (r.complete?'Completo · Apri':'Apri CdS')+'</button></td></tr>';}).join('')+
             '</tbody></table></div></div>';
           var archive=report.archivio||[];
+          var jobs=report.incarichi||[];
           archive.forEach(function(r){r.ai_occupazione_storico=aiHistory[String(r.id)]||null;});
-          if(archive.length){
-            var groups=new Map();
-            archive.forEach(function(r){
-              var group=(r.cds||"Schede non associate")+(r.sede?" · "+r.sede:"");
-              if(!groups.has(group))groups.set(group,[]);
-              groups.get(group).push(r);
-            });
-            var archiveHtml=[...groups.entries()].map(function(entry){
-              var rows=entry[1];
-              return '<details'+(filter.cds?' open':'')+' style="margin:10px 0"><summary style="cursor:pointer;padding:10px 0;font-weight:700">'+esc(entry[0])+
-                ' · '+rows.length+' schede</summary><div class="tablebox"><table><thead><tr>'+
-                '<th>Candidatura</th><th>File</th><th>Stato</th><th>Esito</th><th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
-                rows.map(function(r){
-                  var provisional=r.totale_calcolato==null?r.punteggio_rilevato:r.totale_calcolato;
-                  var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
-                    (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":
-                     provisional==null?"—":provisional+" (da convalidare)");
-                  return '<tr><td><div>'+esc(r.id_pica||"Da associare")+'</div>'+
-                    '<span class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</span></td>'+
-                    '<td>'+esc(r.nome_originale)+'</td><td>'+statusIcon(r.stato==="Acquisita"&&r.decisione!=="da_verificare"&&(r.decisione!=="idoneo"||r.totale_calcolato!=null))+' '+esc(r.stato)+(r.decisione==="da_verificare" && r.stato==="Acquisita"?
-                    '<div class="caption">Esito mancante: acquisizione storica non convalidata</div>':'')+(r.stato==="Acquisita"?
-                    '<div class="caption">'+esc(r.metodo||"automatico")+' · v'+esc(r.versione)+'</div>':'')+'</td>'+
-                    '<td>'+esc(r.decisione==="da_verificare"?"Da verificare (esito assente)":r.esito||"—")+'</td><td>'+esc(scoring)+'</td>'+
-                    '<td>'+esc(r.stato==="Da verificare"?r.motivo:(r.note||r.motivazione_tecnica||"—"))+'</td>'+
-                    '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
-                    '/valutazioni/'+encodeURIComponent(r.id)+'/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
-                    (state.role==="admin" && r.candidatura_id
-                      ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'">Verifica occupazione IA</button>'+
-                        (r.ai_occupazione_storico
-                          ? '<div class="caption"><strong>Ultima analisi IA: '+esc(r.ai_occupazione_storico.stato)+'</strong> · '+
-                            esc(r.ai_occupazione_storico.quando)+' · Controlli registrati: '+
-                            esc(r.ai_occupazione_storico.numero_controlli)+
-                            '<div>'+esc(r.ai_occupazione_storico.motivo)+'</div></div>'
-                          : '<div class="caption">Controllo IA non ancora eseguito</div>')
-                      : '')+
-                    (r.stato==="Da verificare"?
-                      (state.role==="admin"?
-                        '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>'+
-                        (r.manuale_possibile===false?
-                          '<span class="caption">Esito assente nel PDF: verificare la documentazione della commissione prima di confermare</span>':''):
-                        '<span class="caption">Acquisizione manuale riservata all’amministratore</span>'):'')+
-                    '</div></td></tr>';
-                }).join('')+'</tbody></table></div></details>';
-            }).join('');
-            content+='<div class="card mb"><h3 class="section-heading">Storico delle schede · '+esc(scope)+'</h3>'+
-              (report.pdf_non_associati?'<p class="caption">'+esc(report.pdf_non_associati)+
-               ' PDF non ancora associati a candidature nel bando; visibili in «Tutti i Corsi di Studio».</p>':'')+
-              archiveHtml+'</div>';
-          }else{
-            content+='<div class="card mb"><h3 class="section-heading">Storico · '+esc(scope)+'</h3>'+
-              '<p class="muted">Nessuna scheda conservata per questa selezione.</p></div>';
+          var split=schedeDaMostrare(archive);
+          var historyView=state.valSchedeView==="all";
+          var activeIds=new Set(split.correnti.map(function(r){return Number(r.id);}));
+          var flaggedIds=new Set(split.anomalie.map(function(r){return Number(r.id);}));
+          var visible=historyView?archive:split.correnti;
+          function evalRow(r){
+            var valid=activeIds.has(Number(r.id));
+            var flagged=flaggedIds.has(Number(r.id));
+            var provisional=r.totale_calcolato==null?r.punteggio_rilevato:r.totale_calcolato;
+            var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
+              (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":
+                provisional==null?"—":provisional+" (da convalidare)");
+            var status=valid?statusIcon(true)+" Scheda corrente":
+              (r.stato==="Da verificare"||flagged)
+                ? '<span style="font-weight:700;color:#d77b3f">Da verificare</span>'+
+                  (historyView&&!flagged?' · storico':'')
+                : '<span class="caption">Versione precedente · non utilizzata nel verbale</span>';
+            return '<tr><td><strong>'+esc(r.id_pica||"Da associare")+'</strong>'+
+              '<div class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</div></td>'+
+              '<td>'+esc(r.nome_originale)+'<div class="caption">v'+esc(r.versione)+
+              (r.metodo?' · '+esc(r.metodo):'')+'</div></td>'+
+              '<td>'+status+'</td>'+
+              '<td>'+esc(r.decisione==="da_verificare"?"Da verificare (esito assente)":r.esito||"—")+'</td>'+
+              '<td>'+esc(scoring)+'</td>'+
+              '<td>'+esc(r.stato==="Da verificare"?(r.motivo||r.motivazione_tecnica):
+                 (r.note||r.motivazione_tecnica||"—"))+'</td>'+
+              '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
+              '/valutazioni/'+encodeURIComponent(r.id)+
+              '/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
+              (state.role==="admin"&&r.candidatura_id
+                ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'">Verifica occupazione IA</button>'+
+                  (r.ai_occupazione_storico?
+                    '<div class="caption"><strong>Ultima analisi IA: '+esc(r.ai_occupazione_storico.stato)+'</strong> · '+
+                    esc(r.ai_occupazione_storico.quando)+' · Controlli registrati: '+
+                    esc(r.ai_occupazione_storico.numero_controlli)+
+                    '<div>'+esc(r.ai_occupazione_storico.motivo)+'</div></div>'
+                   : '<div class="caption">Controllo IA non ancora eseguito</div>')
+                : '')+
+              (r.stato==="Da verificare"?
+                (state.role==="admin"?
+                  '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>'+
+                  (r.manuale_possibile===false?
+                    '<span class="caption">Verificare la documentazione della Commissione prima di confermare</span>':''):
+                  '<span class="caption">Acquisizione manuale riservata all’Admin</span>'):'')+
+              '</div></td></tr>';
           }
+          function rowsTable(rows){
+            return '<div class="tablebox"><table><thead><tr>'+
+              '<th>Candidatura</th><th>PDF / Versione</th><th>Stato</th><th>Esito</th>'+
+              '<th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
+              rows.map(evalRow).join("")+'</tbody></table></div>';
+          }
+          var mode='<div class="card mb"><h3 class="section-heading">Schede di valutazione · '+esc(scope)+'</h3>'+
+            '<p class="caption">Raggruppate per incarico PICA, senza modificare le valutazioni. '+
+            'Il verbale utilizza esclusivamente le schede acquisite, attive e validate; '+
+            'le anomalie non vengono conteggiate come schede valide.</p>'+
+            '<div class="actions" role="group" aria-label="Vista delle schede">'+
+            '<button type="button" class="btn '+(historyView?'secondary':'')+
+            '" id="val-view-current" aria-pressed="'+(!historyView)+'">Schede correnti</button>'+
+            '<button type="button" class="btn '+(historyView?'':'secondary')+
+            '" id="val-view-all" aria-pressed="'+historyView+'">Tutte le versioni</button>'+
+            '</div>'+
+            '<p class="caption">'+esc(jobs.length)+' incarichi PICA · '+
+            esc(split.correnti.length)+' schede attive validate · '+
+            esc(split.anomalie.length)+' anomalie da esaminare'+
+            (historyView?' · '+esc(archive.length)+' documenti nello storico visualizzato':'')+'</p></div>';
+          var grouped=new Map();
+          jobs.forEach(function(job){
+            var key=JSON.stringify([job.cds,job.sede]);
+            if(!grouped.has(key))grouped.set(key,{cds:job.cds,sede:job.sede,jobs:[]});
+            grouped.get(key).jobs.push(job);
+          });
+          var groupHtml=[...grouped.values()].map(function(area){
+            var areaJobs=area.jobs,areaIds=new Set(areaJobs.map(function(j){return Number(j.id);}));
+            var activeCount=split.correnti.filter(function(r){return areaIds.has(Number(r.incarico_id));}).length;
+            var problemCount=split.anomalie.filter(function(r){return areaIds.has(Number(r.incarico_id));}).length;
+            var jobHtml=areaJobs.map(function(job,index){
+              var assignmentId=Number(job.id);
+              var selected=visible.filter(function(r){return Number(r.incarico_id)===assignmentId;});
+              var currentCount=split.correnti.filter(function(r){return Number(r.incarico_id)===assignmentId;}).length;
+              var problems=split.anomalie.filter(function(r){return Number(r.incarico_id)===assignmentId;});
+              var assignmentTitle=job.insegnamento+
+                (job.modulo&&job.modulo!==job.insegnamento?' · '+job.modulo:'');
+              return '<details'+(filter.cds?' open':'')+' class="ru-verb-details" style="margin:8px 0 12px 14px">'+
+                '<summary style="cursor:pointer;padding:9px 0;font-weight:650">'+
+                esc(index+1)+'. '+esc(assignmentTitle)+' · SSD '+esc(job.ssd||"Non indicato")+
+                ' — '+esc(currentCount)+' schede valide / '+esc(job.candidature)+' candidature'+
+                (problems.length?' · '+esc(problems.length)+' da verificare':'')+'</summary>'+
+                '<p class="caption">Incarico PICA: '+esc(job.key)+
+                (job.id_copertura?' · ID copertura: '+esc(job.id_copertura):'')+'</p>'+
+                (selected.length?rowsTable(selected):
+                  '<p class="caption">Nessuna scheda '+
+                  (historyView?'registrata':'attiva e validata')+
+                  ' per questo incarico.</p>')+
+                (!historyView&&problems.length?
+                  '<div class="notice"><strong>Schede da verificare — non incluse nel verbale</strong>'+
+                  rowsTable(problems)+'</div>':'')+
+                '</details>';
+            }).join("");
+            return '<details'+(filter.cds?' open':'')+' style="margin:12px 0">'+
+              '<summary style="cursor:pointer;padding:11px 0;font-weight:700">'+
+              esc(area.cds)+' · '+esc(area.sede)+' — '+esc(areaJobs.length)+
+              ' incarichi · '+esc(activeCount)+' schede valide'+
+              (problemCount?' · '+esc(problemCount)+' anomalie':'')+'</summary>'+
+              jobHtml+'</details>';
+          }).join("");
+          // Un PDF senza associazione PICA non può mai essere usato nel verbale.
+          var unassociated=(historyView?archive:split.anomalie).filter(function(r){
+            return r.incarico_id==null;
+          });
+          var unassociatedHtml=unassociated.length?
+            '<details open style="margin:12px 0"><summary style="padding:9px 0;font-weight:700">'+
+            'Schede non associate · '+esc(unassociated.length)+
+            ' — escluse dal verbale</summary>'+
+            rowsTable(unassociated)+'</details>':'';
+          content+=mode+'<div class="card mb"><h3 class="section-heading">'+
+            (historyView?'Archivio completo delle schede':'Schede correnti ai fini del verbale')+
+            ' · '+esc(scope)+'</h3>'+
+            (groupHtml||'<p class="muted">Nessun incarico PICA per questa selezione.</p>')+
+            unassociatedHtml+
+            (report.pdf_non_associati && !unassociated.length?
+              '<p class="caption">'+esc(report.pdf_non_associati)+
+              ' PDF non associati nel bando: seleziona Tutti i CdS per consultarli.</p>':'')+
+            '<p class="caption">Le versioni sostituite non risultano come errori correnti: '+
+            'sono consultabili nella vista «Tutte le versioni». '+
+            'Le schede mancanti sono evidenziate dai conteggi per incarico.</p></div>';
           content+='<div id="manual-eval-panel"></div>';
           html(content);
+          $("val-view-current").onclick=function(){
+            state.valSchedeView="current";renderValutazioni();
+          };
+          $("val-view-all").onclick=function(){
+            state.valSchedeView="all";renderValutazioni();
+          };
           $("val-cds").onchange=function(){state.valFilter.cds=this.value;state.valFilter.sede="";renderValutazioni();};
           $("val-sede").onchange=function(){state.valFilter.sede=this.value;renderValutazioni();};
           document.querySelectorAll("[data-val-course]").forEach(function(btn){
