@@ -759,7 +759,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.12", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.13", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -2950,12 +2950,34 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
         if sede:
             archive_conditions.append("i.sede=?")
             archive_args.append(sede)
+        jobs_conditions=["i.bando_id=?"]
+        jobs_args=[b["id"]]
+        if cds:
+            jobs_conditions.append("i.cds=?")
+            jobs_args.append(cds)
+        if sede:
+            jobs_conditions.append("i.sede=?")
+            jobs_args.append(sede)
+        # I gruppi sono gli incarichi PICA realmente importati, compresi
+        # quelli senza alcuna scheda: nessuna inferenza da nomi di file.
+        jobs=db.execute("""
+          SELECT i.id,i.key,i.cds,i.sede,i.insegnamento,i.modulo,
+                 i.ssd,i.id_copertura,COUNT(c.id) AS candidature
+          FROM incarichi i
+          LEFT JOIN candidature c ON c.incarico_id=i.id AND c.stato='Attiva'
+          WHERE """+" AND ".join(jobs_conditions)+"""
+          GROUP BY i.id
+          ORDER BY i.cds COLLATE NOCASE,i.sede COLLATE NOCASE,
+                   i.insegnamento COLLATE NOCASE,i.modulo COLLATE NOCASE,i.id
+        """,jobs_args).fetchall()
         archives=db.execute("""
           SELECT v.id,v.nome_originale,v.stato,v.motivo,v.totale_calcolato,v.versione,
                  v.percorso,v.sha256,
                  v.confermata_il,v.candidatura_id,v.decisione,v.metodo,v.attiva,
                  v.esito,v.note,v.motivazione_tecnica,
-                 c.id_pica,c.cognome,c.nome,i.cds,i.sede,i.insegnamento,i.modulo
+                 c.id_pica,c.cognome,c.nome,c.stato AS candidatura_stato,
+                 i.id AS incarico_id,i.key AS incarico_key,
+                 i.cds,i.sede,i.insegnamento,i.modulo,i.ssd
           FROM valutazioni_pdf v LEFT JOIN candidature c ON c.id=v.candidatura_id
           LEFT JOIN incarichi i ON i.id=c.incarico_id
           WHERE """+" AND ".join(archive_conditions)+"""
@@ -3014,6 +3036,7 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
         "totale_non_idonee":sum(row["non_idonee"] for row in detail),
         "totale_escluse":sum(row["escluse"] for row in detail),
         "pdf_non_associati":unmatched,
+        "incarichi":[dict(job) for job in jobs],
         "archivio":archivio,
     }
 
