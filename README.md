@@ -207,3 +207,9 @@ La pagina **Valutazioni** rimane centrata sulle **schede delle candidature**, ma
 - **Nessuna migrazione dei dati**, nessuna modifica ai punteggi, agli esiti, ai PDF originali o alle graduatorie.
 
 Per gli **SSD nuovi non ancora associati** resta la regola preesistente: il modello iniziale è **Non professionalizzante** (`ordinario`); l'Admin può modificarlo nella configurazione globale, che persiste dopo l'azzeramento degli archivi. Nessun blocco automatico aggiuntivo è stato introdotto.
+
+### RankUP 0.9.14 — Stati dei verbali più riconoscibili
+
+Nella pagina **Verbali** le schede CdS in **In lavorazione** sono segnalate in giallo/ambra, inclusi sfondo e bordo della scheda. Le schede **Pronto** rimangono blu, quelle **Definitiva** hanno un badge verde con coccarda grafica, quelle **Atti approvati** un badge verde istituzionale distinto. I colori sono leggibili in modalità chiara e scura, mentre le etichette di testo garantiscono l'identificazione anche senza percezione cromatica.
+
+Sono state modificate esclusivamente classi CSS e rendering delle etichette: nessuno stato, dato, PDF o flusso di approvazione viene alterato.
