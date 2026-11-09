@@ -39,6 +39,7 @@ from commission_match import commission_index, resolve_commission, course_key, s
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf
+from pdf_definitivo import verbale_definitivo
 from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
@@ -460,6 +461,13 @@ def initialize() -> None:
             );
             CREATE INDEX IF NOT EXISTS ix_grad_cds_revisioni
               ON graduatorie_cds_revisioni(bando_id,cds,sede,id);
+            CREATE TABLE IF NOT EXISTS graduatorie_cds_documenti (
+                graduatoria_id INTEGER PRIMARY KEY REFERENCES graduatorie_cds(id) ON DELETE CASCADE,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                pdf_definitivo BLOB NOT NULL,
+                sha256 TEXT NOT NULL,
+                creato_il TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS graduatorie_cds_riaperte (
                 graduatoria_id INTEGER PRIMARY KEY REFERENCES graduatorie_cds(id) ON DELETE CASCADE,
                 bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -751,7 +759,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.11", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.12", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -3105,6 +3113,11 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
         stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
         snapshot=json.dumps(result,ensure_ascii=False,sort_keys=True)
         digest=hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
+        # La generazione (incluso l'appiattimento delle schede) precede la
+        # registrazione di "definitiva". Fallimento = nessuna chiusura.
+        pdf_finale=_costruisci_verbale_completo(
+            db,b["id"],code,dict(result,stato="definitiva"))
+        hash_pdf=hashlib.sha256(pdf_finale).hexdigest()
         reopened=db.execute("""
             SELECT g.id FROM graduatorie_cds g
             JOIN graduatorie_cds_riaperte r ON r.graduatoria_id=g.id
@@ -3127,15 +3140,29 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
                 VALUES(?,?,?,'definitiva',?,?,?,?)
             """,(b["id"],body.cds,body.sede,snapshot,digest,request_actor(),stamp))
             graduatoria_id=cursor.lastrowid
+        db.execute("""
+            INSERT INTO graduatorie_cds_documenti
+            (graduatoria_id,bando_id,pdf_definitivo,sha256,creato_il)
+            VALUES(?,?,?,?,?)
+            ON CONFLICT(graduatoria_id) DO UPDATE SET
+                pdf_definitivo=excluded.pdf_definitivo,
+                sha256=excluded.sha256,creato_il=excluded.creato_il
+        """,(graduatoria_id,b["id"],pdf_finale,hash_pdf,stamp))
         db.execute("""INSERT INTO graduatorie_eventi
             (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
             VALUES(?,?,?,?,?,?,?)
         """,(b["id"],"cds",graduatoria_id,"Graduatoria definitiva",
-              json.dumps({"cds":body.cds,"sede":body.sede,"hash":digest}),
+              json.dumps({"cds":body.cds,"sede":body.sede,
+                          "hash":digest,"hash_pdf":hash_pdf}),
               request_actor(),stamp))
         db.commit()
-    return {"ok":True,"stato":"definitiva","hash":digest}
+    return {"ok":True,"stato":"definitiva","hash":digest,"hash_pdf":hash_pdf}
 
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/genera-definitivo")
+def genera_verbale_con_chiusura(code: str, body: FinalizzaGraduatoria, request: Request):
+    """Genera un PDF statico e registra definitiva nella stessa transazione."""
+    return finalizza_graduatoria_cds(code,body,request)
 
 
 class RegredisciStato(BaseModel):
@@ -3336,86 +3363,96 @@ def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
         headers={"Content-Disposition":'attachment; filename="'+filename+'"',"Cache-Control":"no-store"})
 
 
-@app.get("/api/bandi/{code}/verbali/graduatorie/pdf-completo")
-def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request, inline: bool = False):
-    """Un SOLO PDF: graduatoria/verbale CdS + originali restituiti acquisiti.
+def _costruisci_verbale_completo(db, bando_id: int, code: str, snapshot: dict) -> bytes:
+    """Congela i valori delle schede: non altera gli originali restituiti."""
+    cds,sede=snapshot["cds"],snapshot["sede"]
+    if (not snapshot.get("incarichi") or not snapshot.get("pronta") or
+            snapshot.get("criticita") or snapshot.get("totale_candidature",0)<=0):
+        fail("Verbale non generabile: tutte le schede devono essere acquisite e "
+             "validate e le criticita' risolte",409)
+    ids=[]
+    for job in snapshot["incarichi"]:
+        ordered=sorted(job["candidature"],key=lambda c:(
+            0 if c.get("decisione")=="idoneo" else 1,
+            c["posizione"] if c.get("posizione") is not None else 999999,
+            str(c.get("id_pica") or ""),c["candidatura_id"]))
+        for candidate in ordered:
+            docid=candidate.get("valutazione_id")
+            if docid is None:
+                fail("Scheda mancante: verbale unico non generabile",409)
+            ids.append(int(docid))
+    if len(ids)!=len(set(ids)):
+        fail("Scheda duplicata negli allegati: verificare le associazioni",409)
+    attachments=[]
+    root=(SOURCES/code/"schede_restituite").resolve()
+    for pdf_id in ids:
+        row=db.execute("""SELECT v.percorso,v.sha256,v.candidatura_id,
+                    v.stato,v.attiva,c.id_pica,i.cds,i.sede
+            FROM valutazioni_pdf v
+            JOIN candidature c ON c.id=v.candidatura_id
+            JOIN incarichi i ON i.id=c.incarico_id
+            WHERE v.id=? AND v.bando_id=?""",(pdf_id,bando_id)).fetchone()
+        if (not row or row["stato"]!="Acquisita" or row["attiva"]!=1 or
+                row["cds"]!=cds or row["sede"]!=sede):
+            fail("Scheda non acquisita/associata alla graduatoria selezionata",409)
+        location=(BASE/row["percorso"]).resolve()
+        if not location.is_relative_to(root) or not location.is_file():
+            fail("Originale scheda non disponibile per ID PICA "+str(row["id_pica"]),409)
+        if location.stat().st_size>MAX_PDF_BYTES:
+            fail("Originale scheda oltre il limite consentito",409)
+        payload=location.read_bytes()
+        if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
+            fail("Integrita originale PDF non verificata: ID PICA "+str(row["id_pica"]),409)
+        attachments.append(payload)
+    if not attachments:
+        fail("Nessuna scheda compilata e acquisita da allegare per questo CdS",409)
+    front=render_graduatoria_pdf(code,snapshot)
+    try:
+        return verbale_definitivo(front,attachments)
+    except Exception as error:
+        # Non confermare la finalizzazione se non possiamo garantire
+        # presenza dei valori e assenza di campi interattivi.
+        fail("Impossibile creare un PDF definitivo non compilabile: "+
+             str(error)[:300],409)
 
-    Il frontespizio deriva dalla graduatoria corrente o dalla sua istantanea
-    definitiva. Gli allegati sono le sole valutazioni attive, verificate tramite
-    percorso confinato e impronta SHA256. Non si altera alcun PDF originale.
+
+@app.get("/api/bandi/{code}/verbali/graduatorie/pdf-completo")
+def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request,
+                                inline: bool = False):
+    """Solo documenti definitivi. I nuovi sono conservati come byte immutabili.
+
+    Gli stati definitivi precedenti all'aggiornamento, privi di copia salvata,
+    sono ricostruiti da snapshot e originali verificati, con campi appiattiti.
+    Le versioni precedenti alle riaperture restano nello storico.
     """
     code=valid_code(code)
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
-        saved=db.execute("""SELECT g.stato,g.dati_json FROM graduatorie_cds g
+        saved=db.execute("""SELECT g.id,g.stato,g.dati_json,
+                    d.pdf_definitivo,d.sha256 AS hash_documento
+            FROM graduatorie_cds g
             LEFT JOIN graduatorie_cds_riaperte r ON r.graduatoria_id=g.id
+            LEFT JOIN graduatorie_cds_documenti d ON d.graduatoria_id=g.id
             WHERE g.bando_id=? AND g.cds=? AND g.sede=?
               AND r.graduatoria_id IS NULL""",(b["id"],cds,sede)).fetchone()
-        if saved:
+        if not saved:
+            fail("Il verbale non e ancora definitivo: usare Genera verbale definitivo",409)
+        if saved["pdf_definitivo"] is not None:
+            pdf=bytes(saved["pdf_definitivo"])
+            if hashlib.sha256(pdf).hexdigest()!=saved["hash_documento"]:
+                fail("Integrita del verbale definitivo non verificata",409)
+        else:
+            # Compatibilita' non distruttiva con graduatorie definitive
+            # della versione precedente: nessun nuovo atto inventato.
             snapshot=json.loads(saved["dati_json"])
             snapshot["stato"]=saved["stato"]
-        else:
-            snapshot=_graduatoria_status(db,b["id"],cds,sede)
-            snapshot["stato"]="BOZZA NON DEFINITIVA"
-        if not snapshot["incarichi"]:
-            fail("Nessun incarico trovato",404)
-        if not snapshot.get("pronta") or snapshot.get("criticita") or snapshot.get("totale_candidature",0)<=0:
-            fail("Verbale non generabile: tutte le schede devono essere acquisite e "
-                 "validate e le criticita' risolte",409)
-        ids=[]
-        for job in snapshot["incarichi"]:
-            ordered=sorted(job["candidature"],key=lambda c:(
-                0 if c.get("decisione")=="idoneo" else 1,
-                c["posizione"] if c.get("posizione") is not None else 999999,
-                str(c.get("id_pica") or ""),c["candidatura_id"]))
-            for candidate in ordered:
-                docid=candidate.get("valutazione_id")
-                if docid is None:
-                    fail("Scheda mancante: verbale unico non generabile",409)
-                ids.append(int(docid))
-        if len(ids)!=len(set(ids)):
-            fail("Scheda duplicata negli allegati: verificare le associazioni",409)
-        # Individuare i file dal DB, mai da un nome/percorso fornito dal client.
-        attachments=[]
-        root=(SOURCES/code/"schede_restituite").resolve()
-        for pdf_id in ids:
-            row=db.execute("""SELECT v.percorso,v.sha256,v.candidatura_id,
-                        v.stato,v.attiva,c.id_pica,i.cds,i.sede
-                FROM valutazioni_pdf v
-                JOIN candidature c ON c.id=v.candidatura_id
-                JOIN incarichi i ON i.id=c.incarico_id
-                WHERE v.id=? AND v.bando_id=?""",(pdf_id,b["id"])).fetchone()
-            if (not row or row["stato"]!="Acquisita" or row["attiva"]!=1 or
-                row["cds"]!=cds or row["sede"]!=sede):
-                fail("Scheda non acquisita/associata alla graduatoria selezionata",409)
-            location=(BASE/row["percorso"]).resolve()
-            if not location.is_relative_to(root) or not location.is_file():
-                fail("Originale scheda non disponibile per ID PICA "+str(row["id_pica"]),409)
-            if location.stat().st_size>MAX_PDF_BYTES:
-                fail("Originale scheda oltre il limite consentito",409)
-            payload=location.read_bytes()
-            if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
-                fail("Integrita originale PDF non verificata: ID PICA "+str(row["id_pica"]),409)
-            attachments.append(payload)
-    if not attachments:
-        fail("Nessuna scheda compilata e acquisita da allegare per questo CdS",409)
-    front=render_graduatoria_pdf(code,snapshot)
-    try:
-        writer=PdfWriter()
-        writer.append(BytesIO(front))
-        for pdf in attachments:
-            writer.append(BytesIO(pdf))
-        target=BytesIO()
-        writer.write(target)
-    except Exception:
-        fail("Impossibile concatenare una delle schede PDF restituite: verificare i file",409)
+            pdf=_costruisci_verbale_completo(db,b["id"],code,snapshot)
     filename=("RankUP_"+_safe_filename(code,40)+"_verbale_schede_"+
               _safe_filename(cds,50)+"_"+_safe_filename(sede,30)+".pdf")
-    return Response(content=target.getvalue(),media_type="application/pdf",
-        headers={"Content-Disposition":("inline" if inline else "attachment")+'; filename="'+filename+'"',
-                 "Cache-Control":"no-store"})
-
+    return Response(content=pdf,media_type="application/pdf",
+        headers={"Content-Disposition":("inline" if inline else "attachment")+
+                 '; filename="'+filename+'"',"Cache-Control":"no-store"})
 
 class PreparaApprovazione(BaseModel):
     graduatorie_ids: list[int] = Field(min_length=1,max_length=100)

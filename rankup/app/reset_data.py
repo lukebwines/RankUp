@@ -20,6 +20,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 RESET_LOCK = threading.Lock()
 BUSINESS_TABLES = (
     # Prima i marcatori e le revisioni, poi le tabelle collegate: rispetta le FK.
+    "graduatorie_cds_documenti",
     "graduatorie_cds_riaperte",
     "graduatorie_cds_revisioni",
     "graduatorie_approvazioni_regressioni",

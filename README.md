@@ -183,3 +183,15 @@ L'azzeramento include un backup SQLite e dei documenti PICA/PDF, elimina solo da
 ### RankUP 0.9.11 — Apertura PDF nel browser
 
 Oltre ai pulsanti di scaricamento, verbali CdS (correnti e storici) e graduatorie generali hanno ora il comando **Apri PDF nel browser**. Il comando è un normale collegamento HTML aperto direttamente dal clic dell'utente: evita le limitazioni di Chrome sui download avviati programmaticamente dopo una richiesta asincrona. Il server restituisce lo stesso PDF con `Content-Disposition: inline`, mantenendo autenticazione e controlli di integrità. Il PDF può essere salvato dal visualizzatore integrato di Chrome. La modalità ordinaria di download continua a funzionare; il messaggio distingue la corretta ricezione del PDF dal salvataggio effettivamente confermato dal browser.
+
+### RankUP 0.9.12 — Generazione del verbale già definitiva
+
+Il comando **Genera verbale definitivo con schede** sostituisce il precedente percorso separato “Genera verbale” → “Rendi definitiva”. È riservato all'Admin: richiede una conferma esplicita, verifica valutazioni e parità, produce il PDF con le schede allegate senza campi compilabili e **registra lo stato definitivo nella stessa transazione SQLite**. Se manca o è illeggibile un originale o l'appiattimento non riesce, non viene chiusa la graduatoria.
+
+La prima generazione conserva i byte del PDF definitivo e la relativa impronta SHA-256 in `graduatorie_cds_documenti`, collegata alla graduatoria. I download e le visualizzazioni successive restituiscono la stessa copia, non una nuova composizione. Le schede originali restano inalterate e recuperabili secondo le regole precedenti.
+
+Prima della generazione il verbale completo non può essere scaricato (HTTP 409). Dopo la generazione, **Scarica verbale definitivo con schede** e **Apri PDF nel browser** sono disponibili; la versione precedente può essere conservata con **Regredisci stato** (motivazione obbligatoria). Alla nuova generazione dopo la regressione viene creata un'altra copia definitiva e la precedente resta nello storico.
+
+**Migrazione non distruttiva:** i verbali già definitivi nelle versioni precedenti, che non dispongono ancora di una copia PDF memorizzata, rimangono consultabili grazie alla ricostruzione dalla loro istantanea e dagli originali con integrità verificata; anche in questo caso i campi compilabili vengono appiattiti.
+
+L'appiattimento elimina i campi PDF editabili, ma **non sostituisce una firma digitale** né rende materialmente impossibile alterare un PDF con strumenti di editing avanzati. Per attestare provenienza e integrità nei procedimenti amministrativi resta necessaria la verifica della firma digitale o dell'impronta archiviata, secondo le procedure dell'ente.

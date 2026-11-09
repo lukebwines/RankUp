@@ -45,6 +45,10 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
         text="\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf.content)).pages)
         assert "Nota di valutazione della commissione" in text
         assert "Candidato" in text
+        assert client.get(base+"/verbali/graduatorie/pdf-completo",params=body).status_code==409
+        sealed=_post(client,base+"/verbali/graduatorie/genera-definitivo",json=body)
+        assert sealed.status_code==200,sealed.text
+        assert sealed.json()["stato"]=="definitiva"
         joined=client.get(base+"/verbali/graduatorie/pdf-completo",params=body)
         assert joined.status_code==200,joined.text[:200] if joined.status_code!=200 else ""
         assert joined.headers["content-type"]=="application/pdf"
@@ -54,15 +58,14 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
         joined_text="\\n".join(page.extract_text() or "" for page in merged.pages)
         assert "Graduatoria della Commissione" in joined_text
         assert "Nota di valutazione della commissione" in joined_text
-        assert "NOTE-COMM" in (merged.get_fields() or {})
-
-
-        sealed=_post(client,base+"/verbali/graduatorie/definitiva",json=body)
-        assert sealed.status_code==200,sealed.text
+        assert merged.get_fields() is None
+        assert all(not any(str(a.get_object().get("/Subtype",""))=="/Widget"
+                   for a in (p.get("/Annots") or [])) for p in merged.pages)
+        assert "Nota di valutazione della commissione" in joined_text
         complete_after=client.get(base+"/verbali/graduatorie/pdf-completo",params=body)
         assert complete_after.status_code==200
+        assert complete_after.content==joined.content  # byte immutabili, non rigenerati
         assert len(PdfReader(BytesIO(complete_after.content)).pages)==len(merged.pages)
-
         assert _post(client,base+"/verbali/graduatorie/definitiva",json=body).status_code==409
         view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
         gid=view["conferma"]["id"]
