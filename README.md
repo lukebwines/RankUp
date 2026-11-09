@@ -213,3 +213,20 @@ Per gli **SSD nuovi non ancora associati** resta la regola preesistente: il mode
 Nella pagina **Verbali** le schede CdS in **In lavorazione** sono segnalate in giallo/ambra, inclusi sfondo e bordo della scheda. Le schede **Pronto** rimangono blu, quelle **Definitiva** hanno un badge verde con coccarda grafica, quelle **Atti approvati** un badge verde istituzionale distinto. I colori sono leggibili in modalità chiara e scura, mentre le etichette di testo garantiscono l'identificazione anche senza percezione cromatica.
 
 Sono state modificate esclusivamente classi CSS e rendering delle etichette: nessuno stato, dato, PDF o flusso di approvazione viene alterato.
+
+### RankUP 0.9.15 — Chiusura del bando con ZIP integrale e storico permanente
+
+La voce **Archivio** non è più un segnaposto: l'Admin può verificare lo stato dei CdS/sedi del bando e, **solo dopo che tutti i verbali sono definitivi e inclusi in approvazioni degli atti concluse**, usare **Chiudi bando e genera archivio ZIP**. La chiusura non è consentita se mancano ambiti, ci sono bozze ancora aperte, o se una graduatoria/approvazione è ancora da finalizzare o è stata regredita. I CdS vengono individuati da tutti gli incarichi PICA realmente importati.
+
+Lo ZIP generato contiene, per il bando selezionato:
+
+- originali PICA e tutti i documenti originali conservati nella cartella del bando, comprese le varie versioni delle schede di valutazione ricevute;
+- verbali definitivi CdS con schede non compilabili e graduatorie generali con estremi degli atti approvati;
+- esportazione leggibile in JSON dei dati, degli esiti, delle graduatorie, delle commissioni collegate, delle revisioni e dei registri eventi, comprese le versioni PDF conservate in BLOB e le configurazioni SSD effettivamente riferite al bando;
+- `manifest.json` contenente impronte SHA-256 di ogni file, dimensioni, numero di CdS e approvazioni, oltre a `00_riepilogo.json`.
+
+Lo ZIP viene **verificato prima di essere registrato** e conservato in `/data/archivi_bandi` con permessi ristretti, insieme al relativo hash nel registro permanente `bandi_archivi`. Dopo la chiusura, le API che possono modificare il bando vengono bloccate. Per riaprire la procedura l'Admin deve indicare motivazione e riferimento a un provvedimento formale; lo ZIP precedente resta intatto e un'eventuale successiva chiusura crea una **nuova versione**, mai sovrascrive la precedente.
+
+Gli ZIP finali e il registro sono conservati anche dalla procedura **Azzeramento archivi**: la cancellazione dei dati operativi non tocca questa cartella. La riapertura di un bando già eliminato dall'azzeramento non è automatica: occorre un'apposita procedura di reimport/ripristino verificata; lo ZIP è comunque scaricabile.
+
+**Protezione documentale:** il pacchetto contiene dati personali e **non è cifrato**; va conservato tramite i sistemi autorizzati dell'ente. Lo ZIP locale è una copia di lavoro verificabile, ma non equivale a conservazione digitale a norma, protocollo o firma digitale. Non sono generati dati amministrativi mancanti; tutti i riferimenti agli atti derivano dalle registrazioni esistenti in RankUP.
