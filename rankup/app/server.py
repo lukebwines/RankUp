@@ -419,11 +419,14 @@ def initialize() -> None:
             if field not in existing:
                 db.execute("ALTER TABLE valutazioni_pdf ADD COLUMN " + field + " " + definition)
         # Esiti storici già esplicitamente registrati: classificazione esatta.
-        db.execute("""UPDATE valutazioni_pdf SET decisione=
+        # Il numero di esiti può cambiare: segnaposto SQL derivati dagli
+        # elenchi attuali + storici, senza modificare valutazioni archiviate.
+        flags = lambda values: ",".join("?" for _ in values)
+        db.execute(f"""UPDATE valutazioni_pdf SET decisione=
             CASE
-              WHEN esito IN (?,?) THEN 'idoneo'
-              WHEN esito IN (?,?) THEN 'non_idoneo'
-              WHEN esito IN (?,?,?) THEN 'escluso'
+              WHEN esito IN ({flags(ESITI_IDONEI)}) THEN 'idoneo'
+              WHEN esito IN ({flags(ESITI_NON_IDONEI)}) THEN 'non_idoneo'
+              WHEN esito IN ({flags(ESITI_ESCLUSI)}) THEN 'escluso'
               ELSE decisione
             END
             WHERE decisione='da_verificare' AND stato='Acquisita'
@@ -674,7 +677,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.7", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.8", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 

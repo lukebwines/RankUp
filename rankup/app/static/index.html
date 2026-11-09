@@ -1498,13 +1498,11 @@
           if(!candidates.length){holder.innerHTML=panel("Nessuna candidatura associabile","Verifica il corso, la sede e l'ID PICA.");return;}
           var statuses=[
             ["","— Seleziona l'esito del documento —"],
-            ["CANDIDATO AMMESSO IN GRADUATORIA","Ammesso in graduatoria"],
-            ["CANDIDATO UNICO IDONEO","Unico candidato idoneo"],
-            ["CANDIDATO CON CURRICULUM NON VALUTABILE O NON IDONEO","Curriculum non valutabile o non idoneo"],
-            ["CANDIDATO NON IDONEO","Non idoneo"],
-            ["CANDIDATO CON REQUISITO ENTE DI APPARTENENZA MANCANTE","Requisito ente mancante"],
-            ["CANDIDATO CON TITOLO DI STUDIO RICHIESTO PER L'ACCESSO MANCANTE","Titolo di accesso mancante"],
-            ["CANDIDATO CON TITOLO DI STUDIO RICHIESTO PER L'ACCESSO NON PERTINENTE","Titolo di accesso non pertinente"]
+            ["CANDIDATO IDONEO","Candidato idoneo"],
+            ["CANDIDATO NON IDONEO - PROFILO PROFESSIONALE NON COERENTE","Non idoneo — profilo professionale non coerente"],
+            ["CANDIDATO NON AMMISSIBILE - REQUISITO ENTE NON SODDISFATTO","Non ammissibile — requisito ente non soddisfatto"],
+            ["CANDIDATO NON AMMISSIBILE - REQUISITI GENERALI NON SODDISFATTI","Non ammissibile — requisiti generali non soddisfatti"],
+            ["CANDIDATO NON IDONEO - VALUTAZIONE NEGATIVA DELLA COMMISSIONE","Non idoneo — valutazione negativa della Commissione"]
           ];
           holder.innerHTML='<div class="card mb"><h3 class="section-heading">Acquisizione manuale · Documento '+esc(record.id)+'</h3>'+
             '<p class="notice">Trascrivi solo quanto risulta dal PDF della commissione, verificando personalmente l’identità. Il PDF originale è conservato, l’operazione è registrata e le rettifiche mantengono la versione precedente.</p>'+
@@ -1528,7 +1526,7 @@
             '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+encodeURIComponent(record.id)+'/documento" style="text-decoration:none">Apri PDF originale</a></div></div>';
           var select=$("eval-man-status");
           function statusMode(){
-            var negative=/NON IDONEO|NON VALUTABILE|MANCANTE|NON PERTINENTE/.test(select.value);
+            var negative=/NON IDONEO|NON AMMISSIBILE|NON VALUTABILE|MANCANTE|NON PERTINENTE/.test(select.value);
             $("eval-man-score-row").style.display=negative?"none":"block";
             if(negative)$("eval-man-score").value="";
           }
