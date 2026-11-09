@@ -160,3 +160,14 @@ Le credenziali degli utenti vengono salvate nella tabella SQLite persistente `ra
 L'operatore effettivamente autenticato è utilizzato come autore nelle operazioni di bando e valutazione tracciate. Il nome dell'account e il ruolo sono visibili nel menu laterale. Le credenziali vanno comunicate tramite un canale riservato: RankUp non dispone di invio email automatico.
 
 **Aggiornamento:** eseguire un backup dell'add-on prima dell'installazione; la migrazione aggiunge soltanto due tabelle, senza cambiare quelle di bandi, candidature, commissioni o valutazioni. I nuovi account restano disponibili dopo il riavvio. Le sessioni invece vanno riaperte. Eseguire il collaudo della login attraverso Home Assistant e l'eventuale accesso esterno prima di distribuire credenziali a utenti reali.
+
+### RankUP 0.9.10 — Download PDF affidabile e regressione controllata degli stati
+
+- I PDF di verbali e graduatorie si scaricano con una richiesta autenticata gestita dall'interfaccia; in caso di errore HTTP o file non valido, l'Admin vede la causa invece di un mancato download silenzioso.
+- **Verbali CdS:** l'Admin può usare **Regredisci stato** solo su graduatorie **definitive non approvate**. La motivazione è obbligatoria. Un'eventuale bozza generale che include il CdS deve essere annullata prima. RankUP archivia una copia integra del PDF unico precedente, comprensiva delle schede acquisite, e la mantiene scaricabile dalle versioni storiche; le valutazioni vengono sbloccate solo dopo il successo dell'archiviazione.
+- **Graduatoria generale approvata:** l'Admin può registrare una regressione motivata **solo sulla base di un provvedimento formale identificato**, il cui riferimento va inserito senza valori fittizi o segnaposto. Le graduatorie CdS coinvolte tornano definitive, non immediatamente modificabili. La procedura di approvazione originaria, i suoi estremi e il PDF rimangono nello storico come documento precedente, contrassegnato nell'interfaccia come approvazione regredita.
+- Per riaprire un CdS già approvato: **prima** regressione dell'approvazione generale; **poi** regressione del singolo CdS da definitiva a lavorabile. Nessuna regressione è consentita agli operatori non Admin.
+- Le regressioni registrano autore, momento, motivazione e riferimento nel registro eventi, senza modificare le schede originali, gli esiti o i PDF storici. Le nuove tabelle sono incluse nel backup e nell'azzeramento controllato.
+- **Attenzione amministrativa:** il comando informatico non determina autonomamente annullamento, revoca o rettifica degli effetti giuridici di un provvedimento approvato. È necessario verificare prima gli atti formali e le competenze dell'amministrazione.
+
+**Installazione:** effettuare un backup dell'add-on e degli originali PDF/PICA; aggiornare solo dopo i test automatici e un collaudo su Home Assistant, inclusi Ingress e Cloudflare Tunnel.
