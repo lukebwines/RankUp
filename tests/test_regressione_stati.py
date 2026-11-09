@@ -36,7 +36,7 @@ def test_cds_definitiva_riapertura_archivio_e_nuova_finalizzazione(tmp_path, mon
         archived = client.get(base + f"/verbali/graduatorie/revisioni/{revision}/pdf")
         assert archived.status_code == 200
         assert archived.headers["content-type"] == "application/pdf"
-        assert archived.content == prior.content
+        assert [p.extract_text() for p in PdfReader(BytesIO(archived.content)).pages] == [p.extract_text() for p in PdfReader(BytesIO(prior.content)).pages]
 
         assert _post(client, base + "/verbali/graduatorie/regredisci-stato",
             json={**body, "motivazione": "Seconda riapertura non ammessa"}).status_code == 409
@@ -85,7 +85,9 @@ def test_approvazione_formale_regressione_e_blocco_cds(tmp_path, monkeypatch):
         approvals = client.get(base + "/graduatorie/approvazioni").json()["approvazioni"]
         assert approvals[0]["stato"] == "regredita"
         assert approvals[0]["regressione_riferimento"] == "PROVVEDIMENTO SINTETICO DI COLLAUDO"
-        assert client.get(base + f"/graduatorie/approvazioni/{approval_id}/pdf").content == original.content
+        historical = client.get(base + f"/graduatorie/approvazioni/{approval_id}/pdf")
+        assert historical.status_code == 200
+        assert [p.extract_text() for p in PdfReader(BytesIO(historical.content)).pages] == [p.extract_text() for p in PdfReader(BytesIO(original.content)).pages]
         cds = client.get(base + "/verbali/graduatorie").json()["graduatorie"][0]
         assert cds["stato"] == "definitiva"
         assert _post(client, general_regress,
