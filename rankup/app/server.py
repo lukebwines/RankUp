@@ -74,6 +74,24 @@ def connect() -> sqlite3.Connection:
     return db
 
 
+
+def _conserva_commissione_catalogo(db, values: dict, fonte_bando: str):
+    """Archivia composizioni realmente inserite, senza dedurre validita' per altri bandi."""
+    fields=("cds","sede","presidente","componenti","requisiti","anno")
+    data={k:str(values.get(k) or "").strip() for k in fields}
+    # La chiave normalizzata elimina duplicati testuali dello stesso contenuto,
+    # non unisce composizioni diverse e conserva le versioni precedenti.
+    canon=dict(data,cds_key=course_key(data["cds"]),sede_key=seat_key(data["sede"]))
+    fingerprint=hashlib.sha256(json.dumps(canon,ensure_ascii=False,
+                       sort_keys=True).encode("utf-8")).hexdigest()
+    db.execute("""
+        INSERT OR IGNORE INTO commissioni_catalogo
+        (impronta,cds,sede,presidente,componenti,requisiti,anno,fonte_bando,conservata_il)
+        VALUES(?,?,?,?,?,?,?,?,?)
+    """,(fingerprint,*(data[k] for k in fields),fonte_bando,
+         datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+
+
 def initialize() -> None:
     with connect() as db:
         db.executescript("""
@@ -126,6 +144,20 @@ def initialize() -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(bando_id, cds, sede)
         );
+        CREATE TABLE IF NOT EXISTS commissioni_catalogo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            impronta TEXT NOT NULL UNIQUE,
+            cds TEXT NOT NULL,
+            sede TEXT NOT NULL,
+            presidente TEXT NOT NULL,
+            componenti TEXT NOT NULL,
+            requisiti TEXT NOT NULL,
+            anno TEXT NOT NULL,
+            fonte_bando TEXT NOT NULL,
+            conservata_il TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_comm_catalogo_cds_sede
+          ON commissioni_catalogo(cds,sede,anno);
         CREATE TABLE IF NOT EXISTS commissioni_eventi (
             id INTEGER PRIMARY KEY,
             bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -408,6 +440,48 @@ def initialize() -> None:
                 quando TEXT NOT NULL
             )
         """)
+        # Storico append-only e marcatori di regressione; nessuna riscrittura
+        # delle tabelle delle graduatorie e degli atti esistenti.
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS graduatorie_cds_revisioni (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                graduatoria_id INTEGER NOT NULL,
+                cds TEXT NOT NULL,
+                sede TEXT NOT NULL,
+                dati_json TEXT NOT NULL,
+                hash_dati TEXT NOT NULL,
+                pdf_storico BLOB NOT NULL,
+                hash_pdf TEXT NOT NULL,
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL DEFAULT '',
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_grad_cds_revisioni
+              ON graduatorie_cds_revisioni(bando_id,cds,sede,id);
+            CREATE TABLE IF NOT EXISTS graduatorie_cds_riaperte (
+                graduatoria_id INTEGER PRIMARY KEY REFERENCES graduatorie_cds(id) ON DELETE CASCADE,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                revisione_id INTEGER NOT NULL REFERENCES graduatorie_cds_revisioni(id)
+            );
+            CREATE TABLE IF NOT EXISTS graduatorie_approvazioni_regressioni (
+                approvazione_id INTEGER PRIMARY KEY REFERENCES graduatorie_approvazioni(id) ON DELETE CASCADE,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            );
+        """)
+        # Acquisizione non distruttiva delle commissioni gia' registrate nei
+        # bandi, incluse quelle antecedenti alla separazione dell'anagrafica.
+        for row in db.execute("""
+            SELECT cm.cds,cm.sede,cm.presidente,cm.componenti,cm.requisiti,
+                   cm.anno,b.codice AS fonte_bando
+            FROM commissioni cm JOIN bandi b ON b.id=cm.bando_id
+        """).fetchall():
+            _conserva_commissione_catalogo(db,dict(row),row["fonte_bando"])
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -677,7 +751,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.9", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.10", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -785,11 +859,11 @@ def esegui_azzeramento(request: Request, body: RichiestaAzzeramento):
         archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup")
     except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile) as exc:
         fail("Azzeramento non eseguito o incompleto: "+str(exc),409)
-    # Ricrea le corrispondenze PICA di sistema; account e opzioni restano.
+    # Ricrea le corrispondenze PICA di sistema; account, opzioni e SSD restano.
     initialize()
     return {"ok":True,"backup":archive,
             "message":"Azzeramento dati completato. Backup scaricabile solo da Admin.",
-            "preservati":"Account RankUP, password e configurazione add-on"}
+            "preservati":"Account RankUP, password, associazioni globali SSD/modello e configurazione add-on"}
 
 
 @app.get("/api/admin/azzeramento/backup/{filename}")
@@ -1818,6 +1892,8 @@ def _insert_commission(db, bando_id: int, values: dict, action: str) -> int:
         values["componenti"], values["requisiti"], values["anno"], now,
     ))
     _log_commission_change(db, bando_id, cursor.lastrowid, action, None, values)
+    code=db.execute("SELECT codice FROM bandi WHERE id=?",(bando_id,)).fetchone()["codice"]
+    _conserva_commissione_catalogo(db,values,code)
     return cursor.lastrowid
 
 
@@ -1842,6 +1918,8 @@ def _update_commission(db, bando_id: int, original: dict, values: dict,
         now, original["id"], bando_id,
     ))
     _log_commission_change(db, bando_id, original["id"], action, previous, updated)
+    code=db.execute("SELECT codice FROM bandi WHERE id=?",(bando_id,)).fetchone()["codice"]
+    _conserva_commissione_catalogo(db,updated,code)
     return True
 
 
@@ -1895,6 +1973,66 @@ def edit_commissione(code: str, commission_id: int, body: CommissioneInput):
         db.commit()
     return {"ok": True, "modificata": changed,
             "avviso": "Rigenerare le schede PDF già scaricate per il CdS interessato" if changed else ""}
+
+
+
+@app.get("/api/admin/commissioni-globali")
+def archivio_commissioni_generali(request: Request):
+    """Composizioni conservate a livello applicativo, indipendenti dai bandi."""
+    require_admin(request)
+    with connect() as db:
+        rows=db.execute("""
+            SELECT id,cds,sede,presidente,componenti,requisiti,anno,
+                   fonte_bando,conservata_il
+            FROM commissioni_catalogo
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE,
+                     anno DESC,id DESC
+        """).fetchall()
+    return {"commissioni":[dict(row) for row in rows]}
+
+
+class RecuperaCommissioniGlobali(BaseModel):
+    ids: list[int] = Field(min_length=1,max_length=100)
+    conferma_verifica: bool
+
+
+@app.post("/api/bandi/{code}/commissioni/recupera-globali")
+def recupera_commissioni_globali(code: str,body: RecuperaCommissioniGlobali,
+                                 request: Request):
+    """Solo associazione esplicita e verificata; mai ereditare nomine automaticamente."""
+    require_admin(request)
+    code=valid_code(code)
+    if not body.conferma_verifica:
+        fail("Confermare la verifica dell'atto e della validita' della composizione",400)
+    ids=body.ids
+    if len(ids)!=len(set(ids)):
+        fail("Commissioni duplicate nella selezione",400)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        refs=db.execute("""SELECT anno_accademico FROM bandi_riferimenti
+                           WHERE bando_id=?""",(b["id"],)).fetchone()
+        anno_bando=(refs["anno_accademico"] or "").strip() if refs else ""
+        existing=db.execute("SELECT * FROM commissioni WHERE bando_id=?",(b["id"],)).fetchall()
+        selected=[]
+        for archive_id in ids:
+            row=db.execute("""SELECT cds,sede,presidente,componenti,requisiti,anno
+                              FROM commissioni_catalogo WHERE id=?""",(archive_id,)).fetchone()
+            if not row:fail("Commissione non trovata nell'anagrafica",404)
+            values=dict(row)
+            _validate_commission_course(db,b["id"],values)
+            if (anno_bando and values["anno"] and
+                    anno_bando.casefold()!=values["anno"].casefold()):
+                fail("Anno accademico della commissione non corrispondente al bando: "+
+                     values["cds"]+" / "+values["sede"],409)
+            if _match_commission_row(existing+selected,values["cds"],values["sede"]) is not None:
+                fail("Commissione gia presente o duplicata per "+values["cds"]+" / "+values["sede"],409)
+            selected.append(values)
+        for values in selected:
+            _insert_commission(db,b["id"],values,"recupero_da_catalogo_verificato")
+        db.commit()
+    return {"ok":True,"aggiunte":len(selected)}
 
 
 @app.get("/api/bandi/{code}/commissioni")
@@ -2062,7 +2200,32 @@ async def import_commissioni(
 
 class ClassificazioneSSD(BaseModel):
     tipo: str
-    riferimento: str = ""
+    riferimento: str | None = None
+
+
+@app.get("/api/admin/ssd/classificazioni")
+def classificazioni_globali_ssd(request: Request):
+    """Configurazione globale, consultabile anche senza bandi importati."""
+    require_admin(request)
+    with connect() as db:
+        rows=db.execute("""
+            SELECT sectors.ssd,cl.tipo,cl.riferimento,cl.aggiornato_il,
+                   COALESCE(jobs.totale,0) AS incarichi
+            FROM (
+                SELECT ssd FROM ssd_classificazioni
+                UNION
+                SELECT DISTINCT UPPER(TRIM(ssd)) FROM incarichi
+                WHERE TRIM(COALESCE(ssd,''))<>''
+                  AND UPPER(TRIM(ssd)) NOT IN ('NN','ND','N-D','NON-INDICATO')
+            ) sectors
+            LEFT JOIN ssd_classificazioni cl ON cl.ssd=sectors.ssd
+            LEFT JOIN (
+                SELECT UPPER(TRIM(ssd)) AS ssd,COUNT(*) AS totale FROM incarichi
+                GROUP BY UPPER(TRIM(ssd))
+            ) jobs ON jobs.ssd=sectors.ssd
+            ORDER BY sectors.ssd
+        """).fetchall()
+    return {"ssd":[dict(row) for row in rows]}
 
 
 @app.get("/api/bandi/{code}/ssd")
@@ -2097,7 +2260,8 @@ def elenco_ssd_bando(code: str):
 
 
 @app.put("/api/ssd/{ssd:path}/classificazione")
-def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
+def assegna_classificazione(ssd: str, body: ClassificazioneSSD, request: Request):
+    require_admin(request)
     sector = ssd.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]+(?:[-/][A-Z0-9]+)*", sector) or len(sector)>32:
         fail("Codice SSD non valido")
@@ -2105,13 +2269,16 @@ def assegna_classificazione(ssd: str, body: ClassificazioneSSD):
         fail("PICA non attribuisce un SSD specifico a questo incarico: verificare la copertura prima di associare un modello PDF")
     if body.tipo not in ("professionalizzante", "ordinario", "inglese"):
         fail("Selezionare professionalizzante, ordinario oppure Inglese")
-    reference = body.riferimento.strip()
-    if len(reference)>400:
+    if body.riferimento is not None and len(body.riferimento.strip())>400:
         fail("Il riferimento facoltativo non può superare 400 caratteri")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as db:
-        if not db.execute("SELECT 1 FROM incarichi WHERE UPPER(TRIM(ssd))=? LIMIT 1",(sector,)).fetchone():
-            fail("SSD non trovato nei bandi importati", 404)
+        before=db.execute("SELECT riferimento FROM ssd_classificazioni WHERE ssd=?",
+                          (sector,)).fetchone()
+        reference=(body.riferimento.strip() if body.riferimento is not None
+                   else (before["riferimento"] if before else ""))
+        # La classificazione è una configurazione generale. Non richiede bandi
+        # importati e si applica automaticamente a ogni futuro incarico SSD.
         db.execute("""
             INSERT INTO ssd_classificazioni(ssd,tipo,riferimento,aggiornato_il)
             VALUES(?,?,?,?)
@@ -2858,7 +3025,15 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         SELECT id,stato,hash_dati,confermata_da,confermata_il,approvazione_id
         FROM graduatorie_cds WHERE bando_id=? AND cds=? AND sede=?
     """,(bando_id,cds,sede)).fetchone()
-    ranked["conferma"] = dict(saved) if saved else None
+    reopened = (db.execute("""
+        SELECT revisione_id FROM graduatorie_cds_riaperte
+        WHERE bando_id=? AND graduatoria_id=?
+    """,(bando_id,saved["id"])).fetchone() if saved else None)
+    ranked["revisioni"] = [dict(x) for x in db.execute("""
+        SELECT id,quando FROM graduatorie_cds_revisioni
+        WHERE bando_id=? AND cds=? AND sede=? ORDER BY id DESC
+    """,(bando_id,cds,sede)).fetchall()]
+    ranked["conferma"] = dict(saved) if saved and not reopened else None
     # "Passed" significa acquisita e validata, inclusi esclusi/non idonei motivati.
     ranked["schede_validate"] = sum(
         1 for job in ranked["incarichi"] for c in job["candidature"]
@@ -2872,16 +3047,19 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         ranked["pronta"] and ranked["schede_da_risolvere"] == 0
         and ranked["totale_candidature"] > 0
     )
-    ranked["stato"] = saved["stato"] if saved else ("pronta" if ranked["verbale_generabile"] else "in_lavorazione")
+    ranked["stato"] = (saved["stato"] if saved and not reopened else
+                       ("pronta" if ranked["verbale_generabile"] else "in_lavorazione"))
     return ranked
 
 
 def _assert_graduatoria_open(db, bando_id: int, cds: str, sede: str):
     closed=db.execute("""
-        SELECT stato FROM graduatorie_cds
-        WHERE bando_id=? AND cds=? AND sede=?
+        SELECT g.stato,r.graduatoria_id AS riaperta
+        FROM graduatorie_cds g
+        LEFT JOIN graduatorie_cds_riaperte r ON r.graduatoria_id=g.id
+        WHERE g.bando_id=? AND g.cds=? AND g.sede=?
     """,(bando_id,cds,sede)).fetchone()
-    if closed:
+    if closed and not closed["riaperta"]:
         fail("Graduatoria gia definitiva o approvata per "+cds+" / "+sede+
              ": blocco delle modifiche; serve una procedura di rettifica formale",409)
 
@@ -2927,19 +3105,141 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
         stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
         snapshot=json.dumps(result,ensure_ascii=False,sort_keys=True)
         digest=hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
-        cursor=db.execute("""
-            INSERT INTO graduatorie_cds
-            (bando_id,cds,sede,stato,dati_json,hash_dati,confermata_da,confermata_il)
-            VALUES(?,?,?,'definitiva',?,?,?,?)
-        """,(b["id"],body.cds,body.sede,snapshot,digest,request_actor(),stamp))
+        reopened=db.execute("""
+            SELECT g.id FROM graduatorie_cds g
+            JOIN graduatorie_cds_riaperte r ON r.graduatoria_id=g.id
+            WHERE g.bando_id=? AND g.cds=? AND g.sede=?
+        """,(b["id"],body.cds,body.sede)).fetchone()
+        if reopened:
+            graduatoria_id=reopened["id"]
+            db.execute("""
+                UPDATE graduatorie_cds
+                SET stato='definitiva',dati_json=?,hash_dati=?,
+                    confermata_da=?,confermata_il=?,approvazione_id=NULL
+                WHERE id=? AND bando_id=?
+            """,(snapshot,digest,request_actor(),stamp,graduatoria_id,b["id"]))
+            db.execute("DELETE FROM graduatorie_cds_riaperte WHERE graduatoria_id=?",
+                       (graduatoria_id,))
+        else:
+            cursor=db.execute("""
+                INSERT INTO graduatorie_cds
+                (bando_id,cds,sede,stato,dati_json,hash_dati,confermata_da,confermata_il)
+                VALUES(?,?,?,'definitiva',?,?,?,?)
+            """,(b["id"],body.cds,body.sede,snapshot,digest,request_actor(),stamp))
+            graduatoria_id=cursor.lastrowid
         db.execute("""INSERT INTO graduatorie_eventi
             (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
             VALUES(?,?,?,?,?,?,?)
-        """,(b["id"],"cds",cursor.lastrowid,"Graduatoria definitiva",
+        """,(b["id"],"cds",graduatoria_id,"Graduatoria definitiva",
               json.dumps({"cds":body.cds,"sede":body.sede,"hash":digest}),
               request_actor(),stamp))
         db.commit()
     return {"ok":True,"stato":"definitiva","hash":digest}
+
+
+
+class RegredisciStato(BaseModel):
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(default="",max_length=500)
+
+
+def _motivo_regressione(body: RegredisciStato, riferimento_obbligatorio: bool = False):
+    motivo=body.motivazione.strip()
+    riferimento=body.riferimento.strip()
+    if len(motivo)<10 or "[DA VERIFICARE]" in motivo.upper():
+        fail("Indicare una motivazione concreta di almeno 10 caratteri",400)
+    if riferimento_obbligatorio and (len(riferimento)<5 or "[DA VERIFICARE]" in riferimento.upper()):
+        fail("Indicare gli estremi verificati del provvedimento che dispone la regressione",400)
+    return motivo,riferimento
+
+
+class RegredisciGraduatoriaCdS(RegredisciStato):
+    cds: str = Field(min_length=1,max_length=250)
+    sede: str = Field(min_length=1,max_length=100)
+
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/regredisci-stato")
+def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    motivo,riferimento=_motivo_regressione(body)
+    # Genera prima la copia archivistica completa (frontespizio e schede).
+    # Nessun atto è sbloccato se gli originali non sono verificabili.
+    with connect() as check:
+        b=check.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        previous=check.execute("""
+            SELECT id,stato,dati_json,hash_dati FROM graduatorie_cds
+            WHERE bando_id=? AND cds=? AND sede=?
+        """,(b["id"],body.cds,body.sede)).fetchone()
+        if not previous or previous["stato"]!="definitiva":
+            fail("Solo un verbale CdS definitivo, non approvato, può essere riaperto",409)
+        if check.execute("""
+            SELECT 1 FROM graduatorie_cds_riaperte WHERE graduatoria_id=?
+        """,(previous["id"],)).fetchone():
+            fail("Il verbale CdS è già stato riaperto",409)
+        old_hash=previous["hash_dati"]
+    archival_pdf=pdf_verbale_cds_con_schede(code,body.cds,body.sede,request).body
+    stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        row=db.execute("""
+            SELECT id,stato,dati_json,hash_dati FROM graduatorie_cds
+            WHERE bando_id=? AND cds=? AND sede=?
+        """,(b["id"],body.cds,body.sede)).fetchone()
+        if (not row or row["stato"]!="definitiva" or row["hash_dati"]!=old_hash
+                or db.execute("SELECT 1 FROM graduatorie_cds_riaperte WHERE graduatoria_id=?",
+                              (row["id"],)).fetchone()):
+            fail("Stato o contenuto modificati durante la richiesta: riprovare",409)
+        drafts=db.execute("""
+            SELECT dati_json FROM graduatorie_approvazioni
+            WHERE bando_id=? AND stato='bozza'
+        """,(b["id"],)).fetchall()
+        if any(row["id"] in json.loads(d["dati_json"]).get("ids",[]) for d in drafts):
+            fail("Annullare prima la bozza di approvazione generale che include questo CdS",409)
+        revision=db.execute("""
+            INSERT INTO graduatorie_cds_revisioni
+            (bando_id,graduatoria_id,cds,sede,dati_json,hash_dati,
+             pdf_storico,hash_pdf,motivazione,riferimento,autore,quando)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        """,(b["id"],row["id"],body.cds,body.sede,row["dati_json"],old_hash,
+             archival_pdf,hashlib.sha256(archival_pdf).hexdigest(),
+             motivo,riferimento,request_actor(),stamp))
+        db.execute("""
+            INSERT INTO graduatorie_cds_riaperte(bando_id,graduatoria_id,revisione_id)
+            VALUES(?,?,?)
+        """,(b["id"],row["id"],revision.lastrowid))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"cds",row["id"],"Regressione da definitiva a lavorabile",
+             json.dumps({"revisione_id":revision.lastrowid,"hash_precedente":old_hash,
+                         "motivazione":motivo,"riferimento":riferimento},ensure_ascii=False),
+             request_actor(),stamp))
+        db.commit()
+    return {"ok":True,"stato":"lavorabile","revisione_id":revision.lastrowid}
+
+
+@app.get("/api/bandi/{code}/verbali/graduatorie/revisioni/{revision_id}/pdf")
+def pdf_verbale_cds_storico(code: str, revision_id: int):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        row=db.execute("""
+            SELECT cds,sede,pdf_storico,hash_pdf FROM graduatorie_cds_revisioni
+            WHERE bando_id=? AND id=?
+        """,(b["id"],revision_id)).fetchone()
+    if not row:fail("Versione storica del verbale non trovata",404)
+    pdf=row["pdf_storico"]
+    if hashlib.sha256(pdf).hexdigest()!=row["hash_pdf"]:
+        fail("Integrità del verbale archiviato non verificata",409)
+    filename=("RankUP_"+_safe_filename(code,40)+"_verbale_storico_"+
+              _safe_filename(row["cds"],40)+"_"+str(revision_id)+".pdf")
+    return Response(content=pdf,media_type="application/pdf",
+        headers={"Content-Disposition":'attachment; filename="'+filename+'"',
+                 "Cache-Control":"no-store"})
 
 
 class CambiaVincitoreProposto(BaseModel):
@@ -3016,8 +3316,10 @@ def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
-        saved=db.execute("""SELECT stato,dati_json FROM graduatorie_cds
-            WHERE bando_id=? AND cds=? AND sede=?""",(b["id"],cds,sede)).fetchone()
+        saved=db.execute("""SELECT g.stato,g.dati_json FROM graduatorie_cds g
+            LEFT JOIN graduatorie_cds_riaperte r ON r.graduatoria_id=g.id
+            WHERE g.bando_id=? AND g.cds=? AND g.sede=?
+              AND r.graduatoria_id IS NULL""",(b["id"],cds,sede)).fetchone()
         if saved:
             snapshot=json.loads(saved["dati_json"])
             snapshot["stato"]=saved["stato"]
@@ -3046,8 +3348,10 @@ def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request)
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
-        saved=db.execute("""SELECT stato,dati_json FROM graduatorie_cds
-            WHERE bando_id=? AND cds=? AND sede=?""",(b["id"],cds,sede)).fetchone()
+        saved=db.execute("""SELECT g.stato,g.dati_json FROM graduatorie_cds g
+            LEFT JOIN graduatorie_cds_riaperte r ON r.graduatoria_id=g.id
+            WHERE g.bando_id=? AND g.cds=? AND g.sede=?
+              AND r.graduatoria_id IS NULL""",(b["id"],cds,sede)).fetchone()
         if saved:
             snapshot=json.loads(saved["dati_json"])
             snapshot["stato"]=saved["stato"]
@@ -3123,12 +3427,20 @@ def elenco_approvazioni(code: str):
     with connect() as db:
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
-        rows=db.execute("""SELECT id,stato,estremi_atto,note,
-           creata_da,creata_il,approvata_da,approvata_il,dati_json
-           FROM graduatorie_approvazioni WHERE bando_id=? ORDER BY id DESC
+        rows=db.execute("""SELECT a.id,a.estremi_atto,a.note,
+           a.creata_da,a.creata_il,a.approvata_da,a.approvata_il,a.dati_json,
+           CASE WHEN r.approvazione_id IS NOT NULL THEN 'regredita'
+                ELSE a.stato END AS stato,
+           COALESCE(r.motivazione,'') AS regressione_motivazione,
+           COALESCE(r.riferimento,'') AS regressione_riferimento,
+           COALESCE(r.quando,'') AS regressione_quando
+           FROM graduatorie_approvazioni a
+           LEFT JOIN graduatorie_approvazioni_regressioni r ON r.approvazione_id=a.id
+           WHERE a.bando_id=? ORDER BY a.id DESC
         """,(b["id"],)).fetchall()
     return {"approvazioni":[{
-        **{k:row[k] for k in ("id","stato","estremi_atto","note","creata_da","creata_il","approvata_da","approvata_il")},
+        **{k:row[k] for k in ("id","stato","estremi_atto","note","creata_da","creata_il","approvata_da","approvata_il",
+                                  "regressione_motivazione","regressione_riferimento","regressione_quando")},
         "ambiti":[{"cds":x["cds"],"sede":x["sede"]} for x in json.loads(row["dati_json"])["selezioni"]]
     } for row in rows]}
 
@@ -3216,6 +3528,62 @@ def registra_approvazione(code: str, approval_id: int, body: ConfermaApprovazion
               request_actor(),now))
         db.commit()
     return {"ok":True,"stato":"approvata","graduatorie_chiuse":len(snapshot["ids"])}
+
+
+
+@app.post("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/regredisci-stato")
+def regredisci_approvazione_generale(code: str, approval_id: int,
+                                     body: RegredisciStato, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    motivo,riferimento=_motivo_regressione(body,riferimento_obbligatorio=True)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        row=db.execute("""
+            SELECT stato,dati_json,estremi_atto FROM graduatorie_approvazioni
+            WHERE id=? AND bando_id=?
+        """,(approval_id,b["id"])).fetchone()
+        if not row or row["stato"]!="approvata":
+            fail("Solo un'approvazione già registrata può essere regredita",409)
+        if db.execute("""
+            SELECT 1 FROM graduatorie_approvazioni_regressioni
+            WHERE approvazione_id=? AND bando_id=?
+        """,(approval_id,b["id"])).fetchone():
+            fail("Questa approvazione risulta già regredita",409)
+        snapshot=json.loads(row["dati_json"])
+        ids=snapshot["ids"]
+        if not ids:
+            fail("Approvazione senza graduatorie: operazione non consentita",409)
+        for gid in ids:
+            current=db.execute("""
+                SELECT stato,approvazione_id FROM graduatorie_cds
+                WHERE id=? AND bando_id=?
+            """,(gid,b["id"])).fetchone()
+            if not current or current["stato"]!="approvata" or current["approvazione_id"]!=approval_id:
+                fail("Una graduatoria CdS non corrisponde più all'approvazione: nessuna modifica eseguita",409)
+        stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        for gid in ids:
+            db.execute("""
+                UPDATE graduatorie_cds SET stato='definitiva',approvazione_id=NULL
+                WHERE id=? AND bando_id=? AND stato='approvata' AND approvazione_id=?
+            """,(gid,b["id"],approval_id))
+        db.execute("""
+            INSERT INTO graduatorie_approvazioni_regressioni
+            (approvazione_id,bando_id,motivazione,riferimento,autore,quando)
+            VALUES(?,?,?,?,?,?)
+        """,(approval_id,b["id"],motivo,riferimento,request_actor(),stamp))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)
+        """,(b["id"],"approvazione",approval_id,
+             "Regressione approvazione registrata - storico originale conservato",
+             json.dumps({"ids":ids,"estremi_atto_origine":row["estremi_atto"],
+                         "motivazione":motivo,"riferimento_provvedimento":riferimento},
+                        ensure_ascii=False),request_actor(),stamp))
+        db.commit()
+    return {"ok":True,"stato":"regredita","graduatorie_riaperte":len(ids)}
 
 
 @app.delete("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}")
