@@ -33,6 +33,13 @@ def test_english_model_and_returned_evaluation(tmp_path,monkeypatch):
                 assert "LINGUA INGLESE" in text
                 assert "50" in text
                 assert "Tipologia di incarico" in text
+                # Dottorato (3) e assegni di ricerca (1): scelta binaria.
+                for field_name, fixed in (("P02","3"),("P05","1")):
+                    options=fields[field_name].get("/Opt") or []
+                    choices=[str(choice[-1] if isinstance(choice,list) else choice)
+                             for choice in options]
+                    assert set(choices)=={"0",fixed},(field_name,choices)
+
             else:
                 other.append(data)
         assert english and other
@@ -45,6 +52,14 @@ def test_english_model_and_returned_evaluation(tmp_path,monkeypatch):
         assert reviewed["schede"][0]["punteggio"]==30
         saved=_confirm(client,reviewed["token"])
         assert saved["acquisite"]==1,saved
+
+        # Il controllo server deve respingere anche un PDF manipolato
+        # contenente un valore intermedio, nonostante il menu lo impedisca.
+        intermediate=_edit(english[0],{"P02":"2","TOT":"2",
+                                       "STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})
+        intermediate_result=_preview(client,[("dottorato_intermedio.pdf",intermediate)])
+        assert intermediate_result["riepilogo"]["da_verificare"]==1
+        assert "P02" in intermediate_result["schede"][0]["motivo"]
 
         invalid=_edit(english[0],{"P08":"11","TOT":"11",
                                   "STATUS":"CANDIDATO AMMESSO IN GRADUATORIA"})

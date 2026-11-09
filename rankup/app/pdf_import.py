@@ -187,6 +187,12 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                 value = dec(field_value(fields, name))
                 if value < 0 or value > Decimal(maximum):
                     raise ValueError(f"{name} supera il massimale previsto ({maximum})")
+                if model == "inglese" and name in ("P02", "P05") and value not in (
+                    Decimal("0"), Decimal(maximum)
+                ):
+                    raise ValueError(
+                        f"{name}: punteggio fisso previsto dal modello ({maximum}); ammessi solo 0 o {maximum}"
+                    )
                 if model != "inglese" and name in ("P14", "P18") and maximum == 3 and value not in (0, 3):
                     raise ValueError(f"{name} ammette soltanto 0 o 3 punti")
                 scores[name] = value
