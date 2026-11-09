@@ -288,6 +288,12 @@ def initialize() -> None:
           ON valutazioni_pdf_eventi(bando_id,valutazione_pdf_id);
         CREATE INDEX IF NOT EXISTS ix_val_bando ON valutazioni_pdf(bando_id,candidatura_id);
         CREATE INDEX IF NOT EXISTS ix_cand_bando ON candidature(bando_id);
+        -- Ricerca storica per identità fiscale; non modifica la chiave di
+        -- unicità PICA e non obbliga i candidati senza CF a inserire dati fittizi.
+        CREATE INDEX IF NOT EXISTS ix_cand_cf_storico
+          ON candidature(UPPER(REPLACE(REPLACE(COALESCE(codice_fiscale,''),' ',''),'-','')));
+        CREATE INDEX IF NOT EXISTS ix_cand_nominativo_storico
+          ON candidature(cognome COLLATE NOCASE,nome COLLATE NOCASE);
         """)
         # Migrazione conservativa del vincolo SSD: terzo modello Inglese.
         # I dati e i riferimenti delle classificazioni preesistenti sono preservati.
@@ -781,7 +787,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.15", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.16", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -3622,6 +3628,98 @@ def chiudi_bando_con_zip(code: str, request: Request):
         fail("Archivio non creato: "+str(error),409)
     finally:
         temp.unlink(missing_ok=True)
+
+
+
+class RicercaCandidatoStorico(BaseModel):
+    testo: str = Field(min_length=2,max_length=120)
+    criterio: str = Field(default="tutti",max_length=20)
+    pagina: int = Field(default=1,ge=1,le=10000)
+
+
+@app.post("/api/archivio/ricerca-candidati")
+def ricerca_candidati_in_tutti_i_bandi(body: RicercaCandidatoStorico,request: Request):
+    """Interroga SOLO il database, inclusi i bandi archiviati.
+    
+    Ricerca CF esatta, nomi e ID PICA, senza leggere gli ZIP e senza
+    modificare valutazioni. POST impedisce il CF nei parametri URL del proxy.
+    I valori del CF sono mascherati nelle risposte.
+    """
+    require_admin(request)
+    value=body.testo.strip()
+    kind=body.criterio.strip().lower()
+    if kind not in ("tutti","cf","cognome","nome","id_pica"):
+        fail("Criterio di ricerca non valido",400)
+    if kind=="cf":
+        cleaned=re.sub(r"[\s-]","",value).upper()
+        if not re.fullmatch(r"[A-Z0-9]{11,16}",cleaned):
+            fail("Inserire un codice fiscale completo (11-16 caratteri alfanumerici)",400)
+    elif len(value)<3:
+        fail("Per le ricerche testuali occorrono almeno tre caratteri",400)
+    cleaned=re.sub(r"[\s-]","",value).upper()
+    normalized_cf=("UPPER(REPLACE(REPLACE(COALESCE(c.codice_fiscale,''),' ',''),'-',''))")
+    if kind=="cf":
+        predicate=normalized_cf+"=?"
+        args=[cleaned]
+    elif kind=="cognome":
+        predicate="INSTR(LOWER(c.cognome),LOWER(?))>0"
+        args=[value]
+    elif kind=="nome":
+        predicate="INSTR(LOWER(c.nome),LOWER(?))>0"
+        args=[value]
+    elif kind=="id_pica":
+        predicate="INSTR(LOWER(c.id_pica),LOWER(?))>0"
+        args=[value]
+    else:
+        predicate=("("+normalized_cf+"=? AND ? BETWEEN 11 AND 16)"
+                   " OR INSTR(LOWER(c.cognome),LOWER(?))>0"
+                   " OR INSTR(LOWER(c.nome),LOWER(?))>0"
+                   " OR INSTR(LOWER(c.id_pica),LOWER(?))>0")
+        args=[cleaned,len(cleaned),value,value,value]
+    joins=""" FROM candidature c
+                JOIN bandi b ON b.id=c.bando_id
+                JOIN incarichi i ON i.id=c.incarico_id
+                LEFT JOIN valutazioni_pdf v ON v.candidatura_id=c.id """
+    where=" WHERE "+predicate
+    with connect() as db:
+        totals=db.execute("SELECT COUNT(*) AS righe, COUNT(DISTINCT c.id) AS candidature"+
+                          joins+where,args).fetchone()
+        page_size=100
+        offset=(body.pagina-1)*page_size
+        rows=db.execute("""
+            SELECT c.id AS candidatura_id,c.codice_fiscale,c.id_pica,c.nome,
+                   c.cognome,c.stato AS stato_candidatura,
+                   b.codice AS codice_bando,b.stato AS stato_bando,
+                   b.import_at,i.cds,i.sede,i.insegnamento,i.modulo,i.ssd,
+                   i.key AS incarico_key,
+                   v.id AS valutazione_id,v.versione,v.stato AS stato_scheda,
+                   v.attiva,v.decisione,v.totale_calcolato,v.esito,v.note,
+                   v.confermata_il
+        """+joins+where+"""
+            ORDER BY b.import_at DESC,b.codice DESC,
+                     c.cognome COLLATE NOCASE,c.nome COLLATE NOCASE,
+                     i.cds COLLATE NOCASE,i.sede COLLATE NOCASE,
+                     i.insegnamento COLLATE NOCASE,
+                     c.id DESC,v.versione DESC,v.id DESC
+            LIMIT ? OFFSET ?
+        """,[*args,page_size,offset]).fetchall()
+    result=[]
+    for row in rows:
+        record=dict(row)
+        cf=re.sub(r"[\s-]","",record.pop("codice_fiscale") or "").upper()
+        record["cf_mascherato"]=("*"*max(0,len(cf)-4)+cf[-4:]) if cf else None
+        record["scheda_corrente"]=bool(record["valutazione_id"] and
+                                       record["stato_scheda"]=="Acquisita" and
+                                       record["attiva"]==1)
+        result.append(record)
+    return {"risultati":result,"righe_totali":totals["righe"],
+            "candidature_totali":totals["candidature"],
+            "pagina":body.pagina,"per_pagina":page_size,
+            "pagine":(totals["righe"]+page_size-1)//page_size,
+            "criterio":kind,
+            "avvertenza_identita":"Solo il codice fiscale presente e corrispondente "
+              "consente il collegamento certo tra bandi; i nominativi omonimi "
+              "non vengono automaticamente unificati."}
 
 
 @app.get("/api/archivio/{archive_id}/zip")
