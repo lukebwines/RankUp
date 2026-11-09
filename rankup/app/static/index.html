@@ -184,7 +184,7 @@
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
-        <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento dati</button>
+        <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
@@ -411,7 +411,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento dati",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
@@ -698,7 +698,7 @@
         try{
           var data=await api("admin/azzeramento");
           if(state.page!=="azzeramento")return;
-          var text='<div class="card mb"><h3 class="section-heading">Ripristino ambiente dati RankUP</h3>'+
+          var text='<div class="card mb"><h3 class="section-heading">Azzeramento archivi operativi dei bandi</h3>'+
             '<p class="error"><strong>Operazione distruttiva.</strong> Verranno azzerati tutti i bandi, incarichi, candidature, '+
             'associazioni delle commissioni ai bandi, schede acquisite, PDF originali nell\u0027area operativa, graduatorie, esiti e verifiche IA. '+
             'Un backup ZIP integrale sarà creato e verificato prima della pulizia. Non viene cancellata la configurazione, '+
@@ -713,14 +713,14 @@
             '<p class="caption">Il backup è conservato nell\u0027area protetta /data/backups_rankup ed è scaricabile solo da Admin. '+
             'Contiene dati personali: conservalo in un luogo sicuro. Interrompi eventuali importazioni o caricamenti in corso.</p>'+
             '</div>'+
-            '<div class="card"><h3 class="section-heading">Conferma azzeramento totale</h3>'+
+            '<div class="card"><h3 class="section-heading">Conferma azzeramento archivi</h3>'+
             '<form id="reset-data-form"><label>Digita esattamente la frase seguente: '+
             '<strong>'+esc(data.conferma_richiesta)+'</strong>'+
             '<input class="rankup-user-input" id="reset-phrase" type="text" autocomplete="off" required></label>'+
             '<label>Password Admin attuale<input class="rankup-user-input" id="reset-password" type="password" autocomplete="current-password" required></label>'+
             '<label style="display:block;margin:14px 0"><input type="checkbox" id="reset-ack" required> '+
             'Confermo che voglio ripartire da zero e che l\u0027operazione riguarda tutti i bandi, non soltanto quello attivo.</label>'+
-            '<button class="btn" type="submit" id="reset-submit" disabled>Azzeramento completo con backup obbligatorio</button>'+
+            '<button class="btn" type="submit" id="reset-submit" disabled>Azzera archivi dei bandi (backup obbligatorio)</button>'+
             '</form><div id="reset-completed" style="margin-top:15px"></div></div>';
           html(text);
           var form=$("reset-data-form"),phrase=$("reset-phrase"),pass=$("reset-password"),
@@ -745,7 +745,7 @@
               state.active="";localStorage.removeItem("rankup_active");updateHeader();
               note("Dati operativi azzerati; account e configurazione conservati.",false);
             }catch(error){note(error.message,true);sync();}
-            finally{submit.textContent="Azzeramento completo con backup obbligatorio";}
+            finally{submit.textContent="Azzera archivi dei bandi (backup obbligatorio)";}
           };
         }catch(error){note(error.message,true);html(panel("Azzeramento dati",error.message));}
       }
