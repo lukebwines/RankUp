@@ -241,5 +241,7 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
         for member,expected_meta in manifest_files.items():
             if _sha(test.read(member))!=expected_meta["sha256"]:
                 raise ArchivioNonPronto("Verifica impronta fallita: "+member)
+    with temporary_zip.open("rb") as stream:
+        archive_hash=hashlib.file_digest(stream,"sha256").hexdigest()
     return {"manifest":manifest,"riepilogo":riepilogo,"file_count":len(manifest_files),
-            "sha256":_sha(temporary_zip.read_bytes()),"bytes":temporary_zip.stat().st_size}
+            "sha256":archive_hash,"bytes":temporary_zip.stat().st_size}
