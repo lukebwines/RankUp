@@ -182,6 +182,8 @@
         <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
+        <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
+        <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento dati</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
@@ -297,6 +299,8 @@
         state.username="";
         $("account-info").textContent="Accesso protetto";
         $("admin-users-link").style.display="none";
+        $("admin-ssd-link").style.display="none";
+        $("admin-commissioni-link").style.display="none";
         $("admin-reset-link").style.display="none";
         $("admin-menu-heading").style.display="none";
         $("app-layout").style.display="none";
@@ -309,9 +313,11 @@
         state.username=username||"";
         $("account-info").textContent=(state.role==="admin"?"Admin":"Utente")+" · "+state.username;
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-commissioni-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(state.page==="utenti" && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","commissioniarchivio","azzeramento"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -405,11 +411,15 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",azzeramento:"Azzeramento dati",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento dati",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
         if(state.page==="dashboard")return dashboard();
+        if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
+          html(panel("Accesso riservato","La configurazione SSD è riservata all’Admin."));
+        if(state.page==="commissioniarchivio")return state.role==="admin"?renderCommissioniGlobali():
+          html(panel("Accesso riservato","L’anagrafica commissioni è riservata all’Admin."));
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="azzeramento")return state.role==="admin"?renderAzzeramento():html(panel("Accesso riservato","Azzeramento dati riservato all\u0027Admin."));
@@ -690,13 +700,14 @@
           if(state.page!=="azzeramento")return;
           var text='<div class="card mb"><h3 class="section-heading">Ripristino ambiente dati RankUP</h3>'+
             '<p class="error"><strong>Operazione distruttiva.</strong> Verranno azzerati tutti i bandi, incarichi, candidature, '+
-            'commissioni, schede acquisite, PDF originali nell\u0027area operativa, graduatorie, esiti e verifiche IA. '+
+            'associazioni delle commissioni ai bandi, schede acquisite, PDF originali nell\u0027area operativa, graduatorie, esiti e verifiche IA. '+
             'Un backup ZIP integrale sarà creato e verificato prima della pulizia. Non viene cancellata la configurazione, '+
-            'né vengono rimosse le credenziali Admin o gli account operativi.</p>'+
+            'né vengono rimosse le credenziali Admin, gli account operativi, le classificazioni SSD o l’anagrafica delle commissioni.</p>'+
             '<div class="summary">'+
             [['Bandi',data.bandi],['Candidature',data.candidature],['Schede valutate',data.valutazioni],
               ['Graduatorie CdS',data.graduatorie_cds],['Approvazioni',data.graduatorie_approvazioni],
-              ['Documenti presenti',data.originali]].map(function(x){
+              ['Documenti presenti',data.originali],['SSD conservati',data.classificazioni_ssd_conservate],
+              ['Commissioni conservate',data.commissioni_conservate]].map(function(x){
                 return '<div><strong>'+esc(x[1])+'</strong><small>'+esc(x[0])+'</small></div>';
               }).join('')+'</div>'+
             '<p class="caption">Il backup è conservato nell\u0027area protetta /data/backups_rankup ed è scaricabile solo da Admin. '+
@@ -737,6 +748,104 @@
             finally{submit.textContent="Azzeramento completo con backup obbligatorio";}
           };
         }catch(error){note(error.message,true);html(panel("Azzeramento dati",error.message));}
+      }
+
+
+      async function renderSSDGenerali(){
+        if(state.role!=="admin")return;
+        html(panel("Modelli schede per SSD","Lettura della configurazione generale..."));
+        try{
+          var data=await api("admin/ssd/classificazioni");
+          if(state.page!=="ssdconfig")return;
+          var models=[["ordinario","Non professionalizzante"],["professionalizzante","Professionalizzante"],["inglese","Inglese (50 punti)"]];
+          var options=function(selected){return models.map(function(m){
+            return '<option value="'+m[0]+'"'+(selected===m[0]?' selected':'')+'>'+m[1]+'</option>';
+          }).join("");};
+          var rows=data.ssd||[];
+          var body='<div class="card mb"><h3 class="section-heading">Associazioni SSD permanenti</h3>'+
+            '<p class="caption">Valide per tutti i bandi, conservate dopo l’azzeramento. Non si modifica il contenuto delle schede già acquisite né delle graduatorie definitive.</p>'+
+            '<div class="tablebox"><table><thead><tr><th>SSD</th><th>Modello scheda</th><th>Riferimento documentale</th><th>Incarichi importati</th><th></th></tr></thead><tbody>'+
+            rows.map(function(r,i){return '<tr><td><strong>'+esc(r.ssd)+'</strong></td><td><select data-model="'+i+'">'+
+              '<option value=""'+(!r.tipo?' selected':'')+' disabled>Non ancora configurato</option>'+
+              options(r.tipo)+'</select></td><td><input data-ref="'+i+'" value="'+esc(r.riferimento||"")+
+              '" maxlength="400" placeholder="Solo se verificato"></td><td>'+esc(r.incarichi||0)+
+              '</td><td><button class="btn secondary" data-save-ssd="'+i+'">Salva</button></td></tr>';}).join('')+
+            '</tbody></table></div></div>'+
+            '<div class="card"><h3 class="section-heading">Aggiungi SSD alla configurazione generale</h3>'+
+            '<p class="caption">Non occorre importare un bando per preconfigurare un SSD. Inserire soltanto codici effettivamente verificati.</p>'+
+            '<form id="global-ssd-form" class="actions" style="align-items:end;flex-wrap:wrap">'+
+            '<label>Codice SSD<input id="global-ssd-code" required maxlength="32" placeholder="Codice SSD verificato"></label>'+
+            '<label>Modello<select id="global-ssd-type">'+options("ordinario")+'</select></label>'+
+            '<label>Riferimento (facoltativo)<input id="global-ssd-ref" maxlength="400" placeholder="Fonte verificata"></label>'+
+            '<button class="btn" type="submit">Salva associazione</button></form></div>';
+          html(body);
+          async function persist(ssd,tipo,reference){
+            return api("ssd/"+encodeURIComponent(ssd)+"/classificazione",{
+              method:"PUT",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({tipo:tipo,riferimento:reference})});
+          }
+          document.querySelectorAll("[data-save-ssd]").forEach(function(btn){
+            btn.onclick=async function(){
+              var index=Number(btn.dataset.saveSsd),row=rows[index];
+              var tipo=document.querySelector('[data-model="'+index+'"]').value;
+              var ref=document.querySelector('[data-ref="'+index+'"]').value;
+              if(!tipo){note("Seleziona un modello per "+row.ssd,true);return;}
+              btn.disabled=true;
+              try{await persist(row.ssd,tipo,ref);note("SSD "+row.ssd+" aggiornato nella configurazione generale.",false);renderSSDGenerali();}
+              catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          $("global-ssd-form").onsubmit=async function(event){
+            event.preventDefault();
+            var button=this.querySelector("button");
+            button.disabled=true;
+            try{
+              var code=$("global-ssd-code").value.trim().toUpperCase();
+              await persist(code,$("global-ssd-type").value,$("global-ssd-ref").value);
+              note("Associazione globale SSD "+code+" salvata.",false);renderSSDGenerali();
+            }catch(err){note(err.message,true);button.disabled=false;}
+          };
+        }catch(err){note(err.message,true);html(panel("Modelli schede per SSD",esc(err.message)));}
+      }
+
+      async function renderCommissioniGlobali(){
+        if(state.role!=="admin")return;
+        html(panel("Anagrafica commissioni","Lettura composizioni conservate..."));
+        try{
+          var data=await api("admin/commissioni-globali");
+          if(state.page!=="commissioniarchivio")return;
+          var records=data.commissioni||[];
+          var content='<div class="card mb"><h3 class="section-heading">Commissioni conservate</h3>'+
+            '<p class="caption">Archivio generale indipendente dai bandi, non cancellato dall’azzeramento. Le composizioni e le versioni precedenti restano consultabili: non sono automaticamente valide per nuove procedure.</p>'+
+            (records.length?'<div class="tablebox"><table><thead><tr><th>Seleziona</th><th>CdS · sede</th><th>Presidente e componenti</th><th>Anno</th><th>Fonte originaria</th></tr></thead><tbody>'+
+              records.map(function(r){return '<tr><td><input type="checkbox" class="global-commission-check" value="'+esc(r.id)+'"></td>'+
+                '<td>'+esc(r.cds)+' · '+esc(r.sede)+'</td><td><strong>'+esc(r.presidente)+'</strong>'+
+                '<div class="caption">'+esc(r.componenti||"Composizione incompleta")+'</div></td>'+
+                '<td>'+esc(r.anno||"Non indicato")+'</td><td>'+esc(r.fonte_bando)+'</td></tr>';}).join('')+'</tbody></table></div>':
+              '<p class="muted">Nessuna commissione conservata.</p>')+'</div>'+
+            '<div class="card"><h3 class="section-heading">Associa a un nuovo bando</h3>'+
+            '<p class="caption">Seleziona soltanto commissioni con provvedimento ancora valido e CdS/sede corrispondenti a quelli PICA. L’anno accademico, se indicato da entrambe le fonti, deve corrispondere; non viene effettuata alcuna associazione automatica.</p>'+
+            (cur()?'<p>Bando attivo: <strong>'+esc(state.active)+'</strong></p>'+
+              '<label><input type="checkbox" id="global-commission-verified"> Ho verificato documentalmente la validità delle composizioni selezionate per questo bando.</label>'+
+              '<div class="actions" style="margin-top:12px"><button class="btn" id="global-commission-reuse">Associa le commissioni selezionate</button></div>':
+              '<p class="muted">Importa o seleziona un bando per utilizzare le commissioni conservate.</p>')+'</div>';
+          html(content);
+          if($("global-commission-reuse"))$("global-commission-reuse").onclick=async function(){
+            var ids=[...document.querySelectorAll(".global-commission-check:checked")].map(function(x){return Number(x.value);});
+            if(!ids.length){note("Seleziona almeno una commissione.",true);return;}
+            if(!$("global-commission-verified").checked){note("La verifica documentale è obbligatoria.",true);return;}
+            if(!confirm("Confermare l'associazione delle "+ids.length+" commissioni selezionate al bando "+state.active+
+               "? Le nomine precedenti non sono automaticamente valide per nuovi bandi."))return;
+            this.disabled=true;
+            try{
+              var result=await api("bandi/"+encodeURIComponent(state.active)+"/commissioni/recupera-globali",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({ids:ids,conferma_verifica:true})});
+              note("Commissioni associate al bando: "+result.aggiunte+". Verifica i dati prima di generare i PDF.",false);
+              renderCommissioniGlobali();
+            }catch(err){note(err.message,true);this.disabled=false;}
+          };
+        }catch(err){note(err.message,true);html(panel("Anagrafica commissioni",esc(err.message)));}
       }
 
       async function renderUtenti(){
@@ -1744,7 +1853,7 @@
             var missing=!item.tipo;
             var nn=item.ssd==="NN";
             var select='<select class="ssd-type" aria-label="Modello PDF per SSD '+esc(item.ssd)+'"'+
-                ((missing||nn)?' disabled':'')+'>'+
+                ((missing||nn||state.role!=="admin")?' disabled':'')+'>'+
                 (missing?'<option value="" selected>SSD da verificare</option>':'')+
                 '<option value="ordinario"'+(item.tipo==="ordinario"?' selected':'')+'>Non professionalizzante</option>'+
                 '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?' selected':'')+'>Professionalizzante</option>'+
@@ -1769,7 +1878,7 @@
               ' incomplete: puoi generare le schede dei CdS con commissione completa.'
              :'Tutte le commissioni associate.')+'</div>';
           html('<div class="card mb"><h3 class="section-heading">Modelli PDF per SSD · Bando '+esc(code)+'</h3>'+
-            '<p class="muted">Ogni SSD identificato utilizza di default il modello non professionalizzante. Per gli SSD pertinenti seleziona Professionalizzante o Inglese (50 punti). Il modello scelto viene salvato automaticamente.</p>'+
+            '<p class="muted">Le associazioni SSD → modello sono generali, comuni a tutti i bandi e conservate anche dopo l’azzeramento. L’Admin le gestisce dalla voce Amministrazione → Modelli per SSD.</p>'+
             '<div class="notice">'+ordinary+' SSD non professionalizzanti · '+professional+
             ' professionalizzanti · '+english+' Inglese · '+unresolved+' SSD da verificare. Non è necessario salvare le scelte predefinite.</div>'+
             (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
