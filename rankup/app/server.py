@@ -774,7 +774,7 @@ def esegui_azzeramento(request: Request, body: RichiestaAzzeramento):
 @app.get("/api/admin/azzeramento/backup/{filename}")
 def scarica_backup_azzeramento(filename: str, request: Request):
     require_admin(request)
-    if not re.fullmatch(r"rankup_prima_azzeramento_\\d{8}T\\d{6}Z_[0-9a-f]{10}\\.zip",filename):
+    if not re.fullmatch(r"rankup_prima_azzeramento_\d{8}T\d{6}Z_[0-9a-f]{10}\.zip",filename):
         fail("Nome backup non valido",400)
     folder=(BASE/"backups_rankup").resolve()
     file=(folder/filename).resolve()
