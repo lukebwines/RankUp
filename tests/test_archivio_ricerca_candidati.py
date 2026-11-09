@@ -59,7 +59,10 @@ def test_storico_conserva_versioni_e_omette_CF_intero(tmp_path,monkeypatch):
         # Simula una versione storica di una scheda della stessa candidatura,
         # senza cancellare né alterare gli originali PDF.
         with server.connect() as db:
-            r=db.execute("SELECT * FROM valutazioni_pdf WHERE attiva=1 LIMIT 1").fetchone()
+            r=db.execute("""SELECT v.* FROM valutazioni_pdf v
+                            JOIN candidature c ON c.id=v.candidatura_id
+                            WHERE v.attiva=1 AND c.codice_fiscale='CODICEFISCALE'
+                            LIMIT 1""").fetchone()
             db.execute("""UPDATE valutazioni_pdf SET attiva=0 WHERE id=?""",(r["id"],))
             db.execute("""INSERT INTO valutazioni_pdf
                 (bando_id,candidatura_id,stato,versione,attiva,sha256,
