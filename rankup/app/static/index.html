@@ -196,7 +196,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.10 · Modulo graduatorie<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.11 · Modulo graduatorie<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -278,7 +278,7 @@
           }finally{
             setTimeout(function(){URL.revokeObjectURL(url);},60000);
           }
-          note("Download PDF avviato.",false);
+          note("Il PDF è stato ricevuto. Download richiesto a Chrome: se non compare, utilizza «Apri PDF nel browser» e salvalo dal lettore.",false);
         }catch(error){note(error.message,true);}
         finally{
           anchor.dataset.downloading="0";
@@ -474,7 +474,10 @@
               (ready
                 ? '<a class="btn" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
-                  '&sede='+encodeURIComponent(g.sede)+'">Genera verbale PDF unico con schede</a>'
+                  '&sede='+encodeURIComponent(g.sede)+'">Genera verbale PDF unico con schede</a>'+
+                  '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
+                  '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
+                  '&sede='+encodeURIComponent(g.sede)+'&inline=true">Apri PDF nel browser</a>'
                 : '<button type="button" class="btn" disabled title="Tutte le schede devono essere validate">Verbale non ancora generabile</button>')+
               ((state.role==="admin"&&g.stato==="pronta"&&g.verbale_generabile)
                 ? '<button class="btn secondary" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
@@ -487,7 +490,10 @@
                 ? '<div class="caption">Versioni precedenti: '+
                   g.revisioni.map(function(rev){return '<a data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                     '/verbali/graduatorie/revisioni/'+encodeURIComponent(rev.id)+
-                    '/pdf">Verbale storico '+esc(rev.quando)+'</a>';}).join(' · ')+'</div>':'');
+                    '/pdf">Scarica storico '+esc(rev.quando)+'</a>'+
+                    ' (<a target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
+                    '/verbali/graduatorie/revisioni/'+encodeURIComponent(rev.id)+
+                    '/pdf?inline=true">Apri</a>)';}).join(' · ')+'</div>':'');
             var detail='<details class="ru-verb-details"><summary>Dettagli: '+g.incarichi.length+
               ' incarichi, candidature, note e controlli</summary>'+
               (issues.length?'<div class="notice"><strong>Controlli da risolvere:</strong> '+
@@ -620,6 +626,8 @@
                     '. Il PDF originale resta scaricabile come documento storico.</p>':'')+
                 '<div class="actions"><a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
+                '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
+                '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf?inline=true">Apri PDF nel browser</a>'+
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
