@@ -1632,6 +1632,7 @@
           var unresolved=rows.filter(function(item){return !item.tipo;}).length;
           var professional=rows.filter(function(item){return item.tipo==="professionalizzante";}).length;
           var ordinary=rows.filter(function(item){return item.tipo==="ordinario";}).length;
+          var english=rows.filter(function(item){return item.tipo==="inglese";}).length;
           var statuses=rows.map(function(item){
             var missing=!item.tipo;
             var nn=item.ssd==="NN";
@@ -1640,6 +1641,7 @@
                 (missing?'<option value="" selected>SSD da verificare</option>':'')+
                 '<option value="ordinario"'+(item.tipo==="ordinario"?' selected':'')+'>Non professionalizzante</option>'+
                 '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?' selected':'')+'>Professionalizzante</option>'+
+                '<option value="inglese"'+(item.tipo==="inglese"?' selected':'')+'>Inglese (50 punti)</option>'+
                 '</select>';
             var stato=nn?'NN: modello ordinario predefinito':(missing?'SSD da verificare':
                 (item.tipo_salvato?'Scelta salvata':'Predefinito'));
@@ -1660,9 +1662,9 @@
               ' incomplete: puoi generare le schede dei CdS con commissione completa.'
              :'Tutte le commissioni associate.')+'</div>';
           html('<div class="card mb"><h3 class="section-heading">Modelli PDF per SSD · Bando '+esc(code)+'</h3>'+
-            '<p class="muted">Ogni SSD identificato utilizza di default il modello non professionalizzante. Seleziona Professionalizzante soltanto per gli SSD interessati: la modifica viene salvata automaticamente.</p>'+
+            '<p class="muted">Ogni SSD identificato utilizza di default il modello non professionalizzante. Per gli SSD pertinenti seleziona Professionalizzante o Inglese (50 punti). Il modello scelto viene salvato automaticamente.</p>'+
             '<div class="notice">'+ordinary+' SSD non professionalizzanti · '+professional+
-            ' professionalizzanti · '+unresolved+' SSD da verificare. Non è necessario salvare le scelte predefinite.</div>'+
+            ' professionalizzanti · '+english+' Inglese · '+unresolved+' SSD da verificare. Non è necessario salvare le scelte predefinite.</div>'+
             (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
@@ -1685,7 +1687,7 @@
                   body:JSON.stringify({tipo:tipo})
                 });
                 note("Modello per SSD "+sector+" salvato: "+
-                  (tipo==="professionalizzante"?"Professionalizzante":"Non professionalizzante"),false);
+                  (tipo==="professionalizzante"?"Professionalizzante":tipo==="inglese"?"Inglese (50 punti)":"Non professionalizzante"),false);
                 await renderSchede();
               }catch(error){
                 select.value=oldType;
