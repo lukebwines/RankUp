@@ -3020,14 +3020,6 @@ def _motivo_regressione(body: RegredisciStato, riferimento_obbligatorio: bool = 
     return motivo,riferimento
 
 
-@app.post("/api/bandi/{code}/verbali/graduatorie/regredisci")
-def regredisci_graduatoria_cds(code: str, body: FinalizzaGraduatoria,
-                               request: Request, motivazione: str = ""):
-    # Endpoint di compatibilità: usare il percorso /regredisci-stato con
-    # il corpo che contiene anche la motivazione.
-    fail("Utilizzare la funzione Regredisci stato con motivazione obbligatoria",400)
-
-
 class RegredisciGraduatoriaCdS(RegredisciStato):
     cds: str = Field(min_length=1,max_length=250)
     sede: str = Field(min_length=1,max_length=100)
