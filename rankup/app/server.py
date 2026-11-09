@@ -41,6 +41,7 @@ from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf
 from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
+from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -655,7 +656,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.2", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.4", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -736,6 +737,51 @@ def require_admin(request: Request) -> dict:
     if not principal or principal["role"] != "admin":
         fail("Gestione degli utenti riservata all'amministratore",403)
     return principal
+
+
+# L'azzeramento non e' un'azione pianificata: richiede sempre l'Admin,
+# la password attuale e conferma testuale. Non elimina account o opzioni.
+class RichiestaAzzeramento(BaseModel):
+    conferma: str = Field(min_length=1,max_length=100)
+    password_admin: str = Field(min_length=1,max_length=128)
+
+
+@app.get("/api/admin/azzeramento")
+def anteprima_azzeramento(request: Request):
+    require_admin(request)
+    with connect() as db:
+        return reset_preview(db,SOURCES,PENDING)
+
+
+@app.post("/api/admin/azzeramento")
+def esegui_azzeramento(request: Request, body: RichiestaAzzeramento):
+    require_admin(request)
+    if body.conferma != RESET_CONFIRMATION:
+        fail("Digitare esattamente la frase di conferma",400)
+    if not AUTH.verify_admin_password(body.password_admin):
+        fail("Password amministratore non corretta",403)
+    try:
+        archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup")
+    except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile) as exc:
+        fail("Azzeramento non eseguito o incompleto: "+str(exc),409)
+    # Ricrea le corrispondenze PICA di sistema; account e opzioni restano.
+    initialize()
+    return {"ok":True,"backup":archive,
+            "message":"Azzeramento dati completato. Backup scaricabile solo da Admin.",
+            "preservati":"Account RankUP, password e configurazione add-on"}
+
+
+@app.get("/api/admin/azzeramento/backup/{filename}")
+def scarica_backup_azzeramento(filename: str, request: Request):
+    require_admin(request)
+    if not re.fullmatch(r"rankup_prima_azzeramento_\d{8}T\d{6}Z_[0-9a-f]{10}\.zip",filename):
+        fail("Nome backup non valido",400)
+    folder=(BASE/"backups_rankup").resolve()
+    file=(folder/filename).resolve()
+    if not file.is_relative_to(folder) or not file.is_file():
+        fail("Backup non trovato",404)
+    return FileResponse(file,filename=filename,media_type="application/zip",
+                        headers={"Cache-Control":"no-store"})
 
 
 class CreaUtente(BaseModel):
@@ -891,7 +937,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.2"}
+    return {"status": "ok", "version": "0.9.4"}
 
 
 class NuovoBandoInput(BaseModel):

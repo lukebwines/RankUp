@@ -74,6 +74,16 @@ class Authentication:
         except (sqlite3.Error, OSError):
             return None
 
+    def verify_admin_password(self, password: str) -> bool:
+        """Richiede la password Admin senza creare una nuova sessione."""
+        if not self.configured or not isinstance(password,str):
+            return False
+        try:
+            calculated=self._derive(password,self._salt)
+        except (ValueError,TypeError):
+            return False
+        return hmac.compare_digest(calculated,self._verifier)
+
     def authenticate(self, username: str, password: str) -> str | None:
         if not self.configured:
             return None
