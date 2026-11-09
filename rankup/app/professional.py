@@ -221,8 +221,8 @@ def make_professional(record: dict) -> bytes:
     # Il campo REQUISITI mantiene il nome AcroForm e il proprio contenuto.
     field("REQUISITI", 53, 203, 497, 9.5,
           record.get("requisiti") or "[DA VERIFICARE]", fontsize=6.3)
-    txt(56, 213.2, "Tipo CDS PICA (L):", 6.6, True)
-    field("TIPO-CDS-PICA", 135, 212.5, 415, 9.5,
+    txt(56, 213.2, "Tipologia di incarico:", 6.6, True)
+    field("TIPO-CDS-PICA", 157, 212.5, 393, 9.5,
           record.get("tipo_cds") or "[DA VERIFICARE]", fontsize=6.3)
     draw_occupazione_warning(pdf, record, H)
 

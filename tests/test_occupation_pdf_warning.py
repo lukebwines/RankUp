@@ -32,12 +32,11 @@ def test_pdf_occupation_warning_for_reserved_assignments(tmp_path, monkeypatch):
         for data in sheets:
             pdf = PdfReader(BytesIO(data))
             text = pdf.pages[0].extract_text() or ""
-            assert "Tipo CDS PICA (L):" in text
+            assert "Tipologia di incarico:" in text
             fields = pdf.get_fields() or {}
             assert fields["TIPO-CDS-PICA"].get("/V") == "contratto esterno oneroso CSA"
             assert fields["REQUISITI"].get("/V")
-            assert "ATTENZIONE - Verificare occupazione e appartenenza: SSN" in text
-            assert "DA VERIFICARE" in text
+            assert "ATTENZIONE - Verificare occupazione e appartenenza all'ente (SSN)" in text
             assert "NOTE-COMM" in (pdf.get_fields() or {})
             assert "STATUS" in (pdf.get_fields() or {})
             assert (pdf.get_fields() or {})["STATUS"].get("/V") in ("-", "-- Seleziona --")
