@@ -41,7 +41,7 @@ def test_cf_pica_joins_multiple_candidatures_and_sheets(tmp_path,monkeypatch):
         assert _search(client,"codicefiscale","cf").status_code==200
         assert len(_search(client,"Candidato","cognome").json()["risultati"])==3
         assert len(_search(client,"1001","id_pica").json()["risultati"])==2
-        assert _search(client,"A","cf").status_code==400
+        assert _search(client,"A","cf").status_code==422
 
         _import_other_bando(client)
         across=_search(client,"CODICEFISCALE","cf")
