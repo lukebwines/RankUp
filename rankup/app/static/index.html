@@ -116,23 +116,34 @@
     html[data-theme="dark"] .rankup-user-input{background:#0d1d2e;color:#eaf2fb;border-color:#55708c}
     .ru-verb-card{border-width:2px;transition:border-color .15s ease}
     .ru-verb-ready{border-color:#299c60;background:#f4fcf7}
-    .ru-verb-pending{border-color:#c5d3e2}
+    .ru-verb-pronto{border-color:#5b95c9;background:#f3f8fd}
+    .ru-verb-pending{border-color:#d6a93d;background:#fff9e8}
     .ru-verb-summary{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap}
     .ru-verb-summary .section-heading{margin-bottom:5px}
-    .ru-verb-status{display:inline-block;padding:7px 12px;border-radius:15px;font-size:12px;font-weight:800;background:#e8eef4;color:#38506a}
-    .ru-status-ready{background:#c9f2dd;color:#155a37}
+    .ru-verb-status{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:15px;font-size:12px;font-weight:800;background:#e8eef4;color:#38506a;white-space:nowrap}
+    .ru-status-working{background:#f3c74f;color:#473300;border:1px solid #d4a62b}
+    .ru-status-ready{background:#d8eafb;color:#20578a}
+    .ru-status-final{background:#237749;color:#fff;border:1px solid #17623b}
+    .ru-status-approved{background:#185f55;color:#fff;border:1px solid #0c5047}
+    .ru-status-rosette{width:17px;height:17px;flex:none;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
     .ru-verb-progress{height:8px;background:#dce6f0;border-radius:9px;overflow:hidden;margin:12px 0}
     .ru-verb-progress>div{height:100%;background:#3d7aa4;border-radius:9px}
     .ru-verb-ready .ru-verb-progress>div{background:#248653}
+    .ru-verb-pronto .ru-verb-progress>div{background:#387eaf}
+    .ru-verb-pending .ru-verb-progress>div{background:#d9a82d}
     .ru-verb-details{margin-top:18px;border-top:1px solid #bacbd9;padding-top:12px}
     .ru-verb-details>summary{cursor:pointer;font-weight:750;padding:8px 0}
     .ru-verb-details>summary:focus-visible{outline:2px solid #439bd8}
     .ru-verb-assignment{margin:15px 0;padding:10px 0;border-top:1px solid #d8e3ef}
     .ru-verb-assignment h4{margin:8px 0}
     html[data-theme="dark"] .ru-verb-ready{background:#17392e;border-color:#42b47c;color:#e8fff0}
-    html[data-theme="dark"] .ru-verb-pending{background:#152539;border-color:#35536e}
+    html[data-theme="dark"] .ru-verb-pronto{background:#182e46;border-color:#4988bb}
+    html[data-theme="dark"] .ru-verb-pending{background:#332a19;border-color:#b98c28}
     html[data-theme="dark"] .ru-verb-status{background:#29425c;color:#dceaff}
-    html[data-theme="dark"] .ru-status-ready{background:#235f44;color:#dbffeb}
+    html[data-theme="dark"] .ru-status-working{background:#f3c74f;color:#473300;border-color:#d4a62b}
+    html[data-theme="dark"] .ru-status-ready{background:#28547d;color:#eff8ff}
+    html[data-theme="dark"] .ru-status-final{background:#237749;color:#fff;border-color:#47b97a}
+    html[data-theme="dark"] .ru-status-approved{background:#185f55;color:#fff;border-color:#36a597}
     html[data-theme="dark"] .ru-verb-progress{background:#29435b}
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
@@ -150,6 +161,7 @@
     <symbol id="ri-archive" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="5" rx="1"/><path d="M5 8v13h14V8M10 12h4"/></symbol>
     <symbol id="ri-moon" viewBox="0 0 24 24"><path d="M20.9 13a9 9 0 1 1-9.9-9.9A7.5 7.5 0 0 0 20.9 13z"/></symbol>
     <symbol id="ri-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></symbol>
+    <symbol id="ri-rosette" viewBox="0 0 24 24"><path d="m8 13-2 8 6-3 6 3-2-8"/><path d="m12 2 2 1 2.3-.4 1 2.1 2.1 1-.4 2.3 1 2-1 2 .4 2.3-2.1 1-1 2.1-2.3-.4-2 1-2-1-2.3.4-1-2.1-2.1-1 .4-2.3-1-2 1-2-.4-2.3 2.1-1 1-2.1 2.3.4z"/><circle cx="12" cy="10" r="3"/></symbol>
   </svg>
   <section class="auth-screen" id="auth-screen">
     <form id="login-form" class="auth-card" autocomplete="on">
@@ -196,7 +208,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.13 · Modulo valutazioni<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.14 · Modulo valutazioni<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -462,10 +474,13 @@
             var complete=Number(g.schede_validate||0),total=Number(g.totale_candidature||0);
             var percent=total?Math.round(100*complete/total):0;
             var label=approved?"Atti approvati":final?"Definitiva":ready?"Pronto":"In lavorazione";
-            var heading='<div class="card mb ru-verb-card '+(ready?'ru-verb-ready':'ru-verb-pending')+'">'+
+            var cardClass=(approved||final)?"ru-verb-ready":ready?"ru-verb-pronto":"ru-verb-pending";
+            var statusClass=approved?"ru-status-approved":final?"ru-status-final":ready?"ru-status-ready":"ru-status-working";
+            var rosette=final?'<svg class="ru-status-rosette" aria-hidden="true"><use href="#ri-rosette"></use></svg>':'';
+            var heading='<div class="card mb ru-verb-card '+cardClass+'">'+
               '<div class="ru-verb-summary"><div><h3 class="section-heading">'+esc(g.cds)+' · '+esc(g.sede)+'</h3>'+
               '<p class="caption">Schede validate: <strong>'+complete+' / '+total+'</strong></p></div>'+
-              '<span class="ru-verb-status '+(ready?'ru-status-ready':'')+'">'+esc(label)+'</span></div>'+
+              '<span class="ru-verb-status '+statusClass+'">'+rosette+esc(label)+'</span></div>'+
               '<div class="ru-verb-progress" role="progressbar" aria-valuemin="0" aria-valuemax="'+total+
               '" aria-valuenow="'+complete+'" aria-label="Schede validate"><div style="width:'+percent+'%"></div></div>'+
               '<p class="caption">'+(final||approved?'Verbale definitivo già registrato: schede non compilabili, documento consultabile.':
