@@ -230,3 +230,13 @@ Lo ZIP viene **verificato prima di essere registrato** e conservato in `/data/ar
 Gli ZIP finali e il registro sono conservati anche dalla procedura **Azzeramento archivi**: la cancellazione dei dati operativi non tocca questa cartella. La riapertura di un bando già eliminato dall'azzeramento non è automatica: occorre un'apposita procedura di reimport/ripristino verificata; lo ZIP è comunque scaricabile.
 
 **Protezione documentale:** il pacchetto contiene dati personali e **non è cifrato**; va conservato tramite i sistemi autorizzati dell'ente. Lo ZIP locale è una copia di lavoro verificabile, ma non equivale a conservazione digitale a norma, protocollo o firma digitale. Non sono generati dati amministrativi mancanti; tutti i riferimenti agli atti derivano dalle registrazioni esistenti in RankUP.
+
+### RankUP 0.9.16 — Ricerca storica delle schede per codice fiscale
+
+La pagina **Archivio → Ricerca storica candidati** interroga contemporaneamente tutte le candidature dei bandi presenti in RankUP, compresi i bandi chiusi e archiviati, con ricerca per codice fiscale esatto (quando disponibile), cognome, nome e ID PICA. Mostra per ciascuna candidatura il bando e il suo stato, CdS/sede, incarico, esito, punteggio e **tutte le versioni delle schede**, con accesso diretto al PDF originale. Le candidature senza scheda sono comunque identificabili.
+
+La relazione documentale **non richiede di alterare i PDF**: `valutazioni_pdf.candidatura_id` identifica `candidature.id`, che conserva `codice_fiscale` importato da PICA. Il codice fiscale non è una chiave univoca nel database (la stessa persona può presentare più domande/incarichi), ma consente di confrontare candidature fra bandi quando il dato è presente e affidabile. Non vengono collegati automaticamente omonimi; se PICA non contiene un CF il sistema non inventa il dato.
+
+**Sicurezza:** funzione riservata all'Admin, ricerca tramite POST anziché URL, risposte con codice fiscale mascherato e senza esportazione indiscriminata. Per il trattamento, consultazione e conservazione dei dati applicare le policy dell'Ateneo. La funzione è di sola lettura; non tocca punteggi, esiti o PDF.
+
+**Archivio in produzione:** i bandi chiusi restano nel database operativo; il loro ZIP è una copia integrale separata. La ricerca attraversa i bandi ancora registrati nel database e **non indicizza automaticamente gli ZIP dopo un azzeramento o una cancellazione**. L'azzeramento rimane una funzione straordinaria per la pulizia dell'ambiente di prova prima dell'avvio in produzione, non una procedura da ripetere fra bandi.
