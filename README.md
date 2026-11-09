@@ -195,3 +195,15 @@ Prima della generazione il verbale completo non può essere scaricato (HTTP 409)
 **Migrazione non distruttiva:** i verbali già definitivi nelle versioni precedenti, che non dispongono ancora di una copia PDF memorizzata, rimangono consultabili grazie alla ricostruzione dalla loro istantanea e dagli originali con integrità verificata; anche in questo caso i campi compilabili vengono appiattiti.
 
 L'appiattimento elimina i campi PDF editabili, ma **non sostituisce una firma digitale** né rende materialmente impossibile alterare un PDF con strumenti di editing avanzati. Per attestare provenienza e integrità nei procedimenti amministrativi resta necessaria la verifica della firma digitale o dell'impronta archiviata, secondo le procedure dell'ente.
+
+### RankUP 0.9.13 — Valutazioni organizzate per schede e incarichi PICA
+
+La pagina **Valutazioni** rimane centrata sulle **schede delle candidature**, ma le raggruppa per **CdS → sede → incarico PICA** (insegnamento, modulo, SSD, identificativo dell'incarico). Anche gli incarichi senza PDF compaiono con il numero di candidature previste, per evitare di confondere la quantità di file storici con il numero di incarichi.
+
+- **Schede correnti** (vista predefinita): mostra soltanto le valutazioni **acquisite, attive e con esito validato**, che possono concorrere al verbale. Le anomalie tuttora da esaminare sono evidenziate separatamente nel relativo incarico e non sono conteggiate come schede valide; i PDF non associati sono visibili in una sezione distinta.
+- **Tutte le versioni**: conserva la consultazione delle schede precedenti, delle acquisizioni rifiutate, dei PDF da verificare e delle analisi IA, sempre raggruppati per incarico. Una versione sostituita è etichettata come storica, non presentata come errore corrente.
+- I pulsanti PDF, verifica occupazionale IA e acquisizione manuale riservata all'Admin restano utilizzabili. I filtri CdS e sede e il riepilogo avanzamento restano disponibili.
+- Il collegamento ai documenti usa `incarico_id` e `candidatura_id` già registrati nel database; non fa deduzioni dal nome del file o dal candidato.
+- **Nessuna migrazione dei dati**, nessuna modifica ai punteggi, agli esiti, ai PDF originali o alle graduatorie.
+
+Per gli **SSD nuovi non ancora associati** resta la regola preesistente: il modello iniziale è **Non professionalizzante** (`ordinario`); l'Admin può modificarlo nella configurazione globale, che persiste dopo l'azzeramento degli archivi. Nessun blocco automatico aggiuntivo è stato introdotto.
