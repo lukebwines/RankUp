@@ -57,3 +57,39 @@ def test_archivio_finale_blocca_incompleti_e_salva_zip(tmp_path, monkeypatch):
         assert _post(client,base+"/archivio/chiudi",json={}).status_code==409
         assert _post(client,base+"/graduatorie/approvazioni",
                      json={"graduatorie_ids":[after["conferma"]["id"]]}).status_code==409
+
+
+def test_archive_can_be_reopened_without_deleting_zip(tmp_path,monkeypatch):
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        base="/api/bandi/26-02"
+        _complete_all(client,sheets)
+        group=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
+        body={"cds":group["cds"],"sede":group["sede"]}
+        assert _post(client,base+"/verbali/graduatorie/genera-definitivo",json=body).status_code==200
+        gid=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]["conferma"]["id"]
+        approval=_post(client,base+"/graduatorie/approvazioni",json={"graduatorie_ids":[gid]})
+        assert approval.status_code==200
+        aid=approval.json()["id"]
+        assert _post(client,base+f"/graduatorie/approvazioni/{aid}/conferma",
+           json={"estremi_atto":"PROVVEDIMENTO SINTETICO DI COLLAUDO"}).status_code==200
+        archived=_post(client,base+"/archivio/chiudi",json={})
+        assert archived.status_code==200,archived.text
+        archive_id=archived.json()["archivio_id"]
+        original=client.get(f"/api/archivio/{archive_id}/zip").content
+        invalid=_post(client,base+"/archivio/riapri",json={
+            "motivazione":"Riapertura documentata per collaudo",
+            "riferimento":"[DA VERIFICARE]"})
+        assert invalid.status_code==400
+        restored=_post(client,base+"/archivio/riapri",json={
+            "motivazione":"Riapertura documentata per collaudo",
+            "riferimento":"ATTO SINTETICO DI COLLAUDO"})
+        assert restored.status_code==200,restored.text
+        assert client.get(base).json()["bando"]["stato"]!="Archiviato"
+        assert client.get(f"/api/archivio/{archive_id}/zip").content==original
+        second=_post(client,base+"/archivio/chiudi",json={})
+        assert second.status_code==200,second.text
+        assert second.json()["archivio_id"]!=archive_id
+        records=client.get("/api/archivio").json()["archivi"]
+        assert len(records)==2
+        assert records[1]["riaperto_il"]
