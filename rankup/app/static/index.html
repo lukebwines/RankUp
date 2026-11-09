@@ -196,7 +196,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.11 · Modulo graduatorie<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.12 · Modulo graduatorie<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -468,19 +468,22 @@
               '<span class="ru-verb-status '+(ready?'ru-status-ready':'')+'">'+esc(label)+'</span></div>'+
               '<div class="ru-verb-progress" role="progressbar" aria-valuemin="0" aria-valuemax="'+total+
               '" aria-valuenow="'+complete+'" aria-label="Schede validate"><div style="width:'+percent+'%"></div></div>'+
-              '<p class="caption">'+(ready?'Tutti i controlli completati: verbale PDF unico disponibile.':
+              '<p class="caption">'+(final||approved?'Verbale definitivo già registrato: schede non compilabili, documento consultabile.':
+                ready?'Schede validate: la generazione del verbale ne registra automaticamente lo stato definitivo.':
                 esc(g.schede_da_risolvere)+' schede da completare o validare; risolvere anche eventuali parità e anomalie.')+'</p>'+
               '<div class="actions">'+
-              (ready
+              ((final||approved)
                 ? '<a class="btn" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
-                  '&sede='+encodeURIComponent(g.sede)+'">Genera verbale PDF unico con schede</a>'+
+                  '&sede='+encodeURIComponent(g.sede)+'">Scarica verbale definitivo con schede</a>'+
                   '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
                   '&sede='+encodeURIComponent(g.sede)+'&inline=true">Apri PDF nel browser</a>'
-                : '<button type="button" class="btn" disabled title="Tutte le schede devono essere validate">Verbale non ancora generabile</button>')+
-              ((state.role==="admin"&&g.stato==="pronta"&&g.verbale_generabile)
-                ? '<button class="btn secondary" data-verb-final="'+i+'">Rendi definitiva</button>':'')+
+                : (ready&&state.role==="admin")
+                  ? '<button type="button" class="btn" data-verb-create="'+i+'">Genera verbale definitivo con schede</button>'
+                  : '<button type="button" class="btn" disabled title="'+
+                    (ready?"Operazione riservata all’Admin":"Tutte le schede devono essere validate")+'">'+
+                    (ready?"Generazione riservata all’Admin":"Verbale non ancora generabile")+'</button>')+
               ((state.role==="admin"&&final)
                 ? '<button class="btn secondary" data-verb-regress="'+i+'">Regredisci stato</button>':'')+
               ((approved && state.role==="admin")
@@ -576,19 +579,37 @@
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
           });
-          document.querySelectorAll("[data-verb-final]").forEach(function(btn){
+          document.querySelectorAll("[data-verb-create]").forEach(function(btn){
             btn.onclick=async function(){
-              var g=shown[Number(btn.dataset.verbFinal)];
-              if(!g||!confirm("Confermare definitiva la graduatoria di "+g.cds+" / "+g.sede+
-                "? Le valutazioni saranno bloccate fino a eventuale procedura di rettifica."))return;
-              btn.disabled=true;
+              var g=shown[Number(btn.dataset.verbCreate)];
+              if(!g||!confirm("Generare il verbale DEFINITIVO di "+g.cds+" / "+g.sede+
+                 "? Le schede allegate diventeranno non compilabili e le valutazioni "+
+                 "saranno bloccate fino a eventuale regressione dello stato."))return;
+              // La finestra nasce direttamente dal clic: evita che Chrome
+              // blocchi un'apertura tentata dopo una richiesta asincrona.
+              var viewer=window.open("about:blank","_blank");
+              if(viewer){
+                viewer.document.title="RankUP · Generazione verbale definitivo";
+                viewer.document.body.textContent="Generazione del documento definitivo in corso...";
+              }
+              btn.disabled=true;btn.textContent="Generazione e chiusura...";
               try{
-                await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/definitiva",{
+                await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/genera-definitivo",{
                   method:"POST",headers:{"Content-Type":"application/json"},
                   body:JSON.stringify({cds:g.cds,sede:g.sede})});
-                note("Graduatoria CdS resa definitiva e registrata nello storico.",false);
+                var target="api/bandi/"+encodeURIComponent(code)+
+                  "/verbali/graduatorie/pdf-completo?cds="+encodeURIComponent(g.cds)+
+                  "&sede="+encodeURIComponent(g.sede)+"&inline=true";
+                if(viewer&&!viewer.closed)viewer.location.href=new URL(target,document.baseURI).href;
+                note("Verbale definitivo generato e archiviato con schede non compilabili. "+
+                  (viewer?"Puoi salvarlo dal lettore PDF di Chrome.":
+                   "Usa «Apri PDF nel browser» per visualizzarlo e salvarlo."),false);
                 renderVerbaliGraduatorie();
-              }catch(err){note(err.message,true);btn.disabled=false;}
+              }catch(err){
+                if(viewer&&!viewer.closed)viewer.close();
+                note("Nessuna finalizzazione eseguita: "+err.message,true);
+                btn.disabled=false;btn.textContent="Genera verbale definitivo con schede";
+              }
             };
           });
         }catch(err){note(err.message,true);html(panel("Graduatorie CdS",esc(err.message)));}
