@@ -161,6 +161,14 @@ L'operatore effettivamente autenticato è utilizzato come autore nelle operazion
 
 **Aggiornamento:** eseguire un backup dell'add-on prima dell'installazione; la migrazione aggiunge soltanto due tabelle, senza cambiare quelle di bandi, candidature, commissioni o valutazioni. I nuovi account restano disponibili dopo il riavvio. Le sessioni invece vanno riaperte. Eseguire il collaudo della login attraverso Home Assistant e l'eventuale accesso esterno prima di distribuire credenziali a utenti reali.
 
+### RankUP 0.9.10 — Configurazioni permanenti e archivi operativi
+
+Le associazioni **SSD → modello scheda** sono una configurazione globale, indipendente dal bando: le classificazioni `ordinario`, `professionalizzante` e `inglese`, con i relativi riferimenti documentali, vengono **conservate dopo Azzeramento dati**. La gestione globale è nella voce **Amministrazione → Modelli per SSD**, utilizzabile anche senza bandi importati.
+
+Le **commissioni** hanno due livelli separati: le composizioni documentate sono conservate in un'anagrafica permanente (`commissioni_catalogo`, senza vincoli verso i bandi), mentre le associazioni operative a uno specifico bando e i suoi eventi restano dati del procedimento. Al primo aggiornamento, RankUP acquisisce nell'anagrafica le commissioni già presenti senza cancellarle o modificarle. Inserimenti e aggiornamenti successivi nei singoli bandi conservano nel catalogo anche le composizioni precedenti. Dopo l'azzeramento l'anagrafica sopravvive; in **Amministrazione → Anagrafica commissioni** si possono consultare le composizioni e selezionarle per una nuova procedura, con conferma documentale esplicita. L'applicazione **non assegna automaticamente una nomina storica a un nuovo bando** e blocca il recupero con anno accademico noto e discordante rispetto al bando.
+
+L'azzeramento include un backup SQLite e dei documenti PICA/PDF, elimina solo dati per bando, conserva account, classificazioni SSD e catalogo commissioni. L'anteprima indica il numero di SSD e commissioni conservati. Gli originali Excel relativi ai precedenti bandi restano nel backup; la loro registrazione e conservazione documentale ufficiale deve essere gestita separatamente secondo le regole dell'ente.
+
 ### RankUP 0.9.10 — Download PDF affidabile e regressione controllata degli stati
 
 - I PDF di verbali e graduatorie si scaricano con una richiesta autenticata gestita dall'interfaccia; in caso di errore HTTP o file non valido, l'Admin vede la causa invece di un mancato download silenzioso.
