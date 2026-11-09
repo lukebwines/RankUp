@@ -208,7 +208,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.15 · Modulo archivio<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.16 · Ricerca storica candidati<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -780,7 +780,24 @@
             content+='<p class="caption">Seleziona un bando attivo per verificare la chiusura. '+
               'Gli ZIP precedentemente archiviati restano elencati qui sotto.</p>';
           }
-          content+='</div><div class="card mb"><h3 class="section-heading">ZIP finali conservati</h3>'+
+          content+='</div><div class="card mb"><h3 class="section-heading">Ricerca storica candidati</h3>'+
+            '<p class="caption">Cerca contemporaneamente in tutti i bandi e CdS, inclusi quelli archiviati. '+
+            'Il codice fiscale è la chiave di confronto più precisa quando presente nel PICA. '+
+            'Nessun abbinamento automatico tra omonimi.</p>'+
+            '<form id="archive-candidate-search" class="actions" style="align-items:end;flex-wrap:wrap">'+
+            '<label>Cerca per<select id="archive-candidate-criterion">'+
+            '<option value="tutti">Tutti i campi</option>'+
+            '<option value="cf">Codice fiscale esatto</option>'+
+            '<option value="cognome">Cognome</option>'+
+            '<option value="nome">Nome</option>'+
+            '<option value="id_pica">ID PICA</option></select></label>'+
+            '<label style="flex:1;min-width:220px">Identificativo o nominativo<input id="archive-candidate-input" '+
+            'type="search" autocomplete="off" spellcheck="false" maxlength="120" required '+
+            'placeholder="Codice fiscale, cognome, nome, ID PICA"></label>'+
+            '<button class="btn" type="submit">Cerca in archivio</button></form>'+
+            '<div id="archive-candidate-results" aria-live="polite" style="margin-top:15px">'+
+            '<p class="caption">Non è stata ancora eseguita una ricerca.</p>'+
+            '</div></div><div class="card mb"><h3 class="section-heading">ZIP finali conservati</h3>'+
             '<p class="caption">Ogni pacchetto comprende fonti PICA, PDF originali, verbali CdS, '+
             'graduatorie generali e dati di audit, insieme a un manifest con impronte SHA-256. '+
             'Anche le versioni precedenti rimangono consultabili.</p>'+
@@ -801,6 +818,87 @@
             'custodirlo secondo le regole dell’Ateneo. '+
             'L’archiviazione nell’add-on non equivale alla conservazione digitale a norma.</p></div>';
           html(content);
+          if($("archive-candidate-search")){
+            var candidateForm=$("archive-candidate-search");
+            var searchParams=null;
+            async function candidateSearchPage(page){
+              var target=$("archive-candidate-results");
+              if(!target||!searchParams)return;
+              target.innerHTML='<p class="caption">Ricerca delle valutazioni registrate...</p>';
+              try{
+                var found=await api("archivio/ricerca-candidati",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({testo:searchParams.testo,
+                    criterio:searchParams.criterio,pagina:page})
+                });
+                if(state.page!=="archivio"||!$("archive-candidate-results"))return;
+                target=$("archive-candidate-results");
+                var records=found.risultati||[];
+                if(!records.length){
+                  target.innerHTML='<p class="caption">Nessuna candidatura trovata. '+
+                    'Verifica il nominativo o il codice fiscale nell’importazione PICA.</p>';
+                  return;
+                }
+                var table='<p class="caption">'+esc(found.candidature_totali)+
+                  ' candidature · '+esc(found.righe_totali)+' righe di valutazione '+
+                  '(comprese le versioni precedenti) · pagina '+esc(found.pagina)+
+                  ' di '+esc(found.pagine)+'</p>'+
+                  '<div class="tablebox"><table><thead><tr>'+
+                  '<th>Candidato</th><th>Bando</th><th>CdS e sede</th>'+
+                  '<th>Incarico PICA</th><th>Esito della scheda</th><th>PDF</th>'+
+                  '</tr></thead><tbody>';
+                records.forEach(function(r){
+                  var points=r.totale_calcolato==null?'—':String(r.totale_calcolato);
+                  var outcome=r.valutazione_id?
+                    (r.scheda_corrente?'Corrente · ':'Versione storica / da verificare · ')+
+                      (r.esito||r.decisione||r.stato_scheda||"—")+
+                      ' · punti '+points+' · v'+r.versione:
+                    'Scheda non acquisita';
+                  var pdf=r.valutazione_id?
+                    '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+
+                    encodeURIComponent(r.codice_bando)+'/valutazioni/'+
+                    encodeURIComponent(r.valutazione_id)+
+                    '/documento">Apri originale</a>':'—';
+                  table+='<tr><td><strong>'+esc(r.cognome+' '+r.nome)+'</strong>'+
+                    '<div class="caption">CF: '+esc(r.cf_mascherato||"Non disponibile")+
+                    ' · ID PICA '+esc(r.id_pica)+'</div></td>'+
+                    '<td>'+esc(r.codice_bando)+
+                    '<div class="caption">'+esc(r.stato_bando)+'</div></td>'+
+                    '<td>'+esc(r.cds)+' · '+esc(r.sede)+'</td>'+
+                    '<td>'+esc(r.insegnamento)+
+                    '<div class="caption">'+esc(r.modulo)+' · '+esc(r.ssd||"SSD non indicato")+
+                    '</div></td><td>'+esc(outcome)+
+                    (r.confermata_il?'<div class="caption">'+esc(r.confermata_il)+'</div>':'')+
+                    '</td><td>'+pdf+'</td></tr>';
+                });
+                table+='</tbody></table></div>';
+                if(found.pagine>1)table+='<div class="actions" style="margin-top:12px">'+
+                  '<button class="btn secondary" id="archive-search-prev" '+
+                  (found.pagina<=1?'disabled':'')+'>Pagina precedente</button>'+
+                  '<button class="btn secondary" id="archive-search-next" '+
+                  (found.pagina>=found.pagine?'disabled':'')+'>Pagina successiva</button>'+
+                  '</div>';
+                target.innerHTML=table;
+                if($("archive-search-prev"))$("archive-search-prev").onclick=function(){
+                  candidateSearchPage(page-1);
+                };
+                if($("archive-search-next"))$("archive-search-next").onclick=function(){
+                  candidateSearchPage(page+1);
+                };
+              }catch(error){
+                target=$("archive-candidate-results");
+                if(target)target.innerHTML='<p class="notice">'+esc(error.message)+'</p>';
+              }
+            }
+            candidateForm.onsubmit=function(event){
+              event.preventDefault();
+              var criterion=$("archive-candidate-criterion").value;
+              var input=$("archive-candidate-input").value.trim();
+              if(!input){note("Inserire un codice fiscale o un nominativo.",true);return;}
+              searchParams={criterio:criterion,testo:input};
+              candidateSearchPage(1);
+            };
+          }
           if($("archive-close-bando"))$("archive-close-bando").onclick=async function(){
             if(!confirm("Chiudere definitivamente il bando "+active+
               " e conservare uno ZIP completo? La procedura diventerà non modificabile "+

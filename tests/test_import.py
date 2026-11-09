@@ -94,6 +94,27 @@ def test_multiple_assignments_for_same_candidate():
     assert result["rows"][0]["incarico"]["key"] != result["rows"][1]["incarico"]["key"]
 
 
+def test_pica_codice_fiscale_colonna_ab_recognized_by_header():
+    # Colonna AB = indice Excel 28. Dati esclusivamente sintetici.
+    # Le modifiche di posizione non devono compromettere il collegamento CF.
+    wb = load_workbook(BytesIO(pica_fixture()))
+    ws = wb.active
+    original_headers = [cell.value for cell in ws[2]]
+    original_position = original_headers.index("Codice fiscale") + 1
+    assert original_position == 10
+    ws.move_range("J2:AE5", rows=0, cols=18)
+    for col in range(10, 28):
+        ws.cell(row=2, column=col).value = "Campo aggiuntivo " + str(col)
+    assert ws["AB2"].value == "Codice fiscale"
+    output = BytesIO()
+    wb.save(output)
+    parsed = parse_pica("pica_ab_sintetico.xlsx", output.getvalue())
+    assert parsed["summary"]["candidature"] == 3
+    assert [row["codice_fiscale"] for row in parsed["rows"]] == [
+        "CODICEFISCALE", "CODICEFISCALE", "CODICEFISCALE2"
+    ]
+
+
 def test_date_conversion_does_not_change_source():
     assert normalize_excel_date("46394") == "2027-01-07"
     assert normalize_excel_date("46660") == "2027-09-30"
