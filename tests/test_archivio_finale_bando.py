@@ -93,3 +93,28 @@ def test_archive_can_be_reopened_without_deleting_zip(tmp_path,monkeypatch):
         records=client.get("/api/archivio").json()["archivi"]
         assert len(records)==2
         assert records[1]["riaperto_il"]
+
+
+def test_final_archive_survives_operational_reset(tmp_path,monkeypatch):
+    _,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        _complete_all(client,sheets)
+        base="/api/bandi/26-02"
+        group=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
+        assert _post(client,base+"/verbali/graduatorie/genera-definitivo",
+           json={"cds":group["cds"],"sede":group["sede"]}).status_code==200
+        gid=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]["conferma"]["id"]
+        approval=_post(client,base+"/graduatorie/approvazioni",
+                       json={"graduatorie_ids":[gid]}).json()["id"]
+        assert _post(client,base+f"/graduatorie/approvazioni/{approval}/conferma",
+           json={"estremi_atto":"ATTO DI COLLAUDO"}).status_code==200
+        closed=_post(client,base+"/archivio/chiudi",json={}).json()
+        link=f"/api/archivio/{closed['archivio_id']}/zip"
+        original=client.get(link).content
+        assert client.get("/api/admin/azzeramento").json()["zip_finali_conservati"]==1
+        reset=_post(client,"/api/admin/azzeramento",json={
+          "conferma":"AZZERA TUTTI I DATI RANKUP",
+          "password_admin":"PasswordFittiziaLunga12345!"})
+        assert reset.status_code==200,reset.text
+        assert client.get(link).content==original
+        assert client.get("/api/archivio").json()["archivi"][0]["codice"]=="26-02"
