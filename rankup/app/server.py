@@ -40,6 +40,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf
 from pdf_definitivo import verbale_definitivo
+from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
@@ -47,6 +48,7 @@ from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
 SOURCES = BASE / "sources"
+ARCHIVI = BASE / "archivi_bandi"
 DB = BASE / "rankup.sqlite3"
 ASSETS = Path(__file__).resolve().parent / "static"
 CODE_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
@@ -482,6 +484,26 @@ def initialize() -> None:
                 quando TEXT NOT NULL
             );
         """)
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS bandi_archivi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codice TEXT NOT NULL,
+                nome_file TEXT NOT NULL UNIQUE,
+                sha256 TEXT NOT NULL,
+                bytes INTEGER NOT NULL,
+                file_count INTEGER NOT NULL,
+                creato_da TEXT NOT NULL,
+                creato_il TEXT NOT NULL,
+                stato_precedente TEXT NOT NULL,
+                riepilogo_json TEXT NOT NULL,
+                riaperto_il TEXT,
+                riaperto_da TEXT,
+                motivo_riapertura TEXT,
+                riferimento_riapertura TEXT
+            );
+            CREATE INDEX IF NOT EXISTS ix_bandi_archivi_codice
+              ON bandi_archivi(codice,id DESC);
+        """)
         # Acquisizione non distruttiva delle commissioni gia' registrate nei
         # bandi, incluse quelle antecedenti alla separazione dell'anagrafica.
         for row in db.execute("""
@@ -759,7 +781,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.14", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.15", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -777,6 +799,19 @@ async def require_rankup_login(request: Request, call_next):
     principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
     if not public and principal is None:
         return JSONResponse({"detail": "Autenticazione richiesta"}, status_code=401)
+    # Un bando archiviato e' bloccato: solo un Admin puo' riaprirlo
+    # formalmente. La barriera vale anche per gli operatori e le API.
+    if request.method not in ("GET","HEAD","OPTIONS") and path.startswith("/api/bandi/"):
+        parts=path.split("/")
+        if len(parts)>=4 and CODE_RE.fullmatch(parts[3]):
+            code=parts[3]
+            if path!="/api/bandi/"+code+"/archivio/riapri":
+                with connect() as db:
+                    existing=db.execute("SELECT stato FROM bandi WHERE codice=?",
+                                        (code,)).fetchone()
+                if existing and existing["stato"]=="Archiviato":
+                    return JSONResponse({"detail":"Bando archiviato e bloccato: "
+                        "la riapertura formale e' riservata all'Admin."},status_code=409)
     token = CURRENT_ACTOR.set(principal["username"] if principal else None)
     try:
         response = await call_next(request)
@@ -3476,6 +3511,175 @@ def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request,
     return Response(content=pdf,media_type="application/pdf",
         headers={"Content-Disposition":("inline" if inline else "attachment")+
                  '; filename="'+filename+'"',"Cache-Control":"no-store"})
+
+
+# Chiusura formale del bando con ZIP unico e consultazione perpetua.
+# Gli archivi si trovano in /data/archivi_bandi, fuori dalle directory
+# interessate dall'azzeramento operativo.
+@app.get("/api/archivio")
+def elenco_archivio_generale(request: Request):
+    require_admin(request)
+    with connect() as db:
+        rows=db.execute("""
+            SELECT id,codice,nome_file,sha256,bytes,file_count,creato_da,
+                   creato_il,riaperto_il,riaperto_da,stato_precedente,
+                   motivo_riapertura,riferimento_riapertura
+            FROM bandi_archivi ORDER BY id DESC
+        """).fetchall()
+        active={row["codice"]:row["stato"] for row in
+                db.execute("SELECT codice,stato FROM bandi")}
+    return {"archivi":[dict(row,stato_bando=active.get(row["codice"])) for row in rows]}
+
+
+@app.get("/api/bandi/{code}/archivio/verifica")
+def verifica_ultima_fase_bando(code: str, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT * FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        result=controlla_chiusura(db,b["id"])
+        if b["stato"]=="Archiviato":
+            result["pronto"]=False
+            result["criticita"].append("Bando già archiviato.")
+        latest=db.execute("""SELECT id,nome_file,sha256,creato_il,riaperto_il
+                             FROM bandi_archivi WHERE codice=? ORDER BY id DESC LIMIT 1""",
+                          (code,)).fetchone()
+    return {**result,"stato_bando":b["stato"],
+            "ultimo_archivio":dict(latest) if latest else None}
+
+
+@app.post("/api/bandi/{code}/archivio/chiudi")
+def chiudi_bando_con_zip(code: str, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    ARCHIVI.mkdir(mode=0o700,parents=True,exist_ok=True)
+    ARCHIVI.chmod(0o700)
+    stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename="rankup_bando_"+code+"_"+stamp+"_"+secrets.token_hex(5)+".zip"
+    temp=ARCHIVI/(filename+".tmp")
+    output=ARCHIVI/filename
+    created=False
+    try:
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            b=db.execute("SELECT * FROM bandi WHERE codice=?",(code,)).fetchone()
+            if not b:fail("Bando non trovato",404)
+            if b["stato"]=="Archiviato":
+                fail("Bando già archiviato: scarica lo ZIP esistente.",409)
+            status=controlla_chiusura(db,b["id"])
+            if not status["pronto"]:
+                fail("Chiusura non possibile: "+"; ".join(status["criticita"]),409)
+
+            def cds_pdf(cds,sede):
+                row=db.execute("""
+                    SELECT g.stato,g.dati_json,d.pdf_definitivo,d.sha256
+                    FROM graduatorie_cds g
+                    LEFT JOIN graduatorie_cds_documenti d ON d.graduatoria_id=g.id
+                    WHERE g.bando_id=? AND g.cds=? AND g.sede=?
+                """,(b["id"],cds,sede)).fetchone()
+                if not row or row["stato"]!="approvata":
+                    raise ArchivioNonPronto("CdS non approvato.")
+                if row["pdf_definitivo"] is not None:
+                    payload=bytes(row["pdf_definitivo"])
+                    if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
+                        raise ArchivioNonPronto("Documento definitivo alterato: "+cds)
+                    return payload
+                # Compatibilità con definitivi creati prima della 0.9.12:
+                # ricostruzione da snapshot reale e originali verificati.
+                snapshot=json.loads(row["dati_json"])
+                snapshot["stato"]="approvata"
+                return _costruisci_verbale_completo(db,b["id"],code,snapshot)
+
+            def approval_pdf(row):
+                return render_graduatoria_pdf(
+                    code,json.loads(row["dati_json"]),general=True,
+                    approved=True,reference=row["estremi_atto"])
+
+            metadata=crea_pacchetto(db,dict(b),SOURCES,temp,cds_pdf,approval_pdf)
+            temp.chmod(0o600)
+            os.replace(temp,output)
+            created=True
+            now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+            cur=db.execute("""
+                INSERT INTO bandi_archivi
+                (codice,nome_file,sha256,bytes,file_count,creato_da,
+                 creato_il,stato_precedente,riepilogo_json)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """,(code,filename,metadata["sha256"],metadata["bytes"],
+                 metadata["file_count"],request_actor(),now,
+                 b["stato"],json.dumps(metadata["riepilogo"],ensure_ascii=False)))
+            db.execute("UPDATE bandi SET stato='Archiviato' WHERE id=?",(b["id"],))
+            db.commit()
+            return {"ok":True,"archivio_id":cur.lastrowid,"nome_file":filename,
+                    "sha256":metadata["sha256"],"dimensione":metadata["bytes"],
+                    "file_count":metadata["file_count"],
+                    "cds_sedi":status["cds_sedi_totali"],
+                    "approvazioni":status["approvazioni_completate"]}
+    except (ArchivioNonPronto,sqlite3.Error,OSError,ValueError,zipfile.BadZipFile) as error:
+        if created:
+            output.unlink(missing_ok=True)
+        fail("Archivio non creato: "+str(error),409)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+@app.get("/api/archivio/{archive_id}/zip")
+def scarica_zip_bando(archive_id: int,request: Request):
+    require_admin(request)
+    with connect() as db:
+        entry=db.execute("""SELECT nome_file,sha256 FROM bandi_archivi WHERE id=?""",
+                         (archive_id,)).fetchone()
+    if not entry:fail("Archivio non trovato",404)
+    folder=ARCHIVI.resolve()
+    location=(folder/entry["nome_file"]).resolve()
+    if (not location.is_relative_to(folder) or not location.is_file()
+            or not re.fullmatch(r"rankup_bando_[A-Z0-9-]+_\d{8}T\d{6}Z_[0-9a-f]{10}\.zip",
+                                entry["nome_file"])):
+        fail("File ZIP archiviato non disponibile",404)
+    with location.open("rb") as stream:
+        digest=hashlib.file_digest(stream,"sha256").hexdigest()
+    if digest!=entry["sha256"]:
+        fail("L'integrità dello ZIP archiviato non corrisponde al registro",409)
+    return FileResponse(location,filename=entry["nome_file"],
+                        media_type="application/zip",
+                        headers={"Cache-Control":"no-store"})
+
+
+class RiapriBandoArchiviato(BaseModel):
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.post("/api/bandi/{code}/archivio/riapri")
+def riapri_bando_archiviato(code: str,body: RiapriBandoArchiviato,request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    motivazione=body.motivazione.strip()
+    riferimento=body.riferimento.strip()
+    if (len(motivazione)<10 or len(riferimento)<5
+            or "[DA VERIFICARE]" in riferimento.upper()):
+        fail("Motivazione e riferimento al provvedimento formale sono obbligatori",400)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id,stato FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b or b["stato"]!="Archiviato":
+            fail("Bando non archiviato oppure non più presente",409)
+        row=db.execute("""SELECT id,stato_precedente,riaperto_il FROM bandi_archivi
+            WHERE codice=? ORDER BY id DESC LIMIT 1""",(code,)).fetchone()
+        if not row or row["riaperto_il"]:
+            fail("Archivio non coerente con lo stato del bando",409)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""UPDATE bandi_archivi SET riaperto_il=?,riaperto_da=?,
+            motivo_riapertura=?,riferimento_riapertura=? WHERE id=?""",
+            (now,request_actor(),motivazione,riferimento,row["id"]))
+        db.execute("UPDATE bandi SET stato=? WHERE id=?",
+                   (row["stato_precedente"],b["id"]))
+        db.commit()
+    return {"ok":True,"stato":"riaperto",
+            "messaggio":"Archivio precedente conservato. Le eventuali rettifiche degli atti "
+                        "richiedono le specifiche procedure di regressione."}
+
 
 class PreparaApprovazione(BaseModel):
     graduatorie_ids: list[int] = Field(min_length=1,max_length=100)
