@@ -44,10 +44,9 @@ BUSINESS_TABLES = (
     "bandi_riferimenti",
     "incarichi",
     "bandi",
-    "ssd_classificazioni",
     "pica_tipo_cds_dizionario",
 )
-PRESERVED_TABLES = ("rankup_utenti", "rankup_utenti_eventi")
+PRESERVED_TABLES = ("rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni")
 RESET_CONFIRMATION = "AZZERA TUTTI I DATI RANKUP"
 
 
@@ -80,7 +79,8 @@ def preview(db, sources:Path, pending:Path):
         "originali":sum(1 for folder in (sources,pending)
                         if folder.exists() for p in folder.rglob("*") if p.is_file()),
         "conferma_richiesta":RESET_CONFIRMATION,
-        "preservati":"Credenziali Admin, account operativi e configurazione Home Assistant",
+        "preservati":"Credenziali e account, classificazioni globali SSD → modello e riferimenti documentali, configurazione Home Assistant",
+        "classificazioni_ssd_conservate":db.execute("SELECT COUNT(*) FROM ssd_classificazioni").fetchone()[0],
         "backup_obbligatorio":True,
     }
 
@@ -129,7 +129,7 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
                 "tabelle":counts_before,
                 "database_sha256":hashlib.sha256(temp_db.read_bytes()).hexdigest(),
                 "include":"SQLite, originali PICA/PDF, file temporanei",
-                "preservati_dopo_reset":"opzioni e credenziali",
+                "preservati_dopo_reset":"opzioni, credenziali, account operativi e associazioni globali SSD/modello con riferimenti",
             },ensure_ascii=False,indent=2))
         with ZipFile(temp_zip) as archive:
             if archive.testzip() is not None:
