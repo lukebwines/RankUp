@@ -608,6 +608,46 @@ def initialize() -> None:
             if field not in columns:
                 db.execute("ALTER TABLE incarichi ADD COLUMN " + field +
                            " TEXT NOT NULL DEFAULT ''")
+        # Registrazioni amministrative append-only e risoluzioni di parità.
+        # Le tabelle si creano solo durante una migrazione di schema, non a ogni avvio.
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS candidature_eventi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+                precedente TEXT NOT NULL,
+                successivo TEXT NOT NULL,
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_candidature_eventi
+              ON candidature_eventi(bando_id,candidatura_id,id DESC);
+            CREATE TABLE IF NOT EXISTS graduatorie_parita_risoluzioni (
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                incarico_id INTEGER NOT NULL REFERENCES incarichi(id) ON DELETE CASCADE,
+                punteggio TEXT NOT NULL,
+                ordine_json TEXT NOT NULL,
+                valutazioni_json TEXT NOT NULL,
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL,
+                PRIMARY KEY(bando_id,incarico_id,punteggio)
+            );
+            CREATE TABLE IF NOT EXISTS graduatorie_cds_documenti_recuperi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                graduatoria_id INTEGER NOT NULL UNIQUE REFERENCES graduatorie_cds(id),
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                nome_file TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                motivazione TEXT NOT NULL,
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            );
+        """)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -1698,12 +1738,89 @@ def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: 
     return {"ok":True,"key":key,"ente_richiesto":ente,"fonte":fonte}
 
 
+class CambiaStatoCandidatura(BaseModel):
+    stato: str = Field(min_length=5,max_length=40)
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.post("/api/bandi/{code}/candidature/{candidatura_id}/stato")
+def aggiorna_stato_candidatura(code: str, candidatura_id: int,
+                              body: CambiaStatoCandidatura, request: Request):
+    """L'Admin esclude la candidatura dal lavoro della commissione senza cancellare i PDF."""
+    require_admin(request)
+    code=valid_code(code)
+    allowed={"Rinunciata","Ritirata","Esclusa d'ufficio","Attiva"}
+    if body.stato not in allowed:
+        fail("Stato della candidatura non previsto",400)
+    motivo=body.motivazione.strip()
+    riferimento=body.riferimento.strip()
+    if (len(motivo)<10 or len(riferimento)<5
+            or "[DA VERIFICARE]" in motivo.upper()
+            or "[DA VERIFICARE]" in riferimento.upper()):
+        fail("Servono motivazione e riferimento documentale effettivi",400)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        row=db.execute("""SELECT c.id,c.stato,c.incarico_id,c.bando_id,
+                          i.cds,i.sede,g.id AS graduatoria_id
+                 FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+                 JOIN bandi b ON b.id=c.bando_id
+                 LEFT JOIN graduatorie_cds g
+                   ON g.bando_id=c.bando_id AND g.cds=i.cds AND g.sede=i.sede
+                 WHERE b.codice=? AND c.id=?""",(code,candidatura_id)).fetchone()
+        if not row:
+            fail("Candidatura non trovata nel bando",404)
+        _assert_graduatoria_open(db,row["bando_id"],row["cds"],row["sede"])
+        # Un'approvazione già intervenuta non viene alterata da un evento post-atto:
+        # gli scorrimenti sono esterni all'applicazione.
+        if row["graduatoria_id"]:
+            approvals=db.execute("""SELECT dati_json FROM graduatorie_approvazioni
+                WHERE bando_id=? AND stato='approvata'""",(row["bando_id"],)).fetchall()
+            if any(row["graduatoria_id"] in json.loads(a["dati_json"]).get("ids",[])
+                   for a in approvals):
+                fail("Atti già approvati: registrare lo scorrimento fuori da RankUP",409)
+        before=row["stato"]
+        if before==body.stato:
+            fail("La candidatura è già nello stato indicato",409)
+        if before!="Attiva" and body.stato!="Attiva":
+            fail("Per correggere uno stato pregresso occorre prima il ripristino documentato",409)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("UPDATE candidature SET stato=? WHERE id=? AND bando_id=?",
+                   (body.stato,candidatura_id,row["bando_id"]))
+        db.execute("""INSERT INTO candidature_eventi
+            (bando_id,candidatura_id,precedente,successivo,motivazione,riferimento,autore,quando)
+            VALUES(?,?,?,?,?,?,?,?)""",
+            (row["bando_id"],candidatura_id,before,body.stato,motivo,riferimento,
+             request_actor(),now))
+        db.commit()
+    return {"ok":True,"candidatura_id":candidatura_id,"stato":body.stato,
+            "scheda_obbligatoria":body.stato=="Attiva"}
+
+
+@app.get("/api/bandi/{code}/candidature/{candidatura_id}/eventi")
+def eventi_stato_candidatura(code: str, candidatura_id: int, request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        if not db.execute("SELECT 1 FROM candidature WHERE id=? AND bando_id=?",
+                          (candidatura_id,b["id"])).fetchone():
+            fail("Candidatura non trovata",404)
+        events=db.execute("""SELECT precedente,successivo,motivazione,
+                         riferimento,autore,quando
+              FROM candidature_eventi WHERE bando_id=? AND candidatura_id=?
+              ORDER BY id DESC""",(b["id"],candidatura_id)).fetchall()
+    return {"eventi":[dict(e) for e in events]}
+
+
 @app.get("/api/bandi/{code}/candidature")
 def list_candidature(code: str):
     code = valid_code(code)
     with connect() as db:
         rows = db.execute("""
-           SELECT c.id_pica, c.cognome, c.nome, c.stato, c.source_json,
+           SELECT c.id, c.id_pica, c.cognome, c.nome, c.stato, c.source_json,
                   i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo, i.tipo_cds,
                   er.ente_richiesto
            FROM candidature c
@@ -3331,6 +3448,12 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
           WHERE bando_id=? AND candidatura_id IS NULL AND stato='Da verificare'
         """,(b["id"],)).fetchone()[0]
         candidates,_=_val_context(db,b["id"])
+        tie_pending_ids=set()
+        for place in {(job["cds"],job["sede"]) for job in jobs}:
+            ranking=build_graduatoria(db,b["id"],*place)
+            for assignment in ranking["incarichi"]:
+                for tie in assignment.get("parita",[]):
+                    tie_pending_ids.update(c["candidatura_id"] for c in tie["candidati"])
     # Calcolo in sola lettura: recupera punteggi provvisori delle schede
     # archiviate da versioni precedenti, senza modificarle o convalidarle.
     # Nessun percorso del database viene esposto al client.
@@ -3340,6 +3463,9 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
         item=dict(source)
         original_path=item.pop("percorso","")
         stored_sha=item.pop("sha256","")
+        item["verifica_parita"]=bool(
+            item["candidatura_id"] in tie_pending_ids
+            and item["stato"]=="Acquisita" and item["attiva"]==1)
         item["punteggio_rilevato"]=None
         item["manuale_possibile"]=False
         if item["stato"]=="Da verificare":
@@ -3396,8 +3522,12 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         ranked["criticita"].append("Commissione non associata univocamente a CdS e sede")
         ranked["pronta"]=False
     saved = db.execute("""
-        SELECT id,stato,hash_dati,confermata_da,confermata_il,approvazione_id
-        FROM graduatorie_cds WHERE bando_id=? AND cds=? AND sede=?
+        SELECT g.id,g.stato,g.hash_dati,g.confermata_da,g.confermata_il,
+               g.approvazione_id,d.sha256 AS hash_pdf_definitivo,
+               CASE WHEN d.pdf_definitivo IS NULL THEN 0 ELSE 1 END AS pdf_definitivo_presente
+        FROM graduatorie_cds g
+        LEFT JOIN graduatorie_cds_documenti d ON d.graduatoria_id=g.id
+        WHERE g.bando_id=? AND g.cds=? AND g.sede=?
     """,(bando_id,cds,sede)).fetchone()
     reopened = (db.execute("""
         SELECT revisione_id FROM graduatorie_cds_riaperte
@@ -3408,10 +3538,12 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         WHERE bando_id=? AND cds=? AND sede=? ORDER BY id DESC
     """,(bando_id,cds,sede)).fetchall()]
     ranked["conferma"] = dict(saved) if saved and not reopened else None
+    ranked["pdf_definitivo_presente"]=bool(saved and saved["pdf_definitivo_presente"])
     # "Passed" significa acquisita e validata, inclusi esclusi/non idonei motivati.
     ranked["schede_validate"] = sum(
         1 for job in ranked["incarichi"] for c in job["candidature"]
         if c["valutazione_id"] is not None
+        and not c.get("verifica_parita")
         and c["decisione"] in ("idoneo", "non_idoneo", "escluso")
         and (c["decisione"] != "idoneo" or c["punteggio"] is not None)
         and (c["decisione"] == "idoneo" or bool(str(c.get("note") or "").strip()))
@@ -3419,7 +3551,7 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
     ranked["schede_da_risolvere"] = ranked["totale_candidature"] - ranked["schede_validate"]
     ranked["verbale_generabile"] = (
         ranked["pronta"] and ranked["schede_da_risolvere"] == 0
-        and ranked["totale_candidature"] > 0
+        and (ranked["totale_candidature"] > 0 or ranked["totale_annullate"] > 0)
     )
     ranked["stato"] = (saved["stato"] if saved and not reopened else
                        ("pronta" if ranked["verbale_generabile"] else "in_lavorazione"))
@@ -3637,6 +3769,75 @@ def pdf_verbale_cds_storico(code: str, revision_id: int, inline: bool = False):
                  "Cache-Control":"no-store"})
 
 
+class RisolviParita(BaseModel):
+    punteggio: str = Field(min_length=1,max_length=30)
+    ordine_candidature: list[int] = Field(min_length=2,max_length=100)
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/{incarico_id}/parita")
+def registra_ordine_parita(code: str, incarico_id: int, body: RisolviParita,
+                          request: Request):
+    """Trascrizione dell'ordine comunicato dalla Commissione, punteggi immutati."""
+    require_admin(request)
+    code=valid_code(code)
+    motivo=body.motivazione.strip()
+    ref=body.riferimento.strip()
+    if (len(motivo)<10 or len(ref)<5 or "[DA VERIFICARE]" in ref.upper()
+            or "[DA VERIFICARE]" in motivo.upper()):
+        fail("Servono motivazione e riferimento documentale verificato della Commissione",400)
+    if len(set(body.ordine_candidature))!=len(body.ordine_candidature):
+        fail("La precedenza non può ripetere un candidato",400)
+    try:
+        score=str(Decimal(body.punteggio).quantize(Decimal("0.01")))
+    except Exception:
+        fail("Punteggio di parità non valido",400)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        job=db.execute("""SELECT cds,sede FROM incarichi
+            WHERE id=? AND bando_id=?""",(incarico_id,b["id"])).fetchone()
+        if not job:fail("Incarico non trovato",404)
+        _assert_graduatoria_open(db,b["id"],job["cds"],job["sede"])
+        rank=build_graduatoria(db,b["id"],job["cds"],job["sede"])
+        assignment=next((x for x in rank["incarichi"] if x["id"]==incarico_id),None)
+        tied=next((x for x in (assignment or {}).get("parita",[])
+                   if x["punteggio"]==score),None)
+        if not tied:
+            fail("Nessuna parità da verificare per l'incarico e il punteggio indicati",409)
+        expected={x["candidatura_id"] for x in tied["candidati"]}
+        if set(body.ordine_candidature)!=expected or len(body.ordine_candidature)!=len(expected):
+            fail("L'ordine deve contenere esattamente tutti i candidati in parità",409)
+        details={str(c["candidatura_id"]):c["valutazione_id"] for c in assignment["candidature"]
+                 if c["candidatura_id"] in expected}
+        if any(not value for value in details.values()) or len(details)!=len(expected):
+            fail("Schede in parità non più acquisite o da verificare",409)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_parita_risoluzioni
+            (bando_id,incarico_id,punteggio,ordine_json,valutazioni_json,
+             motivazione,riferimento,autore,quando)
+            VALUES(?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(bando_id,incarico_id,punteggio) DO UPDATE SET
+             ordine_json=excluded.ordine_json,
+             valutazioni_json=excluded.valutazioni_json,
+             motivazione=excluded.motivazione,riferimento=excluded.riferimento,
+             autore=excluded.autore,quando=excluded.quando""",
+            (b["id"],incarico_id,score,json.dumps(body.ordine_candidature),
+             json.dumps(details,sort_keys=True),motivo,ref,request_actor(),now))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)""",
+            (b["id"],"incarico",incarico_id,"Ordine di precedenza parità documentato",
+             json.dumps({"punteggio":score,"ordine_candidature":body.ordine_candidature,
+                         "valutazioni":details,"motivazione":motivo,
+                         "riferimento":ref},ensure_ascii=False),request_actor(),now))
+        db.commit()
+    return {"ok":True,"ordine_candidature":body.ordine_candidature,"punteggio":score}
+
+
 class CambiaVincitoreProposto(BaseModel):
     candidatura_id: int = Field(gt=0)
     motivazione: str = Field(min_length=10,max_length=1000)
@@ -3736,7 +3937,9 @@ def _costruisci_verbale_completo(db, bando_id: int, code: str, snapshot: dict) -
     """Congela i valori delle schede: non altera gli originali restituiti."""
     cds,sede=snapshot["cds"],snapshot["sede"]
     if (not snapshot.get("incarichi") or not snapshot.get("pronta") or
-            snapshot.get("criticita") or snapshot.get("totale_candidature",0)<=0):
+            snapshot.get("criticita") or (
+                snapshot.get("totale_candidature",0)<=0 and
+                snapshot.get("totale_annullate",0)<=0)):
         fail("Verbale non generabile: tutte le schede devono essere acquisite e "
              "validate e le criticita' risolte",409)
     ids=[]
@@ -3773,9 +3976,11 @@ def _costruisci_verbale_completo(db, bando_id: int, code: str, snapshot: dict) -
         if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
             fail("Integrita originale PDF non verificata: ID PICA "+str(row["id_pica"]),409)
         attachments.append(payload)
-    if not attachments:
+    if not attachments and snapshot.get("totale_candidature",0)>0:
         fail("Nessuna scheda compilata e acquisita da allegare per questo CdS",409)
     front=render_graduatoria_pdf(code,snapshot)
+    if not attachments:
+        return front
     try:
         return verbale_definitivo(front,attachments)
     except Exception as error:
@@ -3812,16 +4017,80 @@ def pdf_verbale_cds_con_schede(code: str, cds: str, sede: str, request: Request,
             if hashlib.sha256(pdf).hexdigest()!=saved["hash_documento"]:
                 fail("Integrita del verbale definitivo non verificata",409)
         else:
-            # Compatibilita' non distruttiva con graduatorie definitive
-            # della versione precedente: nessun nuovo atto inventato.
-            snapshot=json.loads(saved["dati_json"])
-            snapshot["stato"]=saved["stato"]
-            pdf=_costruisci_verbale_completo(db,b["id"],code,snapshot)
+            fail("PDF definitivo storico non conservato: usare il recupero documentato Admin",409)
     filename=("RankUP_"+_safe_filename(code,40)+"_verbale_schede_"+
               _safe_filename(cds,50)+"_"+_safe_filename(sede,30)+".pdf")
     return Response(content=pdf,media_type="application/pdf",
         headers={"Content-Disposition":("inline" if inline else "attachment")+
                  '; filename="'+filename+'"',"Cache-Control":"no-store"})
+
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/recupera-pdf")
+async def recupera_pdf_definitivo_storico(
+    code: str, request: Request, cds: str = Form(...), sede: str = Form(...),
+    motivazione: str = Form(...), riferimento: str = Form(...),
+    conferma_corrispondenza: bool = Form(False),
+    file: UploadFile = File(...),
+):
+    """Conserva SOLO l'originale PDF adottato verificato dall'Admin; non ricostruisce atti."""
+    require_admin(request)
+    code=valid_code(code)
+    motivo=motivazione.strip()
+    ref=riferimento.strip()
+    if (len(motivo)<10 or len(ref)<5 or "[DA VERIFICARE]" in ref.upper()
+            or "[DA VERIFICARE]" in motivo.upper() or not conferma_corrispondenza):
+        fail("Richiesti riferimento, motivazione e conferma di corrispondenza con l'atto",400)
+    limit=64*1024*1024
+    raw=await file.read(limit+1)
+    if not raw or len(raw)>limit or not raw.startswith(b"%PDF-"):
+        fail("Documento PDF assente, non valido o troppo grande",400)
+    try:
+        reader=PdfReader(BytesIO(raw),strict=False)
+        if not reader.pages:
+            raise ValueError("Nessuna pagina")
+    except Exception:
+        fail("Il PDF storico non è leggibile",400)
+    digest=hashlib.sha256(raw).hexdigest()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        g=db.execute("""SELECT g.id,g.stato,g.dati_json,
+                   d.graduatoria_id AS pdf_salvato,
+                   r.graduatoria_id AS riaperta
+                   FROM graduatorie_cds g
+                   LEFT JOIN graduatorie_cds_documenti d
+                     ON d.graduatoria_id=g.id
+                   LEFT JOIN graduatorie_cds_riaperte r
+                     ON r.graduatoria_id=g.id
+                   WHERE g.bando_id=? AND g.cds=? AND g.sede=?""",
+                     (b["id"],cds,sede)).fetchone()
+        if not g or g["riaperta"] or g["stato"] not in ("definitiva","approvata"):
+            fail("Verbale CdS non definitivo o non associato a questa procedura",409)
+        if g["pdf_salvato"]:
+            fail("PDF definitivo già conservato: non è consentito sovrascriverlo",409)
+        snapshot=json.loads(g["dati_json"])
+        if snapshot.get("cds")!=cds or snapshot.get("sede")!=sede:
+            fail("I dati della graduatoria non corrispondono al CdS/sede",409)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_cds_documenti
+            (graduatoria_id,bando_id,pdf_definitivo,sha256,creato_il)
+            VALUES(?,?,?,?,?)""",(g["id"],b["id"],raw,digest,now))
+        db.execute("""INSERT INTO graduatorie_cds_documenti_recuperi
+            (graduatoria_id,bando_id,nome_file,sha256,motivazione,
+             riferimento,autore,quando) VALUES(?,?,?,?,?,?,?,?)""",
+            (g["id"],b["id"],(file.filename or "documento_storico.pdf")[:250],
+             digest,motivo,ref,request_actor(),now))
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)""",
+            (b["id"],"cds",g["id"],"Recupero PDF storico effettivamente adottato",
+             json.dumps({"sha256":digest,"riferimento":ref,
+                         "motivazione":motivo},ensure_ascii=False),
+             request_actor(),now))
+        db.commit()
+    return {"ok":True,"sha256":digest,"cds":cds,"sede":sede}
 
 
 # Chiusura formale del bando con ZIP unico e consultazione perpetua.
@@ -3912,9 +4181,7 @@ def _chiudi_bando_con_snapshot(code: str, actor: str) -> dict:
                     if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
                         raise ArchivioNonPronto("Documento definitivo alterato: "+cds)
                     return payload
-                historical=json.loads(row["dati_json"])
-                historical["stato"]="approvata"
-                return _costruisci_verbale_completo(snapshot,b["id"],code,historical)
+                raise ArchivioNonPronto("PDF definitivo storico mancante: "+cds)
 
             def approval_pdf(row):
                 return render_graduatoria_pdf(
@@ -4412,6 +4679,42 @@ def pdf_approvazione(code: str, approval_id: int, request: Request, inline: bool
     return Response(content=pdf,media_type="application/pdf",
         headers={"Content-Disposition":("inline" if inline else "attachment")+
                  '; filename="RankUP_'+_safe_filename(code,40)+'_graduatoria_generale.pdf"',
+                 "Cache-Control":"no-store"})
+
+
+@app.get("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/prospetto-interno")
+def prospetto_nominativo_interno(code: str, approval_id: int, request: Request):
+    """Identità complete dallo snapshot approvato, non dai dati correnti."""
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        approval=db.execute("""SELECT a.stato,a.estremi_atto,a.dati_json,
+                   r.approvazione_id AS regredita
+                   FROM graduatorie_approvazioni a
+                   LEFT JOIN graduatorie_approvazioni_regressioni r
+                     ON r.approvazione_id=a.id
+                   WHERE a.id=? AND a.bando_id=?""",(approval_id,b["id"])).fetchone()
+        if not approval:
+            fail("Approvazione non trovata",404)
+        if approval["stato"]!="approvata" or approval["regredita"]:
+            fail("Il prospetto nominativo è disponibile solo per atti attualmente approvati",409)
+        payload=json.loads(approval["dati_json"])
+        pdf=render_graduatoria_pdf(code,payload,general=True,approved=True,
+                                  reference=approval["estremi_atto"],internal=True)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)""",
+            (b["id"],"approvazione",approval_id,"Download prospetto nominativo interno",
+             json.dumps({"sha256":hashlib.sha256(pdf).hexdigest()}),
+             request_actor(),now))
+        db.commit()
+    return Response(content=pdf,media_type="application/pdf",
+        headers={"Content-Disposition":'attachment; filename="RankUP_'+
+                 _safe_filename(code,40)+'_prospetto_nominativo_INTERNO.pdf"',
                  "Cache-Control":"no-store"})
 
 
