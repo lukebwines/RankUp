@@ -266,3 +266,15 @@ main{padding:25px clamp(19px,2vw,34px) 56px}
 @media(prefers-reduced-motion:reduce){
   .sidebar nav button,.ru-workspace .btn{transition:none}
 }
+
+/* Stati semantici e comportamento delle ricerche nelle tabelle. */
+.ru-workspace .tablebox tbody tr[hidden]{display:none!important}
+.ru-workspace .ru-archive-warning{
+  background:var(--ru-warning-surface)!important;
+  color:var(--ru-warning)!important;
+  border-left-color:#d7a544!important;
+}
+.ru-workspace .ru-archive-warning strong{color:var(--ru-warning)}
+.ru-workspace .ru-status-pill--warning{border-color:#b68a51}
+.ru-workspace .ru-status-pill--good{border-color:#459a77}
+.sidebar nav button[aria-current="page"]{font-weight:790}
