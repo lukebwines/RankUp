@@ -159,3 +159,34 @@ def test_verbale_idoneo_senza_note_non_indica_da_verificare():
     assert "12.00" in text
     assert "[DA VERIFICARE]" not in text
     assert "—" in text or "-" in text
+
+
+def test_cds_pdf_and_sealed_verbale_include_pica_partition_but_original_is_immutable(tmp_path, monkeypatch):
+    server,client,sheets=_setup(tmp_path,monkeypatch)
+    with client:
+        with server.connect() as db:
+            job=db.execute("SELECT id FROM incarichi ORDER BY id LIMIT 1").fetchone()
+            assert job
+            db.execute("""UPDATE incarichi SET ul=?,partizione_studenti=?,codice_partizione=?
+                          WHERE id=?""",
+                       ("UL sintetica","Partizione sintetica A","A",job["id"]))
+        _complete_all(client,sheets)
+        base="/api/bandi/26-02/verbali/graduatorie"
+        scope=client.get(base).json()["graduatorie"][0]
+        selection={"cds":scope["cds"],"sede":scope["sede"]}
+        draft=client.get(base+"/pdf",params=selection)
+        assert draft.status_code==200,draft.text if draft.status_code!=200 else ""
+        draft_text="\\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(draft.content)).pages)
+        assert "UL: UL sintetica" in draft_text
+        assert "Partizione: Partizione sintetica A (cod. A)" in draft_text
+        result=_post(client,base+"/genera-definitivo",json=selection)
+        assert result.status_code==200,result.text
+        sealed=client.get(base+"/pdf-completo",params=selection)
+        assert sealed.status_code==200
+        sealed_text="\\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(sealed.content)).pages)
+        assert "UL: UL sintetica" in sealed_text
+        assert "Partizione: Partizione sintetica A (cod. A)" in sealed_text
+        with server.connect() as db:
+            db.execute("UPDATE incarichi SET ul=? WHERE id=?",("Altro valore di collaudo",job["id"]))
+        again=client.get(base+"/pdf-completo",params=selection)
+        assert again.status_code==200 and again.content==sealed.content
