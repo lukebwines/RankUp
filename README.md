@@ -298,3 +298,15 @@ Questi limiti sono difese tecniche dell'add-on, non soglie previste da un bando 
 - Le otto dipendenze Python dirette sono fissate con `==`; la CI esegue anche `pip check`. Le dipendenze transitive non sono ancora congelate con hash: per riproducibilità completa occorre un lock dedicato.
 - `/api/health` verifica anche la leggibilità della tabella base e risponde HTTP 503 se SQLite non è disponibile. Home Assistant può monitorarlo tramite la nuova voce `watchdog` in `config.yaml`: **abilitare Watchdog nella scheda Informazioni dell'add-on** dopo l'installazione, se desiderato.
 - La migrazione conserva dati, valutazioni, commissioni e archivi; non sostituisce il backup completo di Home Assistant. Prima di aggiornare l'istanza con dati reali è consigliato creare un backup completo dell'add-on.
+
+
+## Controllo ZIP sorgenti e ROADMAP (solo documentazione/distribuzione)
+
+La `ROADMAP.md` mantiene in alto lo **stato corrente** separato dallo storico delle milestone. Una casella completata indica codice disponibile, non necessariamente collaudo su Home Assistant o approvazione amministrativa dei documenti generati.
+
+La CI crea uno ZIP **del codice sorgente** da `git archive` (solo file versionati), quindi esegue:
+
+```bash
+git archive --format=zip --prefix=RankUp-source/ -o RankUp-source.zip HEAD
+python scripts/verify_source_zip.py RankUp-source.zip
+```NaN`git archive` ed è distinto dai byte dello ZIP generato dal pulsante GitHub «Download ZIP», pur partendo dallo stesso repository. Il controllo dei nomi è compatibile con Windows/macOS, **non** è un test di installazione o esecuzione su questi sistemi. La distribuzione supportata resta l'add-on Home Assistant. Lo ZIP sorgenti **non** include né sostituisce gli archivi dei bandi, i database, le opzioni di Home Assistant o un backup del Raspberry.
