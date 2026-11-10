@@ -26,7 +26,8 @@ def test_controlli_operativi_valutazioni_presenti_dopo_restyling():
     assert HTML.count('id="pdf-eval-result"')==1
     assert 'function renderPdfPreview(code,data)' in HTML
     assert 'async function renderManualEvaluation(code, record, manualScope)' in HTML
-    assert 'data-archive-ai' in HTML
+    assert 'data-archive-ai' not in HTML
+    assert 'candidateChecks' in HTML
     assert 'data-val-manual' in HTML
     assert 'data-val-course' in HTML
     assert 'id="val-view-current"' in HTML
