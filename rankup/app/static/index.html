@@ -1080,7 +1080,7 @@
               '</strong><small>Approvazioni registrate</small></div>'+
               '<div><strong>'+esc(check.bozze_aperte)+
               '</strong><small>Bozze ancora aperte</small></div></div>'+
-              (errors.length?'<div class="notice"><strong>Condizioni ancora da completare</strong>'+
+              (errors.length?'<div class="notice ru-archive-warning"><strong>Condizioni ancora da completare</strong>'+
                 errors.map(function(x){return '<div>'+esc(x)+'</div>';}).join("")+'</div>':
                 '<div class="success">Controlli degli atti completati. Il bando è idoneo all’archiviazione definitiva.</div>')+
               (check.pronto
@@ -1292,7 +1292,7 @@
         try{
           var data=await api("admin/azzeramento");
           if(state.page!=="azzeramento")return;
-          var text='<div class="card mb"><h3 class="section-heading">Azzeramento archivi operativi dei bandi</h3>'+
+          var text='<div class="card mb ru-admin-danger"><h3 class="section-heading">Azzeramento archivi operativi dei bandi</h3>'+
             '<p class="error"><strong>Operazione distruttiva.</strong> Verranno azzerati tutti i bandi, incarichi, candidature, '+
             'associazioni delle commissioni ai bandi, schede acquisite, PDF originali nell\u0027area operativa, graduatorie, esiti e verifiche IA. '+
             'Un backup ZIP integrale sarà creato e verificato prima della pulizia. Non viene cancellata la configurazione, '+
@@ -1307,7 +1307,7 @@
             '<p class="caption">Il backup è conservato nell\u0027area protetta /data/backups_rankup ed è scaricabile solo da Admin. '+
             'Contiene dati personali: conservalo in un luogo sicuro. Interrompi eventuali importazioni o caricamenti in corso.</p>'+
             '</div>'+
-            '<div class="card"><h3 class="section-heading">Conferma azzeramento archivi</h3>'+
+            '<div class="card ru-admin-danger"><h3 class="section-heading">Conferma azzeramento archivi</h3>'+
             '<form id="reset-data-form"><label>Digita esattamente la frase seguente: '+
             '<strong>'+esc(data.conferma_richiesta)+'</strong>'+
             '<input class="rankup-user-input" id="reset-phrase" type="text" autocomplete="off" required></label>'+
@@ -2058,8 +2058,12 @@
         var pairs=report.associazioni||[];
         var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){return x.item.stato!=="associata";});
         var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
-          '<div class="notice">'+esc(report.associate)+' su '+esc(report.totale)+' CdS/sedi associati · '+
-          esc(report.mancanti)+' mancanti · '+esc(report.incomplete||0)+' incomplete · '+esc(report.ambigue)+' ambigui.</div>'+
+          '<div class="ru-quick-stats">'+
+          '<span class="ru-status-pill ru-status-pill--good">'+esc(report.associate)+' / '+esc(report.totale)+' CdS/sedi associati</span>'+
+          (report.mancanti?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.mancanti)+' mancanti</span>':'')+
+          (report.incomplete?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.incomplete)+' incompleti</span>':'')+
+          (report.ambigue?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.ambigue)+' ambigui</span>':'')+
+          '</div>'+
           (unmatched.length?'<div class="tablebox"><table><thead><tr><th>CdS PICA</th><th>Sede</th><th>Incarichi</th><th>Stato</th><th></th></tr></thead><tbody>'+
           unmatched.map(function(x){return '<tr><td>'+esc(x.item.cds)+'</td><td>'+esc(x.item.sede)+
             '</td><td>'+esc(x.item.incarichi)+'</td><td>'+esc(x.item.stato==="ambigua"?"Associazione ambigua":(
@@ -2902,8 +2906,12 @@
              :'Tutte le commissioni associate.')+'</div>';
           html('<div class="card mb"><h3 class="section-heading">Modelli PDF per SSD · Bando '+esc(code)+'</h3>'+
             '<p class="muted">Le associazioni SSD → modello sono generali, comuni a tutti i bandi e conservate anche dopo l’azzeramento. L’Admin le gestisce dalla voce Amministrazione → Modelli per SSD.</p>'+
-            '<div class="notice">'+ordinary+' SSD non professionalizzanti · '+professional+
-            ' professionalizzanti · '+english+' Inglese · '+unresolved+' SSD da verificare. Non è necessario salvare le scelte predefinite.</div>'+
+            '<div class="ru-quick-stats">'+
+            '<span class="ru-status-pill">'+ordinary+' SSD non professionalizzanti</span>'+
+            '<span class="ru-status-pill">'+professional+' professionalizzanti</span>'+
+            '<span class="ru-status-pill">'+english+' Inglese</span>'+
+            (unresolved?'<span class="ru-status-pill ru-status-pill--warning">'+unresolved+' SSD da verificare</span>':'')+
+            '</div><p class="caption">Non è necessario salvare le scelte predefinite.</p>'+
             (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
