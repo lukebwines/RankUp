@@ -119,3 +119,13 @@ def test_aa_first_ui_keeps_original_four_icons():
     assert 'anno_accademico:state.preview.anno_accademico' in html
     assert "anno_accademico:state.year" in html
     assert "Da associare (A.A. mancante)" in html
+    assert "Tutti i bandi dell’A.A." in html
+    assert "var shown=selected?[selected]:scoped;" in html
+    assert 'scoped.reduce(' not in html
+    assert 'count("candidature")' in html
+    assert 'count("incarichi")' in html
+    assert 'count("valutazioni_acquisite")' in html
+    assert 'count("cds_in_lavorazione")' in html
+    assert 'state.active=bandiAnno().length?bandiAnno()[0].codice:"";' not in html
+    assert "state.active=\"\";" in html
+
