@@ -2126,16 +2126,18 @@
           var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
             .map(function(x){return x.sede;}))].sort();
           var pairs=report.cds_sedi||[];
-          var selectors='<div class="card mb"><h3 class="section-heading">Seleziona il Corso di Studio</h3>'+
-            '<div class="actions"><label for="val-cds" class="caption" style="align-self:center">CdS</label>'+
-            '<select id="val-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px;max-width:100%">'+
-            '<option value="">Tutti i Corsi di Studio</option>'+
+          var selectors='<div class="card ru-val-filters mb">'+
+            '<div class="ru-val-section-head"><div><h3 class="section-heading">Filtri di analisi</h3>'+
+            '<p class="caption">Seleziona il CdS e la sede per concentrarti sulle candidature pertinenti.</p></div></div>'+
+            '<div class="ru-val-filter-row"><label for="val-cds">Corso di Studio'+
+            '<select id="val-cds"><option value="">Tutti i Corsi di Studio</option>'+
             courses.map(function(c){return '<option value="'+esc(c)+'"'+(filter.cds===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')+
-            '</select><label for="val-sede" class="caption" style="align-self:center">Sede</label>'+
-            '<select id="val-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px">'+
+            '</select></label><label for="val-sede">Sede<select id="val-sede">'+
             '<option value="">Tutte le sedi</option>'+
             sites.map(function(site){return '<option value="'+esc(site)+'"'+(filter.sede===site?' selected':'')+'>'+esc(site)+'</option>';}).join('')+
-            '</select></div><p class="caption">La selezione filtra il prospetto, lo storico e le candidature disponibili per la trascrizione manuale. Le schede non associate a una candidatura PICA sono visibili selezionando «Tutti i Corsi di Studio».</p></div>';
+            '</select></label><button id="val-reset-filters" type="button" class="btn secondary ru-val-filter-reset"'+
+            (!filter.cds&&!filter.sede?' disabled':'')+'>Reimposta filtri</button></div>'+
+            '<p class="ru-val-help">Le schede non associate a un ID PICA sono visibili nella vista «Tutti i Corsi di Studio». La selezione filtra anche lo storico e l’acquisizione manuale.</p></div>';
           var scope=filter.cds?filter.cds+(filter.sede?' · '+filter.sede:''):"Tutti i CdS";
           var reportLink = state.role==="admin"
             ? '<div class="card mb"><h3 class="section-heading">Report controllo occupazionale · CdS</h3>'+
