@@ -1,5 +1,10 @@
 # RankUp
 
+## Aggiornamento 0.9.27 — Data titolo in Candidature
+
+La colonna **Data titolo / controllo** mostra la data PICA in formato **GG/MM/AAAA** anche quando Excel fornisce un numero seriale. Il badge con l'esito temporale (Almeno 3 anni / Meno di 3 anni / Da verificare) rimane, ma la frase esplicativa sottostante è rimossa. Il valore originale PICA, il confronto con la scadenza del bando e i dati conservati non sono modificati. La data non interpretabile rimane **[DA VERIFICARE]**.
+
+
 ## Aggiornamento 0.9.26 — Candidature e dismissione Ollama
 
 - **Riferimenti del bando**: nuovo campo *Scadenza candidature* (data e ora), inserito dall'operatore a partire dall'avviso ufficiale; non viene inferito dalla data dell'avviso o dall'estrazione PICA.
