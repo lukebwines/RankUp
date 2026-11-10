@@ -28,7 +28,7 @@ def test_tutte_le_sezioni_presenti_e_guide_procedurali():
 
 
 def test_layout_di_tutte_le_sezioni_isolato_dalle_valutazioni():
-    assert '<link rel="stylesheet" href="static/workspace.css?v=1.0.0">' in PAGE
+    assert '<link rel="stylesheet" href="static/workspace.css?v=1.0.1">' in PAGE
     assert '<link rel="stylesheet" href="static/valutazioni.css">' in PAGE
     assert 'if(state.page==="valutazioni"||!content)' in PAGE
     assert 'ru-workspace ru-page-' in PAGE
@@ -202,7 +202,7 @@ def test_nn_assignment_choices_visible_in_schede_and_valutazioni():
 
 def test_v1_footer_and_reset_preservation_notice():
     for marker in (
-        "RANKUP · v1.0.0",
+        "RANKUP · v1.0.1",
         "Crafted by Luca B.",
         "© 2026 Luca B. · All rights reserved.",
         "ru-footer-credit",
@@ -213,3 +213,18 @@ def test_v1_footer_and_reset_preservation_notice():
     assert ".sidebar-footer .ru-footer-credit" in CSS
     assert 'id="logout-btn"' in PAGE
     assert 'id="account-info"' in PAGE
+
+
+def test_verbali_stato_allineato_con_titoli_lunghi():
+    # Colonne distinte impediscono che il badge scenda a sinistra quando
+    # il nome ufficiale del CdS occupa più righe.
+    assert 'ru-verb-summary' in PAGE
+    assert 'ru-verb-status' in PAGE
+    assert 'data-verb-create' in PAGE
+    assert 'data-verb-regress' in PAGE
+    assert 'display:grid!important' in CSS.split(
+        '.ru-workspace .ru-verb-card .ru-verb-summary{',1)[1].split('}',1)[0]
+    assert 'grid-template-columns:minmax(0,1fr) max-content' in CSS
+    assert '.ru-workspace .ru-verb-card .ru-verb-summary > div{min-width:0}' in CSS
+    assert 'justify-self:end' in CSS
+    assert '@media(max-width:560px)' in CSS
