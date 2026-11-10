@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from contextvars import ContextVar
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from db_lifecycle import AutoClosingConnection, SCHEMA_VERSION, prepare_schema_upgrade, record_schema_version
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
