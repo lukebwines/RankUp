@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from contextvars import ContextVar
 from contextlib import closing
+from db_lifecycle import AutoClosingConnection, SCHEMA_VERSION, prepare_schema_upgrade, record_schema_version
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
@@ -73,7 +74,7 @@ for folder in (BASE, PENDING, SOURCES):
 
 
 def connect() -> sqlite3.Connection:
-    db = sqlite3.connect(DB, timeout=20)
+    db = sqlite3.connect(DB, timeout=20, factory=AutoClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=20000")
@@ -98,8 +99,100 @@ def _conserva_commissione_catalogo(db, values: dict, fonte_bando: str):
          datetime.now(timezone.utc).isoformat(timespec="microseconds")))
 
 
+def _refresh_application_data(db: sqlite3.Connection) -> None:
+    """Ripristina regole PICA e ricontrolla esiti storici in modo idempotente.
+
+    Queste verifiche erano eseguite ad ogni initialize anche nella versione
+    precedente: devono continuare a funzionare dopo un reset o un restore.
+    Non modificano la versione strutturale dello schema.
+    """
+    # Cinque corrispondenze dichiarate dall'amministratore, non desunte da PDF.
+    for label, requirement in (
+        ("contratto esterno oneroso CSA", "NESSUNA RISERVA"),
+        ("contratto esterno oneroso UGOV C", "NESSUNA RISERVA"),
+        ("contratto esterno oneroso a carico APSS TN CSA", "SSN"),
+        ("contratto esterno oneroso dip. SSN CSA", "SSN"),
+        ("supplenza esterna retribuita", "ALTRO ATENEO"),
+    ):
+        db.execute("""
+            INSERT OR IGNORE INTO pica_tipo_cds_dizionario
+            (chiave,dicitura,requisito,fonte,autore,aggiornato_il)
+            VALUES(?,?,?,?,?,?)
+        """, (" ".join(label.split()).casefold(), label, requirement,
+              "Corrispondenza comunicata dall'amministratore",
+              "configurazione iniziale", datetime.now(timezone.utc).isoformat()))
+    # Acquisizione non distruttiva delle commissioni gia' registrate nei
+    # bandi, incluse quelle antecedenti alla separazione dell'anagrafica.
+    for row in db.execute("""
+        SELECT cm.cds,cm.sede,cm.presidente,cm.componenti,cm.requisiti,
+               cm.anno,b.codice AS fonte_bando
+        FROM commissioni cm JOIN bandi b ON b.id=cm.bando_id
+    """).fetchall():
+        _conserva_commissione_catalogo(db,dict(row),row["fonte_bando"])
+    # Esiti storici già esplicitamente registrati: classificazione esatta.
+    # Il numero di esiti può cambiare: segnaposto SQL derivati dagli
+    # elenchi attuali + storici, senza modificare valutazioni archiviate.
+    flags = lambda values: ",".join("?" for _ in values)
+    db.execute(f"""UPDATE valutazioni_pdf SET decisione=
+        CASE
+          WHEN esito IN ({flags(ESITI_IDONEI)}) THEN 'idoneo'
+          WHEN esito IN ({flags(ESITI_NON_IDONEI)}) THEN 'non_idoneo'
+          WHEN esito IN ({flags(ESITI_ESCLUSI)}) THEN 'escluso'
+          ELSE decisione
+        END
+        WHERE decisione='da_verificare' AND stato='Acquisita'
+    """, ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI)
+    # Riesame UNA VOLTA delle acquisizioni delle vecchie versioni.
+    # Il precedente parser poteva acquisire 15 punti senza una decisione
+    # della commissione. Non si può dedurre "idoneo" dal solo totale.
+    # L'originale, il totale, l'esito e il timestamp storici non cambiano.
+    # Anche le versioni non attive vengono riclassificate, per evitare
+    # uno stato 'Acquisita' ingannevole nello storico.
+    legacy=db.execute("""
+        SELECT * FROM valutazioni_pdf
+        WHERE stato='Acquisita' AND (
+            decisione='da_verificare'
+            OR (decisione IN ('non_idoneo','escluso') AND TRIM(note)='')
+            OR (decisione='idoneo' AND totale_calcolato IS NULL)
+        )
+    """).fetchall()
+    if legacy:
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        for old in legacy:
+            prior=dict(old)
+            reason=(
+                "Riesame di compatibilità: valutazione acquisita in una versione precedente "
+                "senza esito o requisiti di validazione completi. "
+                "Punteggio storico conservato, ma non convalidato."
+            )
+            db.execute("""
+                UPDATE valutazioni_pdf
+                SET stato='Da verificare',attiva=0,decisione='da_verificare',motivo=?
+                WHERE id=? AND stato='Acquisita'
+            """,(reason,old["id"]))
+            updated=dict(db.execute(
+                "SELECT * FROM valutazioni_pdf WHERE id=?",(old["id"],)
+            ).fetchone())
+            if old["candidatura_id"] is not None:
+                db.execute("""
+                    INSERT INTO valutazioni_pdf_eventi
+                    (bando_id,valutazione_pdf_id,candidatura_id,azione,
+                     precedente_json,successivo_json,autore,quando)
+                    VALUES(?,?,?,?,?,?,?,?)
+                """,(
+                    old["bando_id"],old["id"],old["candidatura_id"],
+                    "Riesame automatico acquisizione precedente",
+                    json.dumps(prior,ensure_ascii=False),
+                    json.dumps(updated,ensure_ascii=False),
+                    "migrazione-applicativa",now
+                ))
+
+
 def initialize() -> None:
     with connect() as db:
+        if not prepare_schema_upgrade(db, DB):
+            _refresh_application_data(db)
+            return
         db.executescript("""
         PRAGMA journal_mode=WAL;
         CREATE TABLE IF NOT EXISTS bandi (
@@ -361,21 +454,6 @@ def initialize() -> None:
                 quando TEXT NOT NULL
             )
         """)
-        # Cinque corrispondenze dichiarate dall'amministratore, non desunte da PDF.
-        for label, requirement in (
-            ("contratto esterno oneroso CSA", "NESSUNA RISERVA"),
-            ("contratto esterno oneroso UGOV C", "NESSUNA RISERVA"),
-            ("contratto esterno oneroso a carico APSS TN CSA", "SSN"),
-            ("contratto esterno oneroso dip. SSN CSA", "SSN"),
-            ("supplenza esterna retribuita", "ALTRO ATENEO"),
-        ):
-            db.execute("""
-                INSERT OR IGNORE INTO pica_tipo_cds_dizionario
-                (chiave,dicitura,requisito,fonte,autore,aggiornato_il)
-                VALUES(?,?,?,?,?,?)
-            """, (" ".join(label.split()).casefold(), label, requirement,
-                  "Corrispondenza comunicata dall'amministratore",
-                  "configurazione iniziale", datetime.now(timezone.utc).isoformat()))
         db.execute("""
             CREATE TABLE IF NOT EXISTS valutazioni_occupazione_ai (
                 id INTEGER PRIMARY KEY,
@@ -513,14 +591,6 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS ix_bandi_archivi_codice
               ON bandi_archivi(codice,id DESC);
         """)
-        # Acquisizione non distruttiva delle commissioni gia' registrate nei
-        # bandi, incluse quelle antecedenti alla separazione dell'anagrafica.
-        for row in db.execute("""
-            SELECT cm.cds,cm.sede,cm.presidente,cm.componenti,cm.requisiti,
-                   cm.anno,b.codice AS fonte_bando
-            FROM commissioni cm JOIN bandi b ON b.id=cm.bando_id
-        """).fetchall():
-            _conserva_commissione_catalogo(db,dict(row),row["fonte_bando"])
         # Migrazione incrementale non distruttiva: ogni scheda già acquisita
         # conserva il PDF e lo storico; nessuna idoneità viene dedotta dal voto.
         existing = {r["name"] for r in db.execute("PRAGMA table_info(valutazioni_pdf)")}
@@ -531,63 +601,6 @@ def initialize() -> None:
         ):
             if field not in existing:
                 db.execute("ALTER TABLE valutazioni_pdf ADD COLUMN " + field + " " + definition)
-        # Esiti storici già esplicitamente registrati: classificazione esatta.
-        # Il numero di esiti può cambiare: segnaposto SQL derivati dagli
-        # elenchi attuali + storici, senza modificare valutazioni archiviate.
-        flags = lambda values: ",".join("?" for _ in values)
-        db.execute(f"""UPDATE valutazioni_pdf SET decisione=
-            CASE
-              WHEN esito IN ({flags(ESITI_IDONEI)}) THEN 'idoneo'
-              WHEN esito IN ({flags(ESITI_NON_IDONEI)}) THEN 'non_idoneo'
-              WHEN esito IN ({flags(ESITI_ESCLUSI)}) THEN 'escluso'
-              ELSE decisione
-            END
-            WHERE decisione='da_verificare' AND stato='Acquisita'
-        """, ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI)
-        # Riesame UNA VOLTA delle acquisizioni delle vecchie versioni.
-        # Il precedente parser poteva acquisire 15 punti senza una decisione
-        # della commissione. Non si può dedurre "idoneo" dal solo totale.
-        # L'originale, il totale, l'esito e il timestamp storici non cambiano.
-        # Anche le versioni non attive vengono riclassificate, per evitare
-        # uno stato 'Acquisita' ingannevole nello storico.
-        legacy=db.execute("""
-            SELECT * FROM valutazioni_pdf
-            WHERE stato='Acquisita' AND (
-                decisione='da_verificare'
-                OR (decisione IN ('non_idoneo','escluso') AND TRIM(note)='')
-                OR (decisione='idoneo' AND totale_calcolato IS NULL)
-            )
-        """).fetchall()
-        if legacy:
-            now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
-            for old in legacy:
-                prior=dict(old)
-                reason=(
-                    "Riesame di compatibilità: valutazione acquisita in una versione precedente "
-                    "senza esito o requisiti di validazione completi. "
-                    "Punteggio storico conservato, ma non convalidato."
-                )
-                db.execute("""
-                    UPDATE valutazioni_pdf
-                    SET stato='Da verificare',attiva=0,decisione='da_verificare',motivo=?
-                    WHERE id=? AND stato='Acquisita'
-                """,(reason,old["id"]))
-                updated=dict(db.execute(
-                    "SELECT * FROM valutazioni_pdf WHERE id=?",(old["id"],)
-                ).fetchone())
-                if old["candidatura_id"] is not None:
-                    db.execute("""
-                        INSERT INTO valutazioni_pdf_eventi
-                        (bando_id,valutazione_pdf_id,candidatura_id,azione,
-                         precedente_json,successivo_json,autore,quando)
-                        VALUES(?,?,?,?,?,?,?,?)
-                    """,(
-                        old["bando_id"],old["id"],old["candidatura_id"],
-                        "Riesame automatico acquisizione precedente",
-                        json.dumps(prior,ensure_ascii=False),
-                        json.dumps(updated,ensure_ascii=False),
-                        "migrazione-applicativa",now
-                    ))
         columns = {row["name"] for row in db.execute("PRAGMA table_info(incarichi)")}
         if "ssd" not in columns:
             db.execute("ALTER TABLE incarichi ADD COLUMN ssd TEXT NOT NULL DEFAULT ''")
@@ -595,6 +608,9 @@ def initialize() -> None:
             if field not in columns:
                 db.execute("ALTER TABLE incarichi ADD COLUMN " + field +
                            " TEXT NOT NULL DEFAULT ''")
+        # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
+        record_schema_version(db, SCHEMA_VERSION)
+        _refresh_application_data(db)
 
 
 def backfill_ssd_from_saved_pica() -> None:
@@ -1233,7 +1249,17 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.21"}
+    """Il watchdog richiede anche una lettura effettiva del database."""
+    try:
+        with connect() as db:
+            available = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bandi'"
+            ).fetchone()
+        if not available:
+            raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
+    except (sqlite3.Error, OSError):
+        raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
+    return {"status": "ok", "version": "0.9.22", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):

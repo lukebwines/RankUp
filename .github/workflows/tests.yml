@@ -12,6 +12,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -r rankup/app/requirements.txt pytest httpx
+      - run: python -m pip check
       - run: PYTHONPATH=rankup/app pytest -q tests/
       - name: Check inline JavaScript syntax
         run: |

@@ -1,8 +1,10 @@
-fastapi>=0.115,<1
-uvicorn>=0.30,<1
-python-multipart>=0.0.12,<1
-xlrd>=2.0.1,<3
-openpyxl>=3.1,<4
-defusedxml>=0.7.1,<1
-pypdf>=5,<7
-reportlab>=4.2,<5
+# Versioni dirette controllate per la release 0.9.22.
+# Verificare compatibilità e avvisi di sicurezza prima di ogni aggiornamento.
+fastapi==0.115.14
+uvicorn==0.34.3
+python-multipart==0.0.20
+xlrd==2.0.2
+openpyxl==3.1.5
+defusedxml==0.7.1
+pypdf==6.1.1
+reportlab==4.4.10
