@@ -851,7 +851,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.31", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.32", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1274,7 +1274,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "0.9.31", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "0.9.32", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1466,6 +1466,7 @@ def list_incarichi(code: str):
         rows = db.execute("""
           SELECT i.key, i.cds, i.sede, i.insegnamento, i.modulo, i.ul,
                  i.id_copertura, i.codice_copertura, i.ssd,
+                 nn.modello AS modello_scheda_nn, nn.riferimento AS modello_scheda_riferimento,
                  i.anno_corso, i.tipo_corso, i.tipo_cds, i.ciclo,
                  i.inizio_pica, i.fine_pica, i.inizio_iso, i.fine_iso,
                  i.codice_partizione, i.partizione_studenti,
@@ -1478,6 +1479,7 @@ def list_incarichi(code: str):
           JOIN bandi b ON b.id=i.bando_id
           LEFT JOIN candidature c ON c.incarico_id=i.id
           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+          LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
           LEFT JOIN incarichi_ente_requisiti er ON er.bando_id=b.id AND er.key_incarico=i.key
           WHERE b.codice=?
           GROUP BY i.id
@@ -2611,12 +2613,13 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
                  i.key,i.cds,i.sede,i.insegnamento,i.modulo,i.ul,i.ssd,i.tipo_cds,
                  CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
                       THEN NULL
-                      WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
+                      WHEN UPPER(TRIM(i.ssd))='NN' THEN COALESCE(nn.modello,'ordinario')
                       ELSE COALESCE(cl.tipo, 'ordinario') END AS tipo_ssd
           FROM candidature c
           JOIN incarichi i ON i.id=c.incarico_id
           JOIN bandi b ON b.id=c.bando_id
           LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+          LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
           WHERE """+" AND ".join(conditions)+"""
           ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                    i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
@@ -2736,10 +2739,11 @@ def _val_context(db: sqlite3.Connection, bando_id: int) -> tuple[list[dict], dic
                    i.key,i.cds,i.sede,i.insegnamento,i.modulo,
                    CASE WHEN UPPER(TRIM(i.ssd)) IN ('', 'ND', 'N-D', 'NON-INDICATO')
                      THEN NULL
-                     WHEN UPPER(TRIM(i.ssd))='NN' THEN 'ordinario'
+                     WHEN UPPER(TRIM(i.ssd))='NN' THEN COALESCE(nn.modello,'ordinario')
                      ELSE COALESCE(cl.tipo,'ordinario') END AS modello
             FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
             LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+            LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
             WHERE c.bando_id=?
         """, (bando_id,))
     ]
@@ -3070,9 +3074,12 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
             fail("Candidatura PICA non presente o non attiva nel bando",409)
         _assert_graduatoria_open(db,b["id"],candidate["cds"],candidate["sede"])
         if total is not None and total > 50:
-            tipo = db.execute("""SELECT cl.tipo FROM candidature c
+            tipo = db.execute("""SELECT CASE WHEN UPPER(TRIM(i.ssd))='NN' THEN COALESCE(nn.modello,'ordinario')
+                            ELSE cl.tipo END AS tipo
+                FROM candidature c
                 JOIN incarichi i ON i.id=c.incarico_id
                 LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+                LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
                 WHERE c.id=?""",(candidate["id"],)).fetchone()
             if tipo and tipo["tipo"]=="inglese":
                 fail("Per il modello Inglese il punteggio massimo e' 50",409)
