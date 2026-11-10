@@ -1,5 +1,14 @@
 # RankUp
 
+## Aggiornamento 0.9.28 — Graduatoria generale compatta
+
+- **Titolo del PDF generale pubblico:** soltanto **Graduatoria**. Quando l'approvazione include meno CdS/sedi rispetto al totale del bando, la seconda riga riporta **Bando: [codice] — Graduatoria parziale**; negli altri casi non compare l'indicazione di parzialità. Il totale dei CdS/sedi viene congelato nella nuova bozza di approvazione e recuperato dal database per gli atti preesistenti.
+- Rimossi dal PDF generale la riga sugli estremi del provvedimento e il paragrafo informativo superfluo; **gli estremi dell'atto restano conservati nel database**, negli eventi e nello storico. Resta lo stato dell'approvazione.
+- Inserito **indice CdS/sedi cliccabile**, con voci abbreviate solo della clausola standard «abilitante alla professione», intestazioni dei corsi più compatte, intestazioni degli incarichi condensate e tabelle con spaziature ridotte, per documenti con 40+ CdS.
+- **UL / Partizione / codice partizione:** indicati accanto all'incarico solo se effettivamente presenti nel dato PICA. Le nuove istantanee contengono tali metadati; i PDF relativi a vecchie istantanee li integrano per la stampa dal corrispondente incarico del bando, senza riscrivere atti, candidati, punteggi o ordinamenti.
+- Il PDF **interno nominativo** riceve indice e impaginazione compatta, ma conserva l'indicazione di uso interno e i nominativi; il **verbale CdS** rimane invariato. Eseguire un backup dell'add-on prima dell'aggiornamento e collaudare PDF e collegamenti su Home Assistant.
+
+
 ## Aggiornamento 0.9.27 — Data titolo in Candidature
 
 La colonna **Data titolo / controllo** mostra la data PICA in formato **GG/MM/AAAA** anche quando Excel fornisce un numero seriale. Il badge con l'esito temporale (Almeno 3 anni / Meno di 3 anni / Da verificare) rimane, ma la frase esplicativa sottostante è rimossa. Il valore originale PICA, il confronto con la scadenza del bando e i dati conservati non sono modificati. La data non interpretabile rimane **[DA VERIFICARE]**.
