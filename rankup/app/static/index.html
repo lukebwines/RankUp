@@ -1630,13 +1630,14 @@
             ["rep","Repertorio avviso","repertorio","Es. numero di repertorio"],
             ["prot","Protocollo avviso","protocollo","Numero di protocollo"],
             ["date","Data avviso","data_avviso","GG/MM/AAAA"],
+            ["deadline","Scadenza candidature","data_scadenza","Data e ora ufficiali"],
             ["aa","Anno accademico","anno_accademico","AAAA-AAAA"],
           ];
           dest.innerHTML='<div class="card"><h3 class="section-heading">Riferimenti del bando · '+esc(code)+'</h3>'+
            '<p class="caption">Indica soltanto gli estremi effettivamente verificati nell’avviso ufficiale. I campi vuoti non vengono compilati con i dati dei facsimile PDF.</p>'+
            '<form id="refs-form"><div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px">'+
            inputs.map(function(x){return '<label style="font-size:13px;font-weight:700">'+esc(x[1])+
-             '<input id="ref-'+x[0]+'" value="'+esc(r[x[2]]||'')+'" placeholder="'+esc(x[3])+
+             '<input type="'+(x[2]==='data_scadenza'?'datetime-local':'text')+'" id="ref-'+x[0]+'" value="'+esc(r[x[2]]||'')+'" placeholder="'+esc(x[3])+
              '" style="display:block;width:100%;margin-top:7px;padding:10px;border:1px solid #c2d2e2;border-radius:8px;font-size:14px"></label>';}).join('')+
            '</div><div style="margin-top:14px"><button class="btn" id="refs-save" type="submit">Salva riferimenti del bando</button></div></form>'+
            '<p class="caption">Dopo ogni modifica, rigenera le schede PDF già scaricate. Le modifiche sono conservate nello storico del bando e non si propagano ad altri bandi.</p></div>';
@@ -1647,6 +1648,7 @@
               repertorio:$("ref-rep").value.trim(),
               protocollo:$("ref-prot").value.trim(),
               data_avviso:$("ref-date").value.trim(),
+              data_scadenza:$("ref-deadline").value.trim(),
               anno_accademico:$("ref-aa").value.trim(),
               expected_updated_at:r.aggiornato_il||null
             };
@@ -1818,8 +1820,7 @@
            '<input type="file" accept=".pdf,application/pdf" id="bando-pdf-ente">'+
            '<button class="btn secondary" id="bando-pdf-ente-upload" type="button">Analizza testo del bando</button>'+
            '<p class="caption">Il PDF rimane nell’add-on. Le evidenze testuali richiedono verifica amministrativa.</p>'+
-           '<p class="caption">I requisiti sono determinati dal dizionario PICA, non da Ollama o dal PDF.</p>'+
-           '<button class="btn secondary" id="ai-ente-status" type="button">Verifica Ollama locale</button>'+
+           '<p class="caption">I requisiti sono determinati dal dizionario PICA e dalle fonti ufficiali.</p>'+
            '<button class="btn secondary" id="pica-dictionary-open" type="button">Gestisci dizionario PICA</button>'+
            '<div id="pica-dictionary-panel"></div>'+
            '</div><div id="bando-ente-preview"></div>':'')+filters+
@@ -1829,16 +1830,6 @@
           '</thead><tbody>'+content+'</tbody></table></div>'+
           '<div id="incarichi-empty" class="ru-table-empty" hidden>Nessun incarico corrisponde alla ricerca.</div></div>');
         if(state.role==="admin"){
-          $("ai-ente-status").onclick=async function(){
-            var button=this;button.disabled=true;
-            try{
-              var stateOllama=await api("ai/ollama/status");
-              note(stateOllama.modello_installato
-                ? "Ollama locale operativo: modello "+stateOllama.modello+" installato."
-                : "Ollama raggiungibile, ma modello "+stateOllama.modello+" non installato.",!stateOllama.modello_installato);
-            }catch(err){note(err.message,true);}
-            finally{button.disabled=false;}
-          };
           $("pica-dictionary-open").onclick=async function(){
             var holder=$("pica-dictionary-panel");
             holder.innerHTML='<p class="caption">Caricamento dizionario...</p>';
@@ -1963,7 +1954,7 @@
               '<p class="caption">Controllo istruttorio; non determina ammissioni o esclusioni. Il dato dichiarato è riportato senza modifiche.</p>'+
               select+'<p class="caption" id="cand-counter"></p><div class="tablebox"><table><thead><tr>'+
               '<th>ID PICA</th><th>Candidato</th><th>CdS</th><th>Modulo</th><th>Ente richiesto</th>'+
-              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th><th>Stato / azioni</th></tr></thead>'+
+              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Data titolo / controllo</th><th>Verifica preliminare</th><th>Stato / azioni</th></tr></thead>'+
               '<tbody id="cand-rows"></tbody></table></div></div>');
             function showCandidates(){
               var course=$("cand-cds").value,status=$("cand-ente-stato").value;
@@ -1972,7 +1963,7 @@
               state.candidatureFilter={cds:course,ente:status,query:$("cand-search").value,stato:candidateStatus};
               var filtered=rows.filter(function(r){
                 var full=[r.id_pica,r.cognome,r.nome,r.cds,r.sede,r.insegnamento,
-                          r.modulo,r.ente_richiesto,r.azienda_ente].filter(Boolean)
+                          r.modulo,r.ssd,r.titolo_studio,r.ente_richiesto,r.azienda_ente].filter(Boolean)
                   .join(" ").toLocaleLowerCase("it");
                 return (!course||r.cds===course)
                   &&(!status||((r.verifica_ente||{}).stato||"").indexOf(status)===0)
@@ -1982,10 +1973,21 @@
               $("cand-counter").textContent=filtered.length+" candidature visualizzate su "+rows.length;
               $("cand-rows").innerHTML=(filtered.length?filtered.map(function(r){
                 var e=r.verifica_ente||{},st=e.stato||"DA VERIFICARE",ok=st.indexOf("COERENTE")===0;
+                var years=r.verifica_anzianita||{}, yState=years.stato||"DA VERIFICARE";
+                var warning=yState==="ATTENZIONE"
+                  ? '<span class="ru-status-pill ru-status-pill--warning">Meno di 3 anni</span>'
+                  : yState==="OK" ? '<span class="ru-status-pill ru-status-pill--good">Almeno 3 anni</span>'
+                  : '<span class="ru-status-pill ru-status-pill--warning">Da verificare</span>';
                 return '<tr><td>'+esc(r.id_pica)+'</td><td>'+esc([r.cognome,r.nome].filter(Boolean).join(" "))+
-                  '</td><td>'+esc(r.cds)+'</td><td>'+esc(r.modulo)+'</td><td>'+esc(r.ente_richiesto||"DA CONFIGURARE")+
+                  '<div class="caption"><strong>Titolo PICA:</strong> '+esc(r.titolo_studio||"Non dichiarato")+'</div>'+
+                  '</td><td>'+esc(r.cds)+'</td><td>'+esc(r.modulo)+
+                  '<div class="caption"><strong>SSD:</strong> '+esc(r.ssd||"Non indicato")+'</div></td><td>'+
+                  esc(r.ente_richiesto||"DA CONFIGURARE")+
                   '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
-                  '</td><td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
+                  '</td><td>'+esc(r.data_conseguimento||"[DA VERIFICARE]")+
+                  '<div class="caption">'+warning+'</div>'+
+                  (years.motivo?'<div class="caption">'+esc(years.motivo)+'</div>':'')+'</td>'+
+                  '<td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
                   '<div class="caption">'+esc(e.motivo||"")+'</div></td>'+
                   '<td><span class="ru-status-pill '+(r.stato==="Attiva"?'ru-status-pill--good':'ru-status-pill--warning')+'">'+esc(r.stato)+'</span>'+
                   (state.role==="admin"
@@ -1998,7 +2000,7 @@
                       '</select><button class="btn secondary" data-cand-save="'+esc(r.id)+'">Registra</button>'+
                       '<button class="btn secondary" data-cand-history="'+esc(r.id)+'">Storico</button></div>'
                     : '')+'</td></tr>';
-              }).join(''):'<tr><td colspan="9" class="ru-table-empty">Nessuna candidatura corrisponde ai filtri impostati.</td></tr>');
+              }).join(''):'<tr><td colspan="10" class="ru-table-empty">Nessuna candidatura corrisponde ai filtri impostati.</td></tr>');
               document.querySelectorAll("[data-cand-save]").forEach(function(btn){
                 btn.onclick=async function(){
                   var cand=rows.find(function(x){return String(x.id)===btn.dataset.candSave;});
@@ -2303,12 +2305,13 @@
           var responses=await Promise.all([
             api("bandi/"+encodeURIComponent(code)),
             api("bandi/"+encodeURIComponent(code)+"/valutazioni?"+query.toString()),
-            state.role==="admin" ? api("bandi/"+encodeURIComponent(code)+"/valutazioni/ai/occupazione/storico") : Promise.resolve({controlli:{}})
+            api("bandi/"+encodeURIComponent(code)+"/candidature")
           ]);
           if(state.active!==code||state.page!=="valutazioni")return;
           var locations=responses[0].cds_sedi||[],report=responses[1];
-          var aiHistory=(responses[2]&&responses[2].controlli)||{};
-          var aiJobs=(responses[2]&&responses[2].lavori)||{};
+          var candidateChecks=new Map((responses[2].candidature||[]).map(function(c){
+            return [String(c.id),c.verifica_anzianita||{}];
+          }));
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
           var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
             .map(function(x){return x.sede;}))].sort();
@@ -2334,22 +2337,7 @@
             var key=JSON.stringify([doc.cds,doc.sede]);
             tieByArea.set(key,(tieByArea.get(key)||0)+1);
           });
-          var reportLink=state.role==="admin"
-            ? '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
-              '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">▤</span>'+
-              '<div><h3 class="section-heading">Controllo occupazionale</h3>'+
-              '<p class="caption">Report istruttorio per il CdS selezionato.</p></div></div></div>'+
-              (filter.cds
-                ? '<p class="caption">Contiene le dichiarazioni PICA, la riserva prevista e gli esiti Ollama effettivamente registrati.</p>'+
-                  '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
-                  '/valutazioni/ai/occupazione/report.pdf?cds='+encodeURIComponent(filter.cds)+
-                  (filter.sede?'&sede='+encodeURIComponent(filter.sede):'')+
-                  '">Scarica report PDF</a>'
-                : '<p class="caption">Seleziona un CdS per abilitare il download del report.</p>')+
-              '</section>'
-            : '';
-          var content=selectors+'<div class="ru-val-tools'+(reportLink?'':' ru-val-tools--single')+'">'+
-            reportLink+
+          var content=selectors+'<div class="ru-val-tools ru-val-tools--single">'+
             '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
             '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">↥</span>'+
             '<div><h3 class="section-heading">Reimportazione schede PDF</h3>'+
@@ -2412,10 +2400,6 @@
             '<div id="val-table-empty" class="ru-val-table-empty" hidden>Nessun CdS corrisponde ai filtri della tabella.</div></section>';
           var archive=report.archivio||[];
           var jobs=report.incarichi||[];
-          archive.forEach(function(r){
-            r.ai_occupazione_storico=aiHistory[String(r.id)]||null;
-            r.ai_occupazione_lavoro=aiJobs[String(r.id)]||null;
-          });
           var split=schedeDaMostrare(archive);
           var expectedTotal=Number(report.totale_attese)||0;
           var acquiredTotal=Number(report.totale_acquisite)||0;
@@ -2452,11 +2436,16 @@
                 ? '<span style="font-weight:700;color:#d77b3f">Da verificare</span>'+
                   (historyView&&!flagged?' · storico':'')
                 : '<span class="caption">Versione precedente · non utilizzata nel verbale</span>';
+            var check=candidateChecks.get(String(r.candidatura_id))||{};
+            var temporal=check.stato==="ATTENZIONE"
+              ? '<div class="caption"><strong>Attenzione:</strong> data titolo inferiore a 3 anni</div>'
+              : check.stato==="DA VERIFICARE"&&check.limite_iso
+                ? '<div class="caption">Data titolo da verificare</div>' : '';
             return '<tr><td><strong>'+esc(r.id_pica||"Da associare")+'</strong>'+
               '<div class="caption">'+esc([r.cognome,r.nome].filter(Boolean).join(" ")||"Candidatura non riconosciuta")+'</div></td>'+
               '<td>'+esc(r.nome_originale)+'<div class="caption">v'+esc(r.versione)+
               (r.metodo?' · '+esc(r.metodo):'')+'</div></td>'+
-              '<td>'+status+'</td>'+
+              '<td>'+status+temporal+'</td>'+
               '<td>'+esc(r.decisione==="da_verificare"?"Da verificare (esito assente)":r.esito||"—")+'</td>'+
               '<td>'+esc(scoring)+'</td>'+
               '<td>'+esc(r.stato==="Da verificare"?(r.motivo||r.motivazione_tecnica):
@@ -2464,21 +2453,6 @@
               '<td><div class="actions"><a href="api/bandi/'+encodeURIComponent(code)+
               '/valutazioni/'+encodeURIComponent(r.id)+
               '/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
-              (state.role==="admin"&&r.candidatura_id
-                ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'"'+
-                  (r.ai_occupazione_lavoro&&["in_coda","in_elaborazione"].includes(r.ai_occupazione_lavoro.stato)?' disabled':'')+'>'+
-                  (r.ai_occupazione_lavoro&&["in_coda","in_elaborazione"].includes(r.ai_occupazione_lavoro.stato)?
-                  'Analisi IA in corso...':'Verifica occupazione IA')+'</button>'+
-                  (r.ai_occupazione_lavoro&&r.ai_occupazione_lavoro.stato!=="completato"?
-                    '<div class="caption">Lavoro IA: '+esc(r.ai_occupazione_lavoro.stato)+
-                    (r.ai_occupazione_lavoro.errore?' · '+esc(r.ai_occupazione_lavoro.errore):'')+'</div>':'')+
-                  (r.ai_occupazione_storico?
-                    '<div class="caption"><strong>Ultima analisi IA: '+esc(r.ai_occupazione_storico.stato)+'</strong> · '+
-                    esc(r.ai_occupazione_storico.quando)+' · Controlli registrati: '+
-                    esc(r.ai_occupazione_storico.numero_controlli)+
-                    '<div>'+esc(r.ai_occupazione_storico.motivo)+'</div></div>'
-                   : '<div class="caption">Controllo IA non ancora eseguito</div>')
-                : '')+
               (r.stato==="Da verificare"?
                 (state.role==="admin"?
                   '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>'+
@@ -2649,48 +2623,6 @@
               if(record)renderManualEvaluation(code,record);
             };
           });
-          document.querySelectorAll("[data-archive-ai]").forEach(function(btn){
-            btn.onclick=async function(){
-              if(state.role!=="admin")return;
-              var item=archive.find(function(r){return String(r.id)===btn.dataset.archiveAi;});
-              if(!item)return;
-              btn.disabled=true;btn.textContent="Analisi IA in preparazione...";
-              try{
-                var outcome=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+
-                  encodeURIComponent(item.id)+"/ai/occupazione",{
-                  method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
-                });
-                btn.textContent="Analisi IA in corso...";
-                note("Controllo IA avviato. La pagina può essere chiusa: l'analisi prosegue sul server.",false);
-                var job=outcome.lavoro_id;
-                for(var attempt=0;attempt<180;attempt++){
-                  await new Promise(function(resolve){setTimeout(resolve,2500);});
-                  if(state.active!==code||state.page!=="valutazioni")return;
-                  var check=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+
-                    encodeURIComponent(item.id)+"/ai/occupazione/lavoro/"+encodeURIComponent(job));
-                  if(check.stato==="completato"){
-                    note("Controllo occupazionale istruttorio completato. Nessuna decisione modificata.",false);
-                    renderValutazioni();return;
-                  }
-                  if(check.stato==="errore"||check.stato==="interrotto"){
-                    throw new Error(check.errore||"Controllo IA interrotto; è possibile ripeterlo.");
-                  }
-                }
-                throw new Error("Il controllo IA è ancora in corso: ricarica la pagina per verificarne lo stato.");
-              }catch(error){
-                note(error.message,true);btn.disabled=false;
-                btn.textContent="Ripeti controllo IA";
-              }
-            };
-          });
-          if(archive.some(function(r){
-            return r.ai_occupazione_lavoro&&
-              ["in_coda","in_elaborazione"].includes(r.ai_occupazione_lavoro.stato);
-          })){
-            setTimeout(function(){
-              if(state.active===code&&state.page==="valutazioni")renderValutazioni();
-            },7000);
-          }
           $("pdf-eval-preview").onclick=async function(){
             var files=$("pdf-eval-files").files;
             if(!files.length){note("Seleziona almeno un PDF o un archivio ZIP",true);return;}

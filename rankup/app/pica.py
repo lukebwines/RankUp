@@ -133,6 +133,10 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "occupazione": ["occupazione*", "occupazione"],
         "azienda_ente": ["azienda/ente", "azienda ente", "ente di appartenenza", "datore di lavoro"],
         "profilo_professionale": ["profilo professionale"],
+        # Campi dichiarati dal candidato: AU (titolo) e AW (conseguimento).
+        # Usare le intestazioni e non la posizione delle colonne.
+        "titolo_studio": ["diploma di laurea/laurea specialistica/laurea magistrale in"],
+        "data_conseguimento": ["in data"],
 
     }
     fields.update(EXTRA_PICA_FIELDS)
@@ -152,6 +156,7 @@ def parse_pica(filename: str, content: bytes) -> dict:
     ssd_by_key = {}
     extras_by_key = {}
     keys_seen = set()
+    rows_seen: dict[tuple[str, str], dict] = {}
     duplicate_rows = 0
     warnings = []
     for row_number, row in enumerate(lines, start=3):
@@ -197,9 +202,19 @@ def parse_pica(filename: str, content: bytes) -> dict:
         row_key = (candidate_id, incarico["key"])
         if row_key in keys_seen:
             duplicate_rows += 1
+            prior = rows_seen[row_key]
+            # Le esportazioni possono ripetere un incarico; integrare soltanto
+            # campi AU/AW mancanti, senza sovrascrivere dati discordanti.
+            for field in ("titolo_studio", "data_conseguimento"):
+                value = get(field)
+                if value and not prior.get(field):
+                    prior[field] = value
+                elif value and prior.get(field) != value:
+                    warnings.append("Riga " + str(row_number) + ": " + field +
+                                    " discordante per la stessa candidatura; verificare PICA")
             continue
         keys_seen.add(row_key)
-        records.append({
+        record = {
             "id_pica": candidate_id,
             "cognome": get("cognome"),
             "nome": get("nome"),
@@ -208,10 +223,14 @@ def parse_pica(filename: str, content: bytes) -> dict:
             "occupazione": get("occupazione"),
             "azienda_ente": get("azienda_ente"),
             "profilo_professionale": get("profilo_professionale"),
+            "titolo_studio": get("titolo_studio"),
+            "data_conseguimento": get("data_conseguimento"),
 
             "incarico": incarico,
             "source_row": row_number,
-        })
+        }
+        records.append(record)
+        rows_seen[row_key] = record
     # Le righe duplicate della stessa copertura possono avere alcuni campi
     # supplementari vuoti: integrare solo da altre righe del medesimo incarico.
     for record in records:

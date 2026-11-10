@@ -1,5 +1,14 @@
 # RankUp
 
+## Aggiornamento 0.9.26 — Candidature e dismissione Ollama
+
+- **Riferimenti del bando**: nuovo campo *Scadenza candidature* (data e ora), inserito dall'operatore a partire dall'avviso ufficiale; non viene inferito dalla data dell'avviso o dall'estrazione PICA.
+- **Candidature**: visualizzazione del titolo dichiarato (colonna AU), data di conseguimento (AW) e SSD dell'incarico (colonna O) sotto il modulo. Controllo **esclusivamente temporale**: almeno tre anni alla scadenza = nessun avviso; meno di tre anni = attenzione; dato mancante = da verificare. Nessuna esclusione o modifica allo stato delle schede e nessuna valutazione automatica del tipo di laurea.
+- Le intestazioni PICA sono riconosciute per nome e i dati delle vecchie importazioni vengono recuperati dall'Excel originale conservato (quando presente), senza reimportazione.
+- **Valutazioni**: avvisi sulle anomalie temporali, distinti dallo stato PASSED/NOT PASSED delle schede.
+- **IA/Ollama rimossi** da interfaccia, API, configurazione RankUP e repository add-on. Restano i controlli deterministici sull'ente; gli eventuali audit IA pregressi nel database non vengono cancellati.
+- Migrazione schema SQLite **v3** con backup automatico del database precedente prima dell'upgrade. Eseguire comunque un backup Home Assistant prima dell'aggiornamento. Un add-on Ollama eventualmente già installato va disinstallato manualmente **solo se non serve ad altre applicazioni**.
+
 Gestione candidature e graduatorie per bandi di docenza.
 
 ## Stato

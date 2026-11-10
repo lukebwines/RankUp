@@ -88,7 +88,7 @@ def test_stati_documentali_e_avvisi_non_autogenerano_atti():
         'data-tie-open','data-tie-save','data-grad-select',
         'data-grad-approve','data-grad-regress',
         'id="archive-close-bando"','id="archive-candidate-search"',
-        'data-pdf-download','data-archive-ai',
+        'data-pdf-download',
         'ru-quick-stats','ru-approval-card','ru-archive-warning',
     ):
         assert item in PAGE, item

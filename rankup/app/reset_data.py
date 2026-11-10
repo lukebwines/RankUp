@@ -52,6 +52,7 @@ BUSINESS_TABLES = (
     "bandi",
     "pica_tipo_cds_dizionario",
 )
+OPTIONAL_LEGACY_TABLES = frozenset({"ai_occupazione_lavori", "valutazioni_occupazione_ai"})
 PRESERVED_TABLES = ("rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "bandi_archivi")
 RESET_CONFIRMATION = "AZZERA TUTTI I DATI RANKUP"
 
@@ -67,10 +68,12 @@ def current_counts(db):
     unexpected=_tables(db)-known
     if unexpected:
         raise ValueError("Tabelle sconosciute: aggiornare la procedura di backup/reset prima di procedere")
-    missing=set(BUSINESS_TABLES)-_tables(db)
+    present=_tables(db)
+    missing=set(BUSINESS_TABLES)-present-OPTIONAL_LEGACY_TABLES
     if missing:
         raise ValueError("Database incompleto: reset non consentito")
-    return {table:db.execute('SELECT COUNT(*) FROM "'+table+'"').fetchone()[0]
+    return {table:(db.execute('SELECT COUNT(*) FROM "'+table+'"').fetchone()[0]
+                   if table in present else 0)
             for table in BUSINESS_TABLES}
 
 
@@ -152,8 +155,10 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
             try:
                 if current_counts(db)!=counts_before:
                     raise ValueError("Dati modificati durante il backup: ripetere il reset")
+                present=_tables(db)
                 for table in BUSINESS_TABLES:
-                    db.execute('DELETE FROM "'+table+'"')
+                    if table in present:
+                        db.execute('DELETE FROM "'+table+'"')
                 db.commit()
             except Exception:
                 db.rollback()
