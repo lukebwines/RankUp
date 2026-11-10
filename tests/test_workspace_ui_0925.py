@@ -28,7 +28,7 @@ def test_tutte_le_sezioni_presenti_e_guide_procedurali():
 
 
 def test_layout_di_tutte_le_sezioni_isolato_dalle_valutazioni():
-    assert '<link rel="stylesheet" href="static/workspace.css">' in PAGE
+    assert '<link rel="stylesheet" href="static/workspace.css?v=0.9.32">' in PAGE
     assert '<link rel="stylesheet" href="static/valutazioni.css">' in PAGE
     assert 'if(state.page==="valutazioni"||!content)' in PAGE
     assert 'ru-workspace ru-page-' in PAGE
@@ -133,7 +133,7 @@ def test_approvazioni_regredite_distinte_dalle_attive_e_storico_consultabile():
         'approvazioni attive',
         'approvazioni regredite · storico',
         'Approvazioni attive e storico',
-        'var isHistorical=a.stato==="regredita"',
+        'var isHistorical=a.stato==="regredita",isActive=a.stato==="approvata"',
         'ru-approval-card--historical',
         'data-approval-history="true"',
         'REGREDITA · STORICO',
@@ -155,11 +155,47 @@ def test_approvazioni_regredite_distinte_dalle_attive_e_storico_consultabile():
 def test_approvazioni_regredite_grigie_ma_link_pdf_accessibili_due_temi():
     for selector in (
         '.ru-workspace .ru-approval-card--historical',
-        '.ru-workspace .ru-approval-history-badge',
+        '.ru-workspace .ru-approval-status-badge',
         '.ru-workspace .ru-status-pill--historical',
         'html[data-theme="dark"] .ru-workspace .ru-approval-card--historical',
         '.ru-workspace .ru-approval-card--historical .actions a.btn',
     ):
         assert selector in CSS, selector
-    assert 'opacity:' not in CSS.split('/* Approvazioni regredite:',1)[1].split(
+    assert 'opacity:' not in CSS.split('/* Stato cromatico delle approvazioni:',1)[1].split(
         '.ru-approval-card > .caption',1)[0]
+
+
+def test_status_cards_badges_are_unique_and_have_strong_colors():
+    for text in (
+        "var status=isHistorical?",
+        "ATTI APPROVATI",
+        "REGREDITA · STORICO",
+        "BOZZA DA APPROVARE",
+        "ru-approval-heading",
+        "ru-approval-card--active",
+    ):
+        assert text in PAGE, text
+    assert "Approvazione regredita · storico" not in PAGE
+    assert ".ru-workspace .card.ru-approval-card--historical" in CSS
+    assert ".ru-workspace .card.ru-approval-card--active" in CSS
+    assert 'html[data-theme="dark"] .ru-workspace .card.ru-approval-card--historical' in CSS
+    assert 'html[data-theme="dark"] .ru-workspace .card.ru-approval-card--active' in CSS
+
+
+def test_nn_assignment_choices_visible_in_schede_and_valutazioni():
+    for marker in (
+        "function nnModelliEditor(rows)",
+        "function collegaModelliNN(code,rerender)",
+        "SSD NN · modello scheda per incarico",
+        "data-nn-type",
+        "data-nn-ref",
+        "data-nn-save",
+        "nnModelliEditor(nnRows)",
+        "collegaModelliNN(code,renderSchede)",
+        "collegaModelliNN(code,renderValutazioni)",
+        "/incarichi/modelli-nn",
+        "/modello-scheda",
+    ):
+        assert marker in PAGE, marker
+    assert "NN — modello ordinario" not in PAGE
+    assert "ru-nn-model-row" in CSS

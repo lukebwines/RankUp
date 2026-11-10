@@ -216,56 +216,100 @@ main{padding:25px clamp(19px,2vw,34px) 56px}
 .ru-approval-choice span{display:block;min-width:0}
 .ru-approval-card{margin:12px 0!important;background:var(--ru-surface-alt)!important}
 .ru-approval-card > strong{font-size:16px;display:inline-block;margin-bottom:6px}
-/* Approvazioni regredite: conservate in archivio ma mai scambiate per attive.
-   Evitare opacity su tutto il pannello per mantenere leggibili i PDF storici. */
-.ru-workspace .ru-approval-card--historical{
-  background:#f1f2f4!important;
-  border:1px solid #cbd0d6!important;
-  border-left:4px solid #929ba6!important;
-  box-shadow:none!important;
-  color:#4f5966!important;
+/* Stato cromatico delle approvazioni: prevale sui colori generici .card.
+   Evitare opacita' complessiva: i documenti storici devono restare leggibili. */
+.ru-workspace .ru-approval-heading{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  column-gap:16px;row-gap:7px;margin-bottom:10px;
 }
-.ru-workspace .ru-approval-card--historical > strong{color:#4f5966!important}
+.ru-workspace .ru-approval-heading > strong{font-size:16px}
+.ru-workspace .ru-approval-status-badge{
+  display:inline-flex;align-items:center;min-height:27px;flex-shrink:0;
+  font-size:11px;font-weight:800;letter-spacing:.02em;padding:4px 10px;
+  border-radius:8px;border:1px solid #a1b5c5;color:#294e69;background:#e7f0f7;
+}
+.ru-workspace .card.ru-approval-card--historical{
+  background:#eef0f3!important;border:1px solid #bec5cd!important;
+  border-left:5px solid #86909b!important;box-shadow:none!important;
+  color:#46515d!important;
+}
+.ru-workspace .ru-approval-card--historical > strong,
 .ru-workspace .ru-approval-card--historical .caption,
-.ru-workspace .ru-approval-card--historical p{color:#626d79!important}
-.ru-workspace .ru-approval-history-badge{
-  display:inline-flex;align-items:center;
-  margin:0 0 7px 10px;padding:4px 9px;
-  border:1px solid #b6bdc6;border-radius:7px;
-  background:#e3e6ea;color:#48525e;
-  font-size:11px;font-weight:750;letter-spacing:.02em;
+.ru-workspace .ru-approval-card--historical p{color:#53606d!important}
+.ru-workspace .ru-approval-card--historical .ru-approval-status-badge{
+  background:#dbe0e6;color:#404954;border-color:#a4afb9;
+}
+.ru-workspace .card.ru-approval-card--active{
+  background:#e6f5eb!important;border:1px solid #a0ccb0!important;
+  border-left:5px solid #2c8758!important;box-shadow:none!important;
+  color:#20583b!important;
+}
+.ru-workspace .ru-approval-card--active > strong,
+.ru-workspace .ru-approval-card--active .caption,
+.ru-workspace .ru-approval-card--active p{color:#276548!important}
+.ru-workspace .ru-approval-card--active .ru-approval-status-badge{
+  background:#c8ebd4;color:#125334;border-color:#79b99a;
 }
 .ru-workspace .ru-approval-card--historical .actions a.btn{
-  background:transparent!important;color:#596471!important;
-  border:1px solid #9da7b2!important;
+  background:transparent!important;color:#4c5967!important;
+  border:1px solid #919fac!important;
 }
 .ru-workspace .ru-approval-card--historical .actions a.btn:hover{
-  background:#e2e6ea!important;color:#2e3944!important;
+  background:#dfe4e9!important;color:#283543!important;
+}
+.ru-workspace .ru-approval-card--active .actions a.btn.secondary{
+  background:#d1eadb!important;color:#225c3c!important;
+  border:1px solid #86b69a!important;
 }
 .ru-workspace .ru-status-pill--historical{
   background:#e9ebee;color:#596471;border-color:#c1c7cf;
 }
-html[data-theme="dark"] .ru-workspace .ru-approval-card--historical{
-  background:#272e38!important;border-color:#4a5563!important;
-  border-left-color:#87929e!important;color:#d4dae1!important;
+html[data-theme="dark"] .ru-workspace .card.ru-approval-card--historical{
+  background:#29323d!important;border-color:#626d79!important;
+  border-left-color:#a2aab3!important;color:#e0e5eb!important;
 }
 html[data-theme="dark"] .ru-workspace .ru-approval-card--historical > strong,
 html[data-theme="dark"] .ru-workspace .ru-approval-card--historical .caption,
 html[data-theme="dark"] .ru-workspace .ru-approval-card--historical p{
-  color:#d4dae1!important;
+  color:#d2d8e0!important;
 }
-html[data-theme="dark"] .ru-workspace .ru-approval-history-badge{
-  background:#37414e;border-color:#748191;color:#e0e5eb;
+html[data-theme="dark"] .ru-workspace .ru-approval-card--historical .ru-approval-status-badge{
+  background:#46505d;color:#ecf0f5;border-color:#929aa5;
+}
+html[data-theme="dark"] .ru-workspace .card.ru-approval-card--active{
+  background:#1b4033!important;border-color:#4d936f!important;
+  border-left-color:#65c894!important;color:#e3f8eb!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active > strong,
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active .caption,
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active p{
+  color:#daf5e4!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active .ru-approval-status-badge{
+  background:#2b6546;color:#e5faec;border-color:#72bd92;
 }
 html[data-theme="dark"] .ru-workspace .ru-approval-card--historical .actions a.btn{
-  color:#d3dbe5!important;border-color:#798594!important;
+  background:transparent!important;color:#e3e9ef!important;border-color:#939eaa!important;
 }
 html[data-theme="dark"] .ru-workspace .ru-approval-card--historical .actions a.btn:hover{
-  background:#3b4653!important;color:#fff!important;
+  background:#414c59!important;color:#fff!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active .actions a.btn.secondary{
+  background:#28543e!important;color:#e4fbe9!important;
+  border-color:#63a780!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-approval-status-badge{
+  background:#274765;color:#d9eefc;border-color:#6085a7;
 }
 html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
   background:#333c49;border-color:#6d7886;color:#d3dbe5;
 }
+.ru-workspace .ru-nn-model-row{vertical-align:top}
+.ru-workspace .ru-nn-model-row small{display:block;margin-top:4px;color:var(--ru-muted)}
+.ru-workspace .ru-nn-model-row .ru-nn-model-ref{min-width:185px;width:100%}
+.ru-workspace .ru-nn-model-row select{width:100%;min-width:175px}
+.ru-workspace .ru-nn-model-row .btn{white-space:nowrap}
+.ru-workspace .ru-nn-model-locked{color:var(--ru-muted);font-style:italic}
 .ru-approval-card > .caption{margin:5px 0 12px}
 .ru-archive-warning{margin:12px 0}
 .ru-archive-warning div{margin-top:7px;padding-left:10px;border-left:2px solid #d0a260}

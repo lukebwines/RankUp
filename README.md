@@ -1,5 +1,13 @@
 # RankUp
 
+## Aggiornamento 0.9.32 — Stato delle approvazioni e schede specifiche SSD NN
+
+- **Graduatorie:** intestazione delle schede «Procedura X» con un solo badge di stato in alto a destra. Le approvazioni attive sono evidenziate con riquadro **verde**, quelle regredite conservate per consultazione storica con riquadro **grigio** e le bozze mantengono un riquadro neutro. L'interfaccia include un riferimento versione al CSS per evitare che il browser mantenga lo stile precedente.
+- **Incarichi SSD NN:** nelle pagine **Schede PDF** e **Valutazioni** è disponibile per l'Admin una scelta **per singolo incarico** fra modello non professionalizzante, professionalizzante o Inglese (50 punti), con riferimento documentale obbligatorio. In assenza di scelta specifica resta l'ordinario, per compatibilità con le schede esistenti. Una scelta NON modifica la classificazione permanente degli altri SSD, né altri incarichi NN.
+- Il modello selezionato viene usato coerentemente nella generazione dello ZIP, nell'importazione/validazione dei PDF e nei controlli di punteggio. Non può essere alterato dopo l'acquisizione di una scheda associata all'incarico o la definitività del CdS; l'Admin deve prima verificare e decidere, perché la variazione richiede di rigenerare le schede già distribuite.
+- **Audit e dati:** nuova migrazione SQLite **schema v4**, backup automatico precedente all'upgrade, registro delle modifiche ai modelli NN incluso nei backup e nell'azzeramento controllato. Le approvazioni, i PDF e gli eventi storici non sono riscritti. Eseguire anche un backup completo Home Assistant prima dell'aggiornamento.
+
+
 ## Aggiornamento 0.9.31 — Approvazioni regredite in grigio
 
 Nella pagina **Graduatorie → Approvazioni attive e storico**, le approvazioni regredite sono presentate in riquadri **grigi**, con etichetta «REGREDITA · STORICO», testo che ne segnala l'assenza di efficacia corrente e soli collegamenti a download/apertura del PDF storico. Le approvazioni attive e le bozze conservano le rispettive azioni. Il riepilogo distingue approvazioni attive, bozze e approvazioni regredite e indica i CdS definitivi in attesa di approvazione generale. Grafica compatibile con i temi chiaro e scuro.

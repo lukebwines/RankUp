@@ -165,3 +165,20 @@ html[data-theme="dark"] .ru-val-page .card { background: var(--rv-panel); border
 }
 
 .ru-val-page .ru-val-advance-table td:nth-child(5) .ru-val-tag { margin: 2px 4px 2px 0; }
+
+/* Scelta controllata del modello per incarichi NN anche nella pagina Valutazioni. */
+.ru-val-page .ru-nn-model-editor{margin-bottom:17px}
+.ru-val-page .ru-nn-model-editor .tablebox{max-width:100%;overflow:auto}
+.ru-val-page .ru-nn-model-editor table{min-width:760px;width:100%}
+.ru-val-page .ru-nn-model-row{vertical-align:top}
+.ru-val-page .ru-nn-model-row small{
+  display:block;margin-top:4px;color:var(--rv-subtle);font-size:12px
+}
+.ru-val-page .ru-nn-model-row label{display:block;font-size:12px;font-weight:700}
+.ru-val-page .ru-nn-model-row select,
+.ru-val-page .ru-nn-model-row .ru-nn-model-ref{
+  display:block;width:100%;min-width:160px;min-height:38px;
+  margin-top:5px;padding:8px 10px;border:1px solid var(--rv-border);
+  border-radius:8px;background:var(--rv-control);color:var(--rv-ink)
+}
+.ru-val-page .ru-nn-model-locked{color:var(--rv-subtle);font-size:12px}
