@@ -208,7 +208,31 @@ main{padding:25px clamp(19px,2vw,34px) 56px}
 .ru-workspace .ru-verb-pending{border-color:#a78744!important}
 .ru-workspace .ru-verb-ready{border-color:#267c54!important}
 .ru-workspace .ru-verb-pronto{border-color:#337fb7!important}
-.ru-workspace .ru-verb-card .ru-verb-summary{margin-bottom:12px}
+/* Il titolo CdS puo' occupare piu' righe: il badge rimane nella colonna
+   destra anziche' cadere sulla seconda riga del contenitore flex. */
+.ru-workspace .ru-verb-card .ru-verb-summary{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) max-content;
+  align-items:start;
+  gap:12px 18px;
+  margin-bottom:12px;
+}
+.ru-workspace .ru-verb-card .ru-verb-summary > div{min-width:0}
+.ru-workspace .ru-verb-card .ru-verb-summary .ru-verb-status{
+  justify-self:end;
+  white-space:nowrap!important;
+  max-width:100%;
+  flex:none;
+}
+@media(max-width:560px){
+  .ru-workspace .ru-verb-card .ru-verb-summary{
+    grid-template-columns:minmax(0,1fr);
+    gap:8px;
+  }
+  .ru-workspace .ru-verb-card .ru-verb-summary .ru-verb-status{
+    justify-self:end;
+  }
+}
 .ru-workspace .ru-verb-card .section-heading{font-size:17px}
 .ru-workspace .ru-verb-card .ru-verb-details{border-color:var(--ru-stroke)}
 .ru-workspace .ru-verb-card .ru-verb-details > summary{font-size:14px;padding:14px 0}
