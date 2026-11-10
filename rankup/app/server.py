@@ -42,7 +42,7 @@ from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
 from schede import make_scheda
-from graduatorie import build_graduatoria, render_graduatoria_pdf
+from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
 from pdf_definitivo import verbale_definitivo
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
@@ -828,7 +828,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.27", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.28", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1251,7 +1251,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "0.9.27", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "0.9.28", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -3864,8 +3864,10 @@ def _chiudi_bando_con_snapshot(code: str, actor: str) -> dict:
                 raise ArchivioNonPronto("PDF definitivo storico mancante: "+cds)
 
             def approval_pdf(row):
+                printable=enrich_print_metadata(
+                    snapshot,b["id"],json.loads(row["dati_json"]))
                 return render_graduatoria_pdf(
-                    code,json.loads(row["dati_json"]),general=True,
+                    code,printable,general=True,
                     approved=True,reference=row["estremi_atto"])
 
             metadata=crea_pacchetto(snapshot,dict(b),SOURCES,temp,
@@ -4203,7 +4205,13 @@ def prepara_approvazione(code: str, body: PreparaApprovazione, request: Request)
                 fail("Graduatoria gia presente in una bozza di approvazione",409)
             result.append(json.loads(r["dati_json"]))
         now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
-        snapshot={"ids":ids,"selezioni":result}
+        total_ambiti=db.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT cds,sede FROM incarichi WHERE bando_id=?
+                GROUP BY cds,sede
+            )
+        """,(b["id"],)).fetchone()[0]
+        snapshot={"ids":ids,"selezioni":result,"totale_ambiti_bando":total_ambiti}
         cursor=db.execute("""INSERT INTO graduatorie_approvazioni
             (bando_id,stato,dati_json,creata_da,creata_il)
             VALUES(?,'bozza',?,?,?)
@@ -4352,8 +4360,8 @@ def pdf_approvazione(code: str, approval_id: int, request: Request, inline: bool
         if not b:fail("Bando non trovato",404)
         row=db.execute("""SELECT stato,estremi_atto,dati_json FROM graduatorie_approvazioni
             WHERE id=? AND bando_id=?""",(approval_id,b["id"])).fetchone()
-    if not row:fail("Approvazione non trovata",404)
-    payload=json.loads(row["dati_json"])
+        if not row:fail("Approvazione non trovata",404)
+        payload=enrich_print_metadata(db,b["id"],json.loads(row["dati_json"]))
     pdf=render_graduatoria_pdf(code,payload,general=True,
              approved=row["stato"]=="approvata",reference=row["estremi_atto"])
     return Response(content=pdf,media_type="application/pdf",
@@ -4381,7 +4389,7 @@ def prospetto_nominativo_interno(code: str, approval_id: int, request: Request):
             fail("Approvazione non trovata",404)
         if approval["stato"]!="approvata" or approval["regredita"]:
             fail("Il prospetto nominativo è disponibile solo per atti attualmente approvati",409)
-        payload=json.loads(approval["dati_json"])
+        payload=enrich_print_metadata(db,b["id"],json.loads(approval["dati_json"]))
         pdf=render_graduatoria_pdf(code,payload,general=True,approved=True,
                                   reference=approval["estremi_atto"],internal=True)
         now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
