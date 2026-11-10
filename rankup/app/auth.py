@@ -34,7 +34,10 @@ class Authentication:
         self._verifier = b""
         # sha256(cookie) -> (scadenza, username, ruolo, id_utente, versione_credenziali)
         self._sessions: dict[str, tuple[float, str, str, int | None, int | None]] = {}
-        self._failures = deque(maxlen=500)
+        # Limite per origine, non per username: tentativi contro l'Admin
+        # non possono impedire ad altri indirizzi di autenticarsi.
+        # Nessun lockout globale: evita denial-of-service per account noti.
+        self._failures = deque(maxlen=3000)
         self._lock = threading.Lock()
 
         path = data_dir / "options.json"
@@ -84,17 +87,18 @@ class Authentication:
             return False
         return hmac.compare_digest(calculated,self._verifier)
 
-    def authenticate(self, username: str, password: str) -> str | None:
+    def authenticate(self, username: str, password: str,
+                     source: str = "local") -> str | None:
         if not self.configured:
             return None
         now = time.monotonic()
-        key = username.casefold()
+        origin = str(source or "unknown")[:100]
         with self._lock:
             while self._failures and now - self._failures[0][0] > 60:
                 self._failures.popleft()
-            if sum(1 for _, name in self._failures if name == key) >= 8:
-                return None
-            if len(self._failures) >= 100:
+            # Blocco solo dell'origine che ha prodotto troppi errori, non
+            # dell'account bersaglio o dell'intera installazione.
+            if sum(1 for _, address in self._failures if address == origin) >= 24:
                 return None
 
         # Un percorso uniforme di confronto, anche per username inesistenti.
@@ -120,7 +124,7 @@ class Authentication:
         active = admin_match or bool(entry and entry["attivo"])
         if not (valid and active and (admin_match or entry is not None)):
             with self._lock:
-                self._failures.append((time.monotonic(), key))
+                self._failures.append((time.monotonic(), origin))
             return None
 
         token = secrets.token_urlsafe(36)
@@ -131,8 +135,8 @@ class Authentication:
         version = None if admin_match else entry["credenziali_versione"]
         with self._lock:
             self._failures = deque(
-                ((when, name) for when, name in self._failures if name != key),
-                maxlen=500
+                ((when, address) for when, address in self._failures
+                 if address != origin), maxlen=3000
             )
             self._sessions[digest] = (
                 time.time() + SESSION_SECONDS, identity, role, user_id, version
