@@ -13,6 +13,7 @@ from reportlab.lib.colors import HexColor, white, black
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, DictionaryObject, TextStringObject, ArrayObject
 from professional import STATUSES
+from score_rules import indicator_limit, area_limit, total_limit, fixed_value
 
 W, H = A4
 GREEN = HexColor("#00cf0c")
@@ -22,19 +23,19 @@ GRAY = HexColor("#dddddd")
 INK = HexColor("#151c26")
 
 TITLES = [
-    ("P01", "Altra Laurea (titolo aggiuntivo)", 2),
-    ("P02", "Altro Diploma di Specializzazione (oltre al requisito)", 2),
-    ("P03", "Dottorato di Ricerca", 3),
-    ("P04", "Master", 2),
-    ("P05", "Corsi di perfezionamento pertinenti", 1),
-    ("P06", "Assegni di ricerca", 1),
-    ("P07", "Esperienze professionali pertinenti effettuate all'estero", 2),
-    ("P08", "Attività di aggiornamento pertinente all'insegnamento", 2),
+    ("P01", "Altra Laurea (titolo aggiuntivo)", indicator_limit("ordinario", "P01")),
+    ("P02", "Altro Diploma di Specializzazione (oltre al requisito)", indicator_limit("ordinario", "P02")),
+    ("P03", "Dottorato di Ricerca", indicator_limit("ordinario", "P03")),
+    ("P04", "Master", indicator_limit("ordinario", "P04")),
+    ("P05", "Corsi di perfezionamento pertinenti", indicator_limit("ordinario", "P05")),
+    ("P06", "Assegni di ricerca", indicator_limit("ordinario", "P06")),
+    ("P07", "Esperienze professionali pertinenti effettuate all'estero", indicator_limit("ordinario", "P07")),
+    ("P08", "Attività di aggiornamento pertinente all'insegnamento", indicator_limit("ordinario", "P08")),
 ]
 DIDATTICA = [
-    ("P10", "Docenza in ambito accademico pertinente all'insegnamento", 10),
-    ("P11", "Insegnamenti non universitari con incarico formale e affini alla disciplina", 2),
-    ("P12", "Relatore a corsi, convegni, congressi", 3),
+    ("P10", "Docenza in ambito accademico pertinente all'insegnamento", indicator_limit("ordinario", "P10")),
+    ("P11", "Insegnamenti non universitari con incarico formale e affini alla disciplina", indicator_limit("ordinario", "P11")),
+    ("P12", "Relatore a corsi, convegni, congressi", indicator_limit("ordinario", "P12")),
 ]
 SCIENTIFIC = [
     "Pubblicazione di libro/monografia come unico autore",
@@ -117,7 +118,8 @@ def make_ordinary(record: dict) -> bytes:
 
     def choice(name, x, top, width, height, maximum):
         vals = (
-            [("0", "0"), ("3", "3")] if name == "P14" else
+            [("0", "0"), (str(maximum), str(maximum))]
+            if fixed_value("ordinario", name) else
             [("0", "0"), (str(maximum), str(maximum))] if name in
                 {"P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08"} else
             [(str(n), str(n)) for n in range(maximum+1)]
@@ -202,16 +204,16 @@ def make_ordinary(record: dict) -> bytes:
         text(137,top+3,label,6.95)
         centered(401,top+3,44,str(maximum),7.3)
         choice(key,450,top+1,45,12.5,maximum)
-    area(267,120,"15")
+    area(267,120,str(area_limit("ordinario", 1)))
 
     # 2. Attività professionale: un solo indicatore, 10 punti.
     rect(50,389,83,32,BLUE)
     lines(53,394,["Attività professionale","(ultimi 5 anni)"],7.15,9)
     row_bgs(389,32)
     text(137,399,"Attività professionale",7.2)
-    centered(401,399,44,"max 10",7)
-    choice("P09",450,397,45,17,10)
-    area(389,32,"10")
+    centered(401,399,44,"max "+str(indicator_limit("ordinario", "P09")),7)
+    choice("P09",450,397,45,17,indicator_limit("ordinario", "P09"))
+    area(389,32,str(area_limit("ordinario", 2)))
 
     # 3. Didattica: 15 punti complessivi.
     rect(50,423,83,64,BLUE)
@@ -232,7 +234,7 @@ def make_ordinary(record: dict) -> bytes:
             centered(401,top+4,44,"max "+str(maximum),6.8)
         choice(key,450,top+2,45,height-4,maximum)
         top+=height
-    area(423,64,"15")
+    area(423,64,str(area_limit("ordinario", 3)))
 
     # 4. Attività scientifica: cinque tipologie, un UNICO punteggio P13.
     rect(50,489,83,80,BLUE)
@@ -250,17 +252,17 @@ def make_ordinary(record: dict) -> bytes:
         "rilevanza", "scientifica",
     ],6.2,8)
     rect(447,489,52,80,BLUE)
-    choice("P13",450,518,45,20,10)
-    area(489,80,"10")
+    choice("P13",450,518,45,20,indicator_limit("ordinario", "P13"))
+    area(489,80,str(area_limit("ordinario", 4)))
 
     # 5. Questionario studenti.
     rect(50,571,83,28,BLUE)
     lines(53,574,["Valutazione didattica","Questionario studenti"],6.9,8.5)
     row_bgs(571,28)
     text(137,579,"Indicatore Q12 relativo alla soddisfazione complessiva >3",6.75)
-    centered(401,578,44,"3",7.2)
-    choice("P14",450,576,45,18,3)
-    area(571,28,"3")
+    centered(401,578,44,str(indicator_limit("ordinario", "P14")),7.2)
+    choice("P14",450,576,45,18,indicator_limit("ordinario", "P14"))
+    area(571,28,str(area_limit("ordinario", 5)))
 
     # 6. Esperienze e competenze specifiche.
     rect(50,601,83,32,BLUE)
@@ -270,9 +272,9 @@ def make_ordinary(record: dict) -> bytes:
         "Valorizzazione dell'esperienza e della competenza nel settore",
         "specifico richiesto dall'insegnamento del corso di laurea",
     ],6.8,8.8)
-    centered(401,609,44,"max 7",7)
-    choice("P15",450,607,45,19,7)
-    area(601,32,"7")
+    centered(401,609,44,"max "+str(indicator_limit("ordinario", "P15")),7)
+    choice("P15",450,607,45,19,indicator_limit("ordinario", "P15"))
+    area(601,32,str(area_limit("ordinario", 6)))
 
     lines(53,637,[
         "Tutte le variabili devono essere pesate in rapporto alla pertinenza",
@@ -284,7 +286,7 @@ def make_ordinary(record: dict) -> bytes:
         rect(x,636,width,19,GREEN)
     centered(401,639,44,"TOTALE",8.0,True,white)
     field("TOT",449,638,48,15,"0",readonly=True,fontsize=9,background=white)
-    centered(501,638,49,"60",10,True,white)
+    centered(501,638,49,str(total_limit("ordinario")),10,True,white)
 
     text(53,659,"Note commissione / Esito:",7.4,True)
     form.choice(name="STATUS",tooltip="Esito della commissione",

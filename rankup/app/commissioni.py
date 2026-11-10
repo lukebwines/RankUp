@@ -12,6 +12,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 from pica import clean, normalize
 from commission_match import course_key, seat_key
+from xlsx_guard import validate_xlsx
 
 MAX_COMMISSION_FILE = 4 * 1024 * 1024
 HEADERS = (
@@ -26,14 +27,23 @@ def parse_commissioni(filename: str, content: bytes, expected_code: str) -> dict
         raise ValueError("Il file delle commissioni deve essere .xlsx")
     if not content or len(content) > MAX_COMMISSION_FILE:
         raise ValueError("File commissioni vuoto o superiore a 4 MB")
-    book = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    validate_xlsx(
+        content, max_uncompressed=24 * 1024 * 1024,
+        max_xml_part=16 * 1024 * 1024,
+        max_rows=10000, max_columns=100,
+    )
+    book = load_workbook(BytesIO(content), read_only=True, data_only=True,
+                         keep_links=False)
     try:
         sheet = book["Commissioni"] if "Commissioni" in book.sheetnames else book.worksheets[0]
         if (sheet.max_row or 0) > 10000 or (sheet.max_column or 0) > 100:
             raise ValueError("File commissioni oltre i limiti previsti")
-        it = sheet.iter_rows(values_only=True)
+        sheet.reset_dimensions()
+        it = enumerate(sheet.iter_rows(values_only=True), start=1)
         try:
-            head = next(it)
+            head_number, head = next(it)
+            if len(head) > 100:
+                raise ValueError("File commissioni oltre il limite di colonne")
         except StopIteration:
             raise ValueError("File commissioni vuoto")
         indices = {normalize(v): i for i, v in enumerate(head) if clean(v)}
@@ -44,7 +54,9 @@ def parse_commissioni(filename: str, content: bytes, expected_code: str) -> dict
         rows = []
         keys_seen = set()
         skipped_empty = 0
-        for row_no, cells in enumerate(it, start=2):
+        for row_no, cells in it:
+            if row_no > 10000 or len(cells) > 100:
+                raise ValueError("File commissioni oltre i limiti effettivi di righe o colonne")
             def get(label):
                 idx = indices[normalize(label)]
                 return clean(cells[idx]) if idx < len(cells) else ""
