@@ -628,6 +628,29 @@ def initialize() -> None:
                 quando TEXT NOT NULL
             );
         """)
+        # Modello scheda per singolo incarico NN (non globale).
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS incarichi_modelli_scheda (
+                incarico_id INTEGER PRIMARY KEY REFERENCES incarichi(id) ON DELETE CASCADE,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                modello TEXT NOT NULL CHECK(modello IN
+                    ('ordinario','professionalizzante','inglese')),
+                riferimento TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                aggiornato_il TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS incarichi_modelli_scheda_eventi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                incarico_id INTEGER NOT NULL REFERENCES incarichi(id) ON DELETE CASCADE,
+                precedente_json TEXT NOT NULL,
+                successivo_json TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                quando TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_incarichi_modelli_eventi
+                ON incarichi_modelli_scheda_eventi(bando_id,incarico_id,id);
+        """)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -1621,6 +1644,110 @@ def aggiorna_tipologia_pica(body: VocePICA, request: Request):
                           who, body.motivo)
         db.commit()
     return {"ok": True}
+
+
+
+class ModelloNNInput(BaseModel):
+    tipo: str = Field(min_length=4,max_length=40)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.get("/api/bandi/{code}/incarichi/modelli-nn")
+def modelli_incarichi_nn(code: str):
+    """SSD NN: classificazione PDF specifica per ogni incarico del bando."""
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        rows=db.execute("""
+            SELECT i.id,i.key,i.cds,i.sede,i.insegnamento,i.modulo,
+                   i.ul,i.partizione_studenti,i.codice_partizione,
+                   nn.modello AS modello_esplicito,nn.riferimento,
+                   nn.autore,nn.aggiornato_il,
+                   (SELECT COUNT(*) FROM valutazioni_pdf v
+                    JOIN candidature c ON c.id=v.candidatura_id
+                    WHERE c.incarico_id=i.id) AS schede_acquisite,
+                   g.stato AS stato_graduatoria,
+                   ri.graduatoria_id AS graduatoria_riaperta
+            FROM incarichi i
+            LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
+            LEFT JOIN graduatorie_cds g
+              ON g.bando_id=i.bando_id AND g.cds=i.cds AND g.sede=i.sede
+            LEFT JOIN graduatorie_cds_riaperte ri ON ri.graduatoria_id=g.id
+            WHERE i.bando_id=? AND UPPER(TRIM(i.ssd))='NN'
+            ORDER BY i.cds COLLATE NOCASE,i.sede COLLATE NOCASE,
+                     i.insegnamento COLLATE NOCASE,i.modulo COLLATE NOCASE,i.id
+        """,(b["id"],)).fetchall()
+    result=[]
+    for row in rows:
+        item=dict(row)
+        item["modello_effettivo"]=item["modello_esplicito"] or "ordinario"
+        item["bloccato"]=bool(item["schede_acquisite"] or
+            (item["stato_graduatoria"] and not item["graduatoria_riaperta"]))
+        result.append(item)
+    return {"incarichi":result}
+
+
+@app.put("/api/bandi/{code}/incarichi/{key}/modello-scheda")
+def assegna_modello_incarico_nn(code: str,key: str,body: ModelloNNInput,
+                                request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    if not re.fullmatch(r"[0-9a-f]{24}",key):
+        fail("Chiave dell'incarico non valida")
+    if body.tipo not in ("ordinario","professionalizzante","inglese"):
+        fail("Scegliere un modello esistente: ordinario, professionalizzante o Inglese")
+    ref=body.riferimento.strip()
+    if len(ref)<5 or "[DA VERIFICARE]" in ref.upper():
+        fail("Indicare un riferimento documentale verificato per la scelta della scheda")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        row=db.execute("""
+            SELECT i.id,i.bando_id,i.cds,i.sede,i.ssd FROM incarichi i
+            JOIN bandi b ON b.id=i.bando_id
+            WHERE b.codice=? AND i.key=?
+        """,(code,key)).fetchone()
+        if not row:fail("Incarico non trovato",404)
+        if str(row["ssd"] or "").strip().upper()!="NN":
+            fail("La scelta per incarico è consentita solo quando SSD è NN",409)
+        _assert_graduatoria_open(db,row["bando_id"],row["cds"],row["sede"])
+        if db.execute("""
+            SELECT 1 FROM valutazioni_pdf v
+            JOIN candidature c ON c.id=v.candidatura_id
+            WHERE c.incarico_id=? LIMIT 1
+        """,(row["id"],)).fetchone():
+            fail("Modello bloccato: esistono schede PDF acquisite o da verificare "
+                 "per questo incarico; non è consentito reinterpretarle.",409)
+        before=db.execute("""
+            SELECT modello,riferimento,autore,aggiornato_il
+            FROM incarichi_modelli_scheda WHERE incarico_id=?
+        """,(row["id"],)).fetchone()
+        if before and before["modello"]==body.tipo and before["riferimento"]==ref:
+            db.commit()
+            return {"ok":True,"modificato":False,"modello":body.tipo}
+        stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        after={"modello":body.tipo,"riferimento":ref,
+               "autore":request_actor(),"aggiornato_il":stamp}
+        db.execute("""
+            INSERT INTO incarichi_modelli_scheda
+                (incarico_id,bando_id,modello,riferimento,autore,aggiornato_il)
+            VALUES(?,?,?,?,?,?)
+            ON CONFLICT(incarico_id) DO UPDATE SET
+              modello=excluded.modello,riferimento=excluded.riferimento,
+              autore=excluded.autore,aggiornato_il=excluded.aggiornato_il
+        """,(row["id"],row["bando_id"],body.tipo,ref,request_actor(),stamp))
+        db.execute("""
+            INSERT INTO incarichi_modelli_scheda_eventi
+                (bando_id,incarico_id,precedente_json,successivo_json,autore,quando)
+            VALUES(?,?,?,?,?,?)
+        """,(row["bando_id"],row["id"],
+             json.dumps(dict(before) if before else {},ensure_ascii=False),
+             json.dumps(after,ensure_ascii=False),request_actor(),stamp))
+        db.commit()
+    return {"ok":True,"modificato":True,"modello":body.tipo,
+            "avviso":"Rigenerare e ridistribuire le schede PDF dell'incarico; "
+                     "le schede precedenti potrebbero non corrispondere al modello scelto."}
 
 
 class RequisitoEnteInput(BaseModel):
