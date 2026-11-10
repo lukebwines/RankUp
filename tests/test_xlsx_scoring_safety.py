@@ -98,8 +98,11 @@ def test_commissione_limit_rejects_far_row_when_dimension_is_absent():
 
 def test_xml_doctype_or_entity_is_rejected_before_openpyxl():
     def add_doctype(xml):
-        head=xml.find(b">")
-        return xml[:head+1]+b'<!DOCTYPE workbook [<!ENTITY local "XX">]>'+xml[head+1:]
+        declaration=b'<!DOCTYPE workbook [<!ENTITY local "XX">]>'
+        if xml.startswith(b"<?xml"):
+            head=xml.find(b"?>")
+            return xml[:head+2]+declaration+xml[head+2:]
+        return declaration+xml
     crafted=_edit_member(pica_fixture(),"xl/workbook.xml",add_doctype)
     with pytest.raises(ValueError,match="DOCTYPE"):
         parse_pica("pica.xlsx",crafted)
