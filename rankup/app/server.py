@@ -1877,7 +1877,18 @@ def storico_occupazione_ai(code: str, request: Request):
             latest[key] = dict(row)
     for key, value in latest.items():
         value["numero_controlli"] = counts[key]
-    return {"controlli": latest}
+    with connect() as db:
+        jobs=db.execute("""
+          SELECT valutazione_pdf_id,id,stato,creato_il,aggiornato_il,errore
+          FROM ai_occupazione_lavori WHERE bando_id=?
+          ORDER BY creato_il DESC,id DESC
+        """,(b["id"],)).fetchall()
+    pending={}
+    for job in jobs:
+        key=str(job["valutazione_pdf_id"])
+        if key not in pending:
+            pending[key]=dict(job)
+    return {"controlli":latest,"lavori":pending}
 
 
 @app.get("/api/bandi/{code}/valutazioni/ai/occupazione/report.pdf")
@@ -3973,6 +3984,20 @@ def avvia_archiviazione_bando(code: str, request: Request):
                                "errore":None,"risultato":None}
         _ARCHIVE_POOL.submit(_background_archive,job_id,code,who["username"])
     return {"lavoro_id":job_id,"stato":"in_coda"}
+
+
+@app.get("/api/bandi/{code}/archivio/chiudi/lavoro-attivo")
+def ultimo_lavoro_archiviazione(code: str,request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with _ARCHIVE_LOCK:
+        available=[(key,job) for key,job in _ARCHIVE_JOBS.items()
+                   if job["codice"]==code]
+        if not available:
+            return {"lavoro_id":None,"stato":None}
+        key,job=available[-1]
+        return {"lavoro_id":key,"stato":job["stato"],
+                "errore":job["errore"],"risultato":job["risultato"]}
 
 
 @app.get("/api/bandi/{code}/archivio/chiudi/lavoro/{job_id}")
