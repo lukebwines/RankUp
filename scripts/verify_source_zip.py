@@ -26,9 +26,7 @@ REQUIRED_FILES = frozenset({
     "rankup/app/server.py",
     "rankup/app/db_lifecycle.py",
     "rankup/app/static/index.html",
-    "rankup_ollama/config.yaml",
-    "rankup_ollama/Dockerfile",
-    "rankup_ollama/start.sh",
+    "rankup/app/title_date_check.py",
     "tests/test_db_lifecycle.py",
 })
 MAX_ZIP_BYTES = 128 * 1024 * 1024
