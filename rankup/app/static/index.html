@@ -223,7 +223,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.22 · Stabilità e aggiornamenti<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.23 · Eventi e parità<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1723,7 +1723,7 @@
               '<p class="caption">Controllo istruttorio; non determina ammissioni o esclusioni. Il dato dichiarato è riportato senza modifiche.</p>'+
               select+'<p class="caption" id="cand-counter"></p><div class="tablebox"><table><thead><tr>'+
               '<th>ID PICA</th><th>Candidato</th><th>CdS</th><th>Modulo</th><th>Ente richiesto</th>'+
-              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th></tr></thead>'+
+              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th><th>Stato / azioni</th></tr></thead>'+
               '<tbody id="cand-rows"></tbody></table></div></div>');
             function showCandidates(){
               var course=$("cand-cds").value,status=$("cand-ente-stato").value;
@@ -1738,8 +1738,58 @@
                   '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
                   '</td><td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
                   '<div class="caption">'+esc(e.motivo||"")+'</div></td>'+
-                  '</tr>';
+                  '<td><strong>'+esc(r.stato)+'</strong>'+
+                  (state.role==="admin"
+                    ? '<div class="actions"><select data-cand-choice="'+esc(r.id)+'">'+
+                      '<option value="">Seleziona operazione</option>'+
+                      (r.stato==="Attiva"
+                        ? ['Rinunciata','Ritirata',"Esclusa d'ufficio"].map(function(t){
+                            return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('')
+                        : '<option value="Attiva">Ripristina candidatura</option>')+
+                      '</select><button class="btn secondary" data-cand-save="'+esc(r.id)+'">Registra</button>'+
+                      '<button class="btn secondary" data-cand-history="'+esc(r.id)+'">Storico</button></div>'
+                    : '')+'</td></tr>';
               }).join('');
+              document.querySelectorAll("[data-cand-save]").forEach(function(btn){
+                btn.onclick=async function(){
+                  var cand=rows.find(function(x){return String(x.id)===btn.dataset.candSave;});
+                  var select=document.querySelector('[data-cand-choice="'+btn.dataset.candSave+'"]');
+                  if(!cand||!select||!select.value){note("Seleziona uno stato.",true);return;}
+                  var reason=prompt("Motivazione documentata di "+select.value+" per ID PICA "+cand.id_pica+":");
+                  if(reason===null)return;
+                  var ref=prompt("Riferimento alla comunicazione o al provvedimento:");
+                  if(ref===null)return;
+                  if(reason.trim().length<10||ref.trim().length<5){
+                    note("Inserire motivazione (almeno 10 caratteri) e riferimento (almeno 5).",true);return;
+                  }
+                  if(!confirm("Confermi? I PDF e il PICA originali resteranno conservati. La candidatura non attiva non richiederà più la scheda."))return;
+                  btn.disabled=true;
+                  try{
+                    await api("bandi/"+encodeURIComponent(code)+"/candidature/"+
+                              encodeURIComponent(cand.id)+"/stato",{
+                      method:"POST",headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify({stato:select.value,motivazione:reason.trim(),
+                                           riferimento:ref.trim()})
+                    });
+                    note("Stato della candidatura registrato e tracciato.",false);
+                    renderList("candidature");
+                  }catch(err){note(err.message,true);btn.disabled=false;}
+                };
+              });
+              document.querySelectorAll("[data-cand-history]").forEach(function(btn){
+                btn.onclick=async function(){
+                  try{
+                    var result=await api("bandi/"+encodeURIComponent(code)+"/candidature/"+
+                                       encodeURIComponent(btn.dataset.candHistory)+"/eventi");
+                    if(!result.eventi.length){note("Nessun evento di stato registrato.",false);return;}
+                    alert(result.eventi.map(function(e){
+                      return e.quando+" · "+e.precedente+" → "+e.successivo+
+                             "\nDocumento: "+e.riferimento+"\nMotivazione: "+e.motivazione+
+                             "\nOperatore: "+e.autore;
+                    }).join("\n\n"));
+                  }catch(err){note(err.message,true);}
+                };
+              });
             }
             $("cand-cds").onchange=showCandidates;$("cand-ente-stato").onchange=showCandidates;
             showCandidates();return;
