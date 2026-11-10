@@ -245,7 +245,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",valTableQuery:"",valTableFocusOnly:false,valJumpToGroup:false,incarichiFilter:{cds:"",sede:""},incarichiQuery:"",candidatureFilter:{query:"",stato:""},role:null,username:""};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",valTableQuery:"",valTableFocusOnly:false,valJumpToGroup:false,incarichiFilter:{cds:"",sede:""},incarichiQuery:"",candidatureFilter:{cds:"",ente:"",query:"",stato:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -538,7 +538,7 @@
         state.valFilter={cds:"",sede:""};
         state.incarichiFilter={cds:"",sede:""};
         state.incarichiQuery="";
-        state.candidatureFilter={query:"",stato:""};
+        state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         persistSelection();updateHeader();render();
       };
@@ -546,7 +546,7 @@
         state.year=year;state.active="";state.preview=null;
         state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};
         state.incarichiQuery="";
-        state.candidatureFilter={query:"",stato:""};
+        state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         syncAcademicSelection();updateHeader();render();
       }
@@ -1969,13 +1969,13 @@
               var course=$("cand-cds").value,status=$("cand-ente-stato").value;
               var candidateStatus=$("cand-stato").value;
               var term=($("cand-search").value||"").trim().toLocaleLowerCase("it");
-              state.candidatureFilter={query:$("cand-search").value,stato:candidateStatus};
+              state.candidatureFilter={cds:course,ente:status,query:$("cand-search").value,stato:candidateStatus};
               var filtered=rows.filter(function(r){
                 var full=[r.id_pica,r.cognome,r.nome,r.cds,r.sede,r.insegnamento,
                           r.modulo,r.ente_richiesto,r.azienda_ente].filter(Boolean)
                   .join(" ").toLocaleLowerCase("it");
                 return (!course||r.cds===course)
-                  &&(!status||(r.verifica_ente||{}).stato.indexOf(status)===0)
+                  &&(!status||((r.verifica_ente||{}).stato||"").indexOf(status)===0)
                   &&(!candidateStatus||r.stato===candidateStatus)
                   &&(!term||full.includes(term));
               });
@@ -2040,6 +2040,8 @@
                 };
               });
             }
+            $("cand-cds").value=state.candidatureFilter.cds||"";
+            $("cand-ente-stato").value=state.candidatureFilter.ente||"";
             $("cand-cds").onchange=showCandidates;
             $("cand-ente-stato").onchange=showCandidates;
             $("cand-stato").onchange=showCandidates;
