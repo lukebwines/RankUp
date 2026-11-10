@@ -317,10 +317,9 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
                 story.append(CondPageBreak(22*mm))
                 story.append(Paragraph(_job_heading(job),job_style))
             else:
-                story.append(Paragraph("Insegnamento: "+escape(job["insegnamento"])+
-                                " | Modulo: "+escape(job["modulo"])+
-                                " | SSD: "+escape(job.get("ssd") or "[DA VERIFICARE]"),
-                                style["Heading3"]))
+                # Le intestazioni CdS usano gli stessi campi PICA del PDF
+                # generale: UL e partizioni sono mostrate solo se presenti.
+                story.append(Paragraph(_job_heading(job),style["Heading3"]))
             if not general and job.get("vincitore_id"):
                 winner=next((x for x in job["candidature"]
                              if x["candidatura_id"]==job["vincitore_id"]),None)

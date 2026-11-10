@@ -122,3 +122,39 @@ def test_old_snapshot_enrichment_readonly_and_preserves_provided_values():
     old["selezioni"][0]["incarichi"][0]["ul"]="UL storica"
     assert enrich_print_metadata(db,1,old)["selezioni"][0]["incarichi"][0]["ul"]=="UL storica"
     db.close()
+
+
+def test_individual_cds_pdf_shows_ul_and_partition_when_present():
+    data=_scope(1,True)
+    data["stato"]="pronta"
+    pdf=render_graduatoria_pdf("DEMO-26",data)
+    content=_text(pdf)
+    assert "Graduatoria della Commissione per Corso di Studio" in content
+    assert "UL: UL 1" in content
+    assert "Partizione: Canale A (cod. A1)" in content
+    assert "Candidato Secondo" in content
+    assert "Insegnamento / Modulo:" in content
+    no_fields=_text(render_graduatoria_pdf("DEMO-26",_scope(2)))
+    assert "UL:" not in no_fields
+    assert "Partizione:" not in no_fields
+
+
+def test_individual_legacy_snapshot_fills_only_source_metadata():
+    db=sqlite3.connect(":memory:")
+    db.row_factory=sqlite3.Row
+    db.execute("""CREATE TABLE incarichi (
+        bando_id INTEGER,key TEXT,ul TEXT,
+        codice_partizione TEXT,partizione_studenti TEXT)""")
+    db.execute("INSERT INTO incarichi VALUES (?,?,?,?,?)",
+               (1,"chiave-1","Unità sintetica","B","Canale B"))
+    old=_scope(1)
+    old["incarichi"][0].pop("ul")
+    old["incarichi"][0].pop("partizione_studenti")
+    old["incarichi"][0].pop("codice_partizione")
+    original=deepcopy(old)
+    printable=enrich_print_metadata(db,1,old)
+    assert old==original
+    text=_text(render_graduatoria_pdf("DEMO-26",printable))
+    assert "UL: Unità sintetica" in text
+    assert "Partizione: Canale B (cod. B)" in text
+    db.close()
