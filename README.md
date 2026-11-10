@@ -258,3 +258,11 @@ L'A.A. è già registrato in `bandi_riferimenti.anno_accademico` (formato `AAAA-
 Per **Prepara bando** o **Importa esportazione PICA** dalla Dashboard l'operatore sceglie prima un A.A. verificato. Il nuovo bando conserva lo stesso valore nei riferimenti con evento di audit. Se un bando in preparazione ha già un A.A. diverso, l'importazione PICA viene respinta senza sostituire il dato preesistente. Le API accettano ancora importazioni senza A.A. per compatibilità retroattiva con i workflow esistenti, ma la UI ne richiede la selezione per i nuovi procedimenti.
 
 La selezione aggregata non abilita azioni del procedimento: per accedere a **Incarichi, Candidature, Commissioni, Schede, Valutazioni, Verbali o Graduatorie** bisogna scegliere un bando specifico. L'archivio storico resta trasversale e continua a includere tutti i bandi.
+
+### RankUP 0.9.19 — Correzione di sicurezza del blocco sui bandi archiviati
+
+Il middleware applica il blocco alle richieste di scrittura dopo la **normalizzazione del codice bando** con la stessa logica degli handler: i codici con lettere maiuscole, minuscole o miste individuano il medesimo bando e ricevono la stessa risposta **409** quando lo stato è `Archiviato`. Le richieste di sola lettura restano consultabili. L'unica eccezione di scrittura rimane la rotta dedicata alla **riapertura formale** da parte dell'Admin, con motivazione e riferimento documentale verificato.
+
+In aggiunta, ogni operazione di modifica del bando verifica nuovamente lo stato **dopo `BEGIN IMMEDIATE`** nella transazione SQLite: una richiesta già passata dal middleware non può modificare un bando archiviato nel frattempo. Le funzioni di anteprima/documenti verificano lo stato prima di elaborare file temporanei o conservare originali.
+
+La correzione è retrocompatibile: **nessuna migrazione, nessun cambiamento agli ZIP già generati, nessuna modifica ai documenti e alle valutazioni**. I test includono codici maiuscoli/minuscoli/misti, account Admin e operatore, accesso di sola lettura, ripristino formale e controllo transazionale diretto.
