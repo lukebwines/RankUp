@@ -1,5 +1,10 @@
 # RankUp
 
+## RankUP v1.0.1 — Allineamento badge dei verbali
+
+Correzione esclusivamente grafica: nella sezione Verbali, la dicitura di stato («In lavorazione», «Pronto», «Definitiva» e «Atti approvati») rimane allineata a destra anche quando la denominazione ufficiale del CdS occupa più righe. Il layout è adattivo sui dispositivi stretti. Nessuna variazione a database, atti, PDF, graduatorie, controlli o autorizzazioni.
+
+
 ## RankUP v1.0.0 — Prima versione stabile
 
 Prima versione stabile dell'add-on Home Assistant, con l'intestazione laterale «RANKUP · v1.0.0», il credito «Crafted by Luca B.» e «© 2026 Luca B. · All rights reserved.». Restano invariati il modello dati (schema SQLite v4), i controlli delle valutazioni e la gestione documentale.
