@@ -828,7 +828,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.28", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.29", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1251,7 +1251,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "0.9.28", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "0.9.29", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -3603,6 +3603,9 @@ def pdf_graduatoria_cds(code: str, cds: str, sede: str, request: Request):
         else:
             snapshot=_graduatoria_status(db,b["id"],cds,sede)
             snapshot["stato"]="BOZZA NON DEFINITIVA"
+        # Integra in sola lettura eventuali UL/partizioni da incarichi PICA
+        # anche per snapshot CdS anteriori. Non riscrive i PDF definitivi.
+        snapshot=enrich_print_metadata(db,b["id"],snapshot)
     if not snapshot["incarichi"]:
         fail("Nessun incarico trovato",404)
     if not snapshot.get("pronta") or snapshot.get("criticita"):
