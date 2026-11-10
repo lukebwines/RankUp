@@ -855,7 +855,10 @@ def auth_status(request: Request):
 def auth_login(credentials: LoginRequest, request: Request):
     if not AUTH.configured:
         fail("Configurare amministratore e password nella scheda Configurazione dell'add-on", 503)
-    token = AUTH.authenticate(credentials.username, credentials.password)
+    # L'indirizzo del peer è fornito dal server ASGI; non fidarsi di
+    # CF-Connecting-IP/X-Forwarded-For forniti arbitrariamente dal client.
+    source=request.client.host if request.client else "unknown"
+    token = AUTH.authenticate(credentials.username, credentials.password,source=source)
     if token is None:
         fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
     identity=AUTH.principal(token)
