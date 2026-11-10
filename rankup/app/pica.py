@@ -11,6 +11,7 @@ import hashlib
 from collections import Counter
 from typing import Any
 from incarichi_fields import EXTRA_PICA_FIELDS, EXTRA_SOURCE_KEYS
+from xlsx_guard import validate_xlsx
 
 
 MAX_ROWS = 20000
@@ -62,12 +63,23 @@ def _read_rows(filename: str, content: bytes):
         yield from rows
     elif ext == "xlsx":
         from openpyxl import load_workbook
-        book = load_workbook(BytesIO(content), read_only=True, data_only=True)
+        validate_xlsx(
+            content, max_uncompressed=96 * 1024 * 1024,
+            max_xml_part=64 * 1024 * 1024,
+            max_rows=MAX_ROWS, max_columns=MAX_COLUMNS,
+        )
+        book = load_workbook(BytesIO(content), read_only=True, data_only=True,
+                             keep_links=False)
         try:
             sheet = book.worksheets[0]
             if (sheet.max_row or 0) > MAX_ROWS or (sheet.max_column or 0) > MAX_COLUMNS:
                 raise ValueError("File PICA oltre i limiti di righe o colonne")
-            for row in sheet.iter_rows(values_only=True):
+            # La dimensione dichiarata può essere assente o errata:
+            # leggere le celle realmente presenti, senza fidarsi dei metadati.
+            sheet.reset_dimensions()
+            for row_number, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                if row_number > MAX_ROWS or len(row) > MAX_COLUMNS:
+                    raise ValueError("File PICA oltre i limiti effettivi di righe o colonne")
                 yield list(row)
         finally:
             book.close()
