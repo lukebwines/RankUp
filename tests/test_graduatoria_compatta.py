@@ -158,3 +158,50 @@ def test_individual_legacy_snapshot_fills_only_source_metadata():
     assert "UL: Unità sintetica" in text
     assert "Partizione: Canale B (cod. B)" in text
     db.close()
+
+
+def _text_font_samples(pdf):
+    """Campiona i font realmente incorporati nelle porzioni testuali del PDF."""
+    samples=[]
+    for page in PdfReader(BytesIO(pdf)).pages:
+        def collect(value, cm, tm, font, size):
+            if value.strip():
+                samples.append((value, str((font or {}).get("/BaseFont", ""))))
+        page.extract_text(visitor_text=collect)
+    return samples
+
+
+def test_first_place_winner_is_bold_in_general_pdf_not_other_candidates():
+    snapshot={"selezioni":[_scope(1,True)],"totale_ambiti_bando":2}
+    public=render_graduatoria_pdf("DEMO-26",snapshot,general=True,approved=True)
+    samples=_text_font_samples(public)
+    # Grassetto reale del font, non un'annotazione che potrebbe sparire alla stampa.
+    assert any("800001" in value and "Bold" in font for value,font in samples), samples
+    assert any("12.00" in value and "Bold" in font for value,font in samples), samples
+    assert any("900001" in value and "Bold" not in font for value,font in samples), samples
+    assert any("10.00" in value and "Bold" not in font for value,font in samples), samples
+    assert "Candidato Secondo" not in _text(public)
+
+    private=render_graduatoria_pdf(
+        "DEMO-26",snapshot,general=True,approved=True,internal=True)
+    private_samples=_text_font_samples(private)
+    assert any("800001" in value and "Bold" in font for value,font in private_samples)
+    assert any("900001" in value and "Bold" not in font for value,font in private_samples)
+
+    # I PDF CdS mantengono lo stile originale: solo il generale evidenzia la riga.
+    cds_pdf=render_graduatoria_pdf("DEMO-26",_scope(1,True))
+    cds_samples=_text_font_samples(cds_pdf)
+    assert any("800001" in value and "Bold" not in font for value,font in cds_samples)
+
+
+def test_position_one_without_confirmed_winner_not_emphasized():
+    scope=_scope(1,True)
+    job=scope["incarichi"][0]
+    job["vincitore_id"]=None
+    job["candidature"][1]["posizione"]=1
+    doc=render_graduatoria_pdf(
+        "DEMO-26",{"selezioni":[scope],"totale_ambiti_bando":1},
+        general=True,approved=False)
+    samples=_text_font_samples(doc)
+    assert any("800001" in value and "Bold" not in font for value,font in samples)
+    assert any("900001" in value and "Bold" not in font for value,font in samples)

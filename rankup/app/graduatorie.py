@@ -343,11 +343,18 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
                            " (ID PICA "+str(row["id_pica"])+")")
                           if not general or is_winner or internal
                           else "ID PICA "+str(row["id_pica"]))
-                rows.append([p(row["posizione"] if row["posizione"] is not None else "-"),
-                             p(identity),
-                             p(row["punteggio"] if row["punteggio"] is not None else "non attribuito"),
-                             p(row["esito"]),
-                             p((row["note"] or "—") if not general else "-")])
+                # Nella graduatoria generale evidenzia il solo vincitore
+                # effettivo in posizione 1. Non usare la sola posizione:
+                # eventuali parità prive di vincitore non sono aggiudicazioni.
+                winner_bold=general and is_winner and row["posizione"]==1
+                def cell(value):
+                    plain=escape(str(value if value not in (None,"") else "[DA VERIFICARE]"))
+                    return Paragraph("<b>"+plain+"</b>" if winner_bold else plain,small)
+                rows.append([cell(row["posizione"] if row["posizione"] is not None else "-"),
+                             cell(identity),
+                             cell(row["punteggio"] if row["punteggio"] is not None else "non attribuito"),
+                             cell(row["esito"]),
+                             cell((row["note"] or "—") if not general else "-")])
             if len(rows)==1:
                 rows.append([p("-"),p("Nessuna candidatura"),p("-"),p("-"),p("-")])
             table=Table(rows,colWidths=[12*mm,55*mm,21*mm,39*mm,51*mm],
