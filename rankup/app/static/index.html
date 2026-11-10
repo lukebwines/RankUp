@@ -2139,6 +2139,14 @@
             (!filter.cds&&!filter.sede?' disabled':'')+'>Reimposta filtri</button></div>'+
             '<p class="ru-val-help">Le schede non associate a un ID PICA sono visibili nella vista «Tutti i Corsi di Studio». La selezione filtra anche lo storico e l’acquisizione manuale.</p></div>';
           var scope=filter.cds?filter.cds+(filter.sede?' · '+filter.sede:''):"Tutti i CdS";
+          // Una parità non invalida il PDF, ma impedisce la chiusura del verbale.
+          // Il riepilogo corrente è ricavato esclusivamente dai dati restituiti dal server.
+          var tieByArea=new Map();
+          (report.archivio||[]).forEach(function(doc){
+            if(!doc.verifica_parita||doc.candidatura_stato!=="Attiva")return;
+            var key=JSON.stringify([doc.cds,doc.sede]);
+            tieByArea.set(key,(tieByArea.get(key)||0)+1);
+          });
           var reportLink=state.role==="admin"
             ? '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
               '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">▤</span>'+
@@ -2184,8 +2192,10 @@
               var expected=Number(r.attese)||0,concluded=Number(r.acquisite)||0;
               var ratio=expected?Math.min(100,Math.round(100*concluded/expected)):0;
               var flagged=Number(r.da_verificare)||0;
-              var pending=expected>concluded||flagged>0;
-              var status=expected===0?'<span class="ru-val-tag ru-val-tag--neutral">Nessuna candidatura attiva</span>':
+              var tieCandidates=tieByArea.get(JSON.stringify([r.cds,r.sede]))||0;
+              var pending=expected>concluded||flagged>0||tieCandidates>0;
+              var status=tieCandidates>0?'<span class="ru-val-tag ru-val-tag--warning">Parità da verificare</span>':
+                expected===0?'<span class="ru-val-tag ru-val-tag--neutral">Nessuna candidatura attiva</span>':
                 flagged>0?'<span class="ru-val-tag ru-val-tag--warning">Da verificare</span>':
                 !pending?'<span class="ru-val-tag ru-val-tag--good">Completo</span>':
                 concluded===0?'<span class="ru-val-tag ru-val-tag--neutral">Non avviato</span>':
@@ -2204,7 +2214,9 @@
                 '<td><div class="ru-val-progress"><div class="ru-val-meter" role="progressbar" aria-label="Avanzamento '+esc(r.cds)+' · '+esc(r.sede)+
                 '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+ratio+'"><span style="width:'+ratio+'%"></span></div>'+
                 '<strong>'+ratio+'%</strong></div></td>'+
-                '<td>'+(flagged?'<span class="ru-val-tag ru-val-tag--warning">'+esc(flagged)+'</span>':'<span class="ru-val-count-detail">0</span>')+'</td>'+
+                '<td>'+(flagged?'<span class="ru-val-tag ru-val-tag--warning">'+esc(flagged)+' PDF</span>':'')+
+                (tieCandidates?'<span class="ru-val-tag ru-val-tag--warning">'+esc(tieCandidates)+' candidati in parità</span>':'')+
+                (!flagged&&!tieCandidates?'<span class="ru-val-count-detail">0</span>':'')+'</td>'+
                 '<td>'+status+'</td>'+
                 '<td><button type="button" class="btn secondary" data-val-course="'+esc(r.cds)+
                 '" data-val-site="'+esc(r.sede)+'">Apri CdS</button></td></tr>';
