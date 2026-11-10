@@ -176,16 +176,20 @@ def test_cds_pdf_and_sealed_verbale_include_pica_partition_but_original_is_immut
         selection={"cds":scope["cds"],"sede":scope["sede"]}
         draft=client.get(base+"/pdf",params=selection)
         assert draft.status_code==200,draft.text if draft.status_code!=200 else ""
-        draft_text="\\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(draft.content)).pages)
-        assert "UL: UL sintetica" in draft_text
-        assert "Partizione: Partizione sintetica A (cod. A)" in draft_text
+        draft_text=" ".join(
+            " ".join((p.extract_text() or "").split())
+            for p in PdfReader(BytesIO(draft.content)).pages)
+        assert "UL: UL sintetica" in draft_text, draft_text
+        assert "Partizione: Partizione sintetica A (cod. A)" in draft_text, draft_text
         result=_post(client,base+"/genera-definitivo",json=selection)
         assert result.status_code==200,result.text
         sealed=client.get(base+"/pdf-completo",params=selection)
         assert sealed.status_code==200
-        sealed_text="\\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(sealed.content)).pages)
-        assert "UL: UL sintetica" in sealed_text
-        assert "Partizione: Partizione sintetica A (cod. A)" in sealed_text
+        sealed_text=" ".join(
+            " ".join((p.extract_text() or "").split())
+            for p in PdfReader(BytesIO(sealed.content)).pages)
+        assert "UL: UL sintetica" in sealed_text, sealed_text
+        assert "Partizione: Partizione sintetica A (cod. A)" in sealed_text, sealed_text
         with server.connect() as db:
             db.execute("UPDATE incarichi SET ul=? WHERE id=?",("Altro valore di collaudo",job["id"]))
         again=client.get(base+"/pdf-completo",params=selection)
