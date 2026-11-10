@@ -692,8 +692,16 @@
           var seat=state.verbaliSede||"";
           if(seat&&!seats.includes(seat))seat="";
           var shown=rows.filter(function(r){return (!selected||r.cds===selected)&&(!seat||r.sede===seat);});
+          var counts={definitivi:rows.filter(function(x){return x.stato==="definitiva";}).length,
+            approvati:rows.filter(function(x){return x.stato==="approvata";}).length,
+            da_verificare:rows.filter(function(x){return x.stato!=="definitiva"&&x.stato!=="approvata"&&!x.verbale_generabile;}).length};
           var controls='<div class="card mb"><h3 class="section-heading">Verbali e graduatorie per CdS</h3>'+
             '<p class="caption">Dati delle schede acquisite; le note della Commissione sono riprodotte integralmente. Le parità non vengono risolte automaticamente.</p>'+
+            '<div class="ru-quick-stats"><span class="ru-status-pill">'+esc(rows.length)+' CdS/sedi</span>'+
+            '<span class="ru-status-pill ru-status-pill--good">'+esc(counts.definitivi)+' definitivi</span>'+
+            '<span class="ru-status-pill ru-status-pill--good">'+esc(counts.approvati)+' approvati</span>'+
+            (counts.da_verificare?'<span class="ru-status-pill ru-status-pill--warning">'+esc(counts.da_verificare)+' da completare</span>':'')+
+            '</div>'+
             '<div class="actions"><label>Corso di Studio<select id="verb-cds"><option value="">Tutti i CdS</option>'+
             names.map(function(name){return '<option value="'+esc(name)+'"'+(name===selected?' selected':'')+'>'+esc(name)+'</option>';}).join('')+
             '</select></label><label>Sede<select id="verb-sede"><option value="">Tutte le sedi</option>'+
@@ -940,16 +948,23 @@
           if(state.page!=="graduatorie"||state.active!==code)return;
           var ready=(results[0].graduatorie||[]).filter(function(g){return g.stato==="definitiva"&&g.conferma;});
           var all=results[1].approvazioni||[];
-          var content='<div class="card mb"><h3 class="section-heading">Graduatoria generale definitiva anche parziale</h3>'+
+          var completed=all.filter(function(x){return x.stato==="approvata";}).length;
+          var drafts=all.filter(function(x){return x.stato==="bozza";}).length;
+          var content='<div class="ru-quick-stats"><span class="ru-status-pill">'+
+            esc(ready.length)+' CdS definitivi disponibili</span>'+
+            '<span class="ru-status-pill ru-status-pill--good">'+esc(completed)+' approvazioni registrate</span>'+
+            (drafts?'<span class="ru-status-pill ru-status-pill--warning">'+esc(drafts)+' bozze aperte</span>':'')+
+            '</div><div class="card mb"><h3 class="section-heading">Graduatoria generale definitiva anche parziale</h3>'+
             '<p class="caption">Seleziona solo graduatorie CdS definitive non ancora approvate. Una bozza non chiude alcuna posizione; la chiusura segue la registrazione degli estremi dell\'atto.</p>'+
             (ready.length?ready.map(function(g){
-              return '<label style="display:block;padding:8px"><input type="checkbox" data-grad-select="'+esc(g.conferma.id)+'"'+
-                (state.role!=="admin"?' disabled':'')+'> '+esc(g.cds)+' · '+esc(g.sede)+' · '+esc(g.totale_candidature)+' candidature</label>';
+              return '<label class="ru-approval-choice"><input type="checkbox" data-grad-select="'+esc(g.conferma.id)+'"'+
+                (state.role!=="admin"?' disabled':'')+'><span><strong>'+esc(g.cds)+'</strong>'+
+                '<span class="caption">Sede: '+esc(g.sede)+' · '+esc(g.totale_candidature)+' candidature</span></span></label>';
             }).join(''):'<p class="muted">Nessuna graduatoria CdS definitiva disponibile per una nuova approvazione.</p>')+
             (state.role==="admin"?'<button class="btn" id="grad-draft"'+(ready.length?'':' disabled')+'>Crea bozza graduatoria generale</button>':'')+
             '</div><div class="card"><h3 class="section-heading">Approvazioni atti</h3>'+
             (all.length?all.map(function(a){
-              return '<div class="card mb"><strong>Procedura '+esc(a.id)+' · '+
+              return '<div class="card mb ru-approval-card"><strong>Procedura '+esc(a.id)+' · '+
                 esc(a.stato==="approvata"?"Atti approvati":a.stato==="regredita"?
                     "Approvazione regredita · storico":"Bozza da approvare")+'</strong>'+
                 '<div class="caption">'+esc(a.ambiti.map(function(g){return g.cds+" / "+g.sede;}).join("; "))+'</div>'+
