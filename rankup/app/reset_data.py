@@ -21,7 +21,10 @@ from db_lifecycle import AutoClosingConnection
 RESET_LOCK = threading.Lock()
 BUSINESS_TABLES = (
     # Prima i marcatori e le revisioni, poi le tabelle collegate: rispetta le FK.
+    "graduatorie_cds_documenti_recuperi",
     "graduatorie_cds_documenti",
+    "graduatorie_parita_risoluzioni",
+    "candidature_eventi",
     "graduatorie_cds_riaperte",
     "graduatorie_cds_revisioni",
     "graduatorie_approvazioni_regressioni",
