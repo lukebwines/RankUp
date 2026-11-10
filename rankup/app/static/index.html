@@ -2359,7 +2359,7 @@
               '<small>Consulta gli incarichi e le schede della Commissione</small></span>'+
               '<span class="ru-val-group-counts"><span class="ru-val-tag ru-val-tag--neutral">'+
               esc(areaJobs.length)+' incarichi</span>'+
-              '<span class="ru-val-tag ru-val-tag--good">'+esc(activeCount)+' schede correnti</span>'+
+              '<span class="ru-val-tag '+(activeCount?'ru-val-tag--good':'ru-val-tag--neutral')+'">'+esc(activeCount)+' schede correnti</span>'+
               (problemCount?'<span class="ru-val-tag ru-val-tag--warning">'+
                 esc(problemCount)+' da verificare</span>':'')+
               '</span></summary><div class="ru-val-group-body">'+jobHtml+'</div></details>';
