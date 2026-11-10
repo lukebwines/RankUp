@@ -240,3 +240,11 @@ La relazione documentale **non richiede di alterare i PDF**: `valutazioni_pdf.ca
 **Sicurezza:** funzione riservata all'Admin, ricerca tramite POST anziché URL, risposte con codice fiscale mascherato e senza esportazione indiscriminata. Per il trattamento, consultazione e conservazione dei dati applicare le policy dell'Ateneo. La funzione è di sola lettura; non tocca punteggi, esiti o PDF.
 
 **Archivio in produzione:** i bandi chiusi restano nel database operativo; il loro ZIP è una copia integrale separata. La ricerca attraversa i bandi ancora registrati nel database e **non indicizza automaticamente gli ZIP dopo un azzeramento o una cancellazione**. L'azzeramento rimane una funzione straordinaria per la pulizia dell'ambiente di prova prima dell'avvio in produzione, non una procedura da ripetere fra bandi.
+
+### RankUP 0.9.17 — Recupero degli utenti eliminati
+
+**Amministrazione → Gestione utenti** distingue gli account operativi (attivi o disattivati) da quelli **eliminati**, che in realtà sono esclusi dall'accesso e conservati per ragioni di audit. I nomi di account eliminati non possono essere assegnati a nuovi record, perché sono ancora vincolati alla loro cronologia originale: ora la pagina li mostra in **Utenti eliminati**.
+
+L'Admin può scegliere **Ripristina utente**, impostare una **nuova password** (minimo 8 caratteri) e confermare. Il ripristino riutilizza l'ID originale, riattiva l'account, incrementa la versione delle credenziali e registra l'operazione nel log, **senza alterare gli eventi precedenti**. Le password precedenti non vengono recuperate o rese visibili; le sessioni precedenti sono revocate. Utenti non amministratori non possono ripristinare account.
+
+Non sono richieste modifiche manuali a SQLite né azzeramenti; l'errore di duplicazione indica ora esplicitamente il percorso di ripristino quando il nome appartiene a un account eliminato.
