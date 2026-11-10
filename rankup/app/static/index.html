@@ -223,7 +223,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.19 · Anno accademico e Dashboard<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.20 · Elaborazioni e sicurezza<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1021,21 +1021,53 @@
               candidateSearchPage(1);
             };
           }
+          async function attendiArchiviazione(lavoroId){
+            var button=$("archive-close-bando");
+            for(var attempt=0;attempt<720;attempt++){
+              await new Promise(function(resolve){setTimeout(resolve,2500);});
+              if(state.page!=="archivio"||state.active!==active)return;
+              var current=await api("bandi/"+encodeURIComponent(active)+
+                "/archivio/chiudi/lavoro/"+encodeURIComponent(lavoroId));
+              if(current.stato==="completato"){
+                var saved=current.risultato;
+                await reload();
+                note("Bando archiviato. ZIP verificato e conservato: "+
+                     saved.file_count+" file. Il documento è disponibile nella tabella.",false);
+                renderArchivioFinale();return;
+              }
+              if(current.stato==="errore"){
+                note(current.errore||"Creazione ZIP non riuscita.",true);
+                renderArchivioFinale();return;
+              }
+              if(button)button.textContent="ZIP: "+(current.stato==="in_coda"?
+                "in attesa...":"preparazione e verifica in corso...");
+            }
+            note("L'archiviazione prosegue sul server. Torna qui per verificarne lo stato.",false);
+          }
           if($("archive-close-bando"))$("archive-close-bando").onclick=async function(){
             if(!confirm("Chiudere definitivamente il bando "+active+
               " e conservare uno ZIP completo? La procedura diventerà non modificabile "+
               "fino a una riapertura formale documentata."))return;
-            this.disabled=true;this.textContent="Creazione e verifica ZIP...";
+            this.disabled=true;this.textContent="Avvio preparazione ZIP...";
             try{
-              var saved=await api("bandi/"+encodeURIComponent(active)+"/archivio/chiudi",
+              var started=await api("bandi/"+encodeURIComponent(active)+"/archivio/chiudi/avvia",
                 {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-              await reload();
-              note("Bando archiviato. ZIP verificato e conservato: "+
-                   saved.file_count+" file. Il documento è disponibile nella tabella.",false);
-              renderArchivioFinale();
-            }catch(err){note(err.message,true);this.disabled=false;
-              this.textContent="Chiudi bando e genera archivio ZIP";}
+              note("Archiviazione avviata. Puoi continuare a navigare: la preparazione prosegue sul server.",false);
+              await attendiArchiviazione(started.lavoro_id);
+            }catch(err){
+              note(err.message,true);this.disabled=false;
+              this.textContent="Chiudi bando e genera archivio ZIP";
+            }
           };
+          if(check&&check.stato_bando!=="Archiviato"){
+            api("bandi/"+encodeURIComponent(active)+"/archivio/chiudi/lavoro-attivo")
+              .then(function(last){
+                if(!last.lavoro_id||!["in_coda","in_elaborazione"].includes(last.stato))return;
+                var button=$("archive-close-bando");
+                if(button){button.disabled=true;button.textContent="ZIP in preparazione...";}
+                attendiArchiviazione(last.lavoro_id);
+              }).catch(function(){});
+          }
           if($("archive-reopen-bando"))$("archive-reopen-bando").onclick=async function(){
             var reason=prompt("Motivazione documentata della riapertura del bando:");
             if(reason===null)return;
@@ -1968,6 +2000,7 @@
           if(state.active!==code||state.page!=="valutazioni")return;
           var locations=responses[0].cds_sedi||[],report=responses[1];
           var aiHistory=(responses[2]&&responses[2].controlli)||{};
+          var aiJobs=(responses[2]&&responses[2].lavori)||{};
           var courses=[...new Set(locations.map(function(x){return x.cds;}))].sort();
           var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
             .map(function(x){return x.sede;}))].sort();
@@ -2015,7 +2048,10 @@
             '</tbody></table></div></div>';
           var archive=report.archivio||[];
           var jobs=report.incarichi||[];
-          archive.forEach(function(r){r.ai_occupazione_storico=aiHistory[String(r.id)]||null;});
+          archive.forEach(function(r){
+            r.ai_occupazione_storico=aiHistory[String(r.id)]||null;
+            r.ai_occupazione_lavoro=aiJobs[String(r.id)]||null;
+          });
           var split=schedeDaMostrare(archive);
           var historyView=state.valSchedeView==="all";
           var activeIds=new Set(split.correnti.map(function(r){return Number(r.id);}));
@@ -2046,7 +2082,13 @@
               '/valutazioni/'+encodeURIComponent(r.id)+
               '/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
               (state.role==="admin"&&r.candidatura_id
-                ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'">Verifica occupazione IA</button>'+
+                ? '<button type="button" class="btn secondary" data-archive-ai="'+esc(r.id)+'"'+
+                  (r.ai_occupazione_lavoro&&["in_coda","in_elaborazione"].includes(r.ai_occupazione_lavoro.stato)?' disabled':'')+'>'+
+                  (r.ai_occupazione_lavoro&&["in_coda","in_elaborazione"].includes(r.ai_occupazione_lavoro.stato)?
+                  'Analisi IA in corso...':'Verifica occupazione IA')+'</button>'+
+                  (r.ai_occupazione_lavoro&&r.ai_occupazione_lavoro.stato!=="completato"?
+                    '<div class="caption">Lavoro IA: '+esc(r.ai_occupazione_lavoro.stato)+
+                    (r.ai_occupazione_lavoro.errore?' · '+esc(r.ai_occupazione_lavoro.errore):'')+'</div>':'')+
                   (r.ai_occupazione_storico?
                     '<div class="caption"><strong>Ultima analisi IA: '+esc(r.ai_occupazione_storico.stato)+'</strong> · '+
                     esc(r.ai_occupazione_storico.quando)+' · Controlli registrati: '+
@@ -2166,25 +2208,43 @@
               if(state.role!=="admin")return;
               var item=archive.find(function(r){return String(r.id)===btn.dataset.archiveAi;});
               if(!item)return;
-              btn.disabled=true;btn.textContent="Analisi locale...";
+              btn.disabled=true;btn.textContent="Analisi IA in preparazione...";
               try{
                 var outcome=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+
                   encodeURIComponent(item.id)+"/ai/occupazione",{
                   method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
                 });
-                item.ai_occupazione=outcome.risultato;
+                btn.textContent="Analisi IA in corso...";
+                note("Controllo IA avviato. La pagina può essere chiusa: l'analisi prosegue sul server.",false);
+                var job=outcome.lavoro_id;
+                for(var attempt=0;attempt<180;attempt++){
+                  await new Promise(function(resolve){setTimeout(resolve,2500);});
+                  if(state.active!==code||state.page!=="valutazioni")return;
+                  var check=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+
+                    encodeURIComponent(item.id)+"/ai/occupazione/lavoro/"+encodeURIComponent(job));
+                  if(check.stato==="completato"){
+                    note("Controllo occupazionale istruttorio completato. Nessuna decisione modificata.",false);
+                    renderValutazioni();return;
+                  }
+                  if(check.stato==="errore"||check.stato==="interrotto"){
+                    throw new Error(check.errore||"Controllo IA interrotto; è possibile ripeterlo.");
+                  }
+                }
+                throw new Error("Il controllo IA è ancora in corso: ricarica la pagina per verificarne lo stato.");
+              }catch(error){
+                note(error.message,true);btn.disabled=false;
                 btn.textContent="Ripeti controllo IA";
-                var info=btn.parentNode.querySelector("[data-ai-result]");
-                if(!info){info=document.createElement("div");info.className="caption";info.dataset.aiResult="1";btn.parentNode.appendChild(info);}
-                info.textContent="IA locale: "+outcome.risultato.stato+" — "+
-                  outcome.risultato.motivo+
-                  (outcome.risultato.evidenza?" · Fonte PICA: "+outcome.risultato.evidenza:"");
-                btn.textContent="Ripeti controllo IA";
-                note("Controllo occupazionale istruttorio completato. Nessuna decisione modificata.",false);
-              }catch(error){note(error.message,true);btn.textContent="Verifica occupazione IA";}
-              finally{btn.disabled=false;}
+              }
             };
           });
+          if(archive.some(function(r){
+            return r.ai_occupazione_lavoro&&
+              ["in_coda","in_elaborazione"].includes(r.ai_occupazione_lavoro.stato);
+          })){
+            setTimeout(function(){
+              if(state.active===code&&state.page==="valutazioni")renderValutazioni();
+            },7000);
+          }
           $("pdf-eval-preview").onclick=async function(){
             var files=$("pdf-eval-files").files;
             if(!files.length){note("Seleziona almeno un PDF o un archivio ZIP",true);return;}
