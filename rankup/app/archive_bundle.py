@@ -58,6 +58,18 @@ def controlla_chiusura(db, bando_id: int) -> dict:
                 or "[DA VERIFICARE]" in row["estremi_atto"].upper()):
             issues.append(place["cds"]+" / "+place["sede"]+": atto di approvazione mancante o regredito.")
             continue
+        payload=bytes(row["pdf_definitivo"]) if row["pdf_definitivo"] is not None else b""
+        if (not payload or not row["hash_pdf"]
+                or _sha(payload)!=row["hash_pdf"]):
+            issues.append(place["cds"]+" / "+place["sede"]+
+                          ": PDF definitivo salvato mancante o non integro.")
+            continue
+        try:
+            if not payload.startswith(b"%PDF-") or not PdfReader(BytesIO(payload)).pages:
+                raise ValueError("PDF vuoto o non valido")
+        except Exception:
+            issues.append(place["cds"]+" / "+place["sede"]+": PDF definitivo non leggibile.")
+            continue
         approved=json.loads(row["dati_json"])
         if approved.get("cds")!=place["cds"] or approved.get("sede")!=place["sede"]:
             issues.append(place["cds"]+" / "+place["sede"]+": istantanea non corrispondente.")

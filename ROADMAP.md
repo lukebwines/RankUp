@@ -1,6 +1,6 @@
 # Roadmap RankUP
 
-> **Stato di riferimento del repository: v0.9.22 (`rankup/config.yaml`).** Le caselle indicano disponibilità nel codice, **non** collaudo in produzione né installazione sul Raspberry. Le note delle versioni precedenti sono mantenute più sotto come cronologia.
+> **Stato di riferimento del repository: v0.9.23 (`rankup/config.yaml`).** Le caselle indicano disponibilità nel codice, **non** collaudo in produzione né installazione sul Raspberry. Le note delle versioni precedenti sono mantenute più sotto come cronologia.
 
 ## Come leggere lo stato
 
@@ -9,22 +9,25 @@
 - **[ ] Da verificare / collaudare:** prova manuale, requisito incompleto oppure funzionalità futura.
 - **Collaudo HAOS e documentale:** richiede verifica su un'installazione Home Assistant e, quando pertinenti, confronto delle schede con i modelli e gli atti ufficiali.
 
-## Stato attuale — repository 0.9.22
+## Stato attuale — repository 0.9.23
 
 | Area | Realizzato nel codice | Resta da verificare o completare |
 | --- | --- | --- |
 | PICA / incarichi | Import Excel, ricostruzione incarichi, filtri e riferimenti del bando; controlli XLSX | Prova con le fonti ufficiali e dati di un bando reale su HAOS |
+| Rinunce e ritiri | Admin registra stato e riferimento documentale per singola candidatura; le schede non sono più richieste per posizioni non attive | Scorrimenti dopo approvazione restano esterni a RankUP |
+| Parità | Alert in Valutazioni e comando contestuale «Gestisci parità» nei Verbali; precedenze della Commissione tracciate | Collaudo interattivo e applicazione dei criteri effettivi delle singole procedure |
+| Prospetto interno | PDF con tutti i nominativi ricavato dallo snapshot approvato, accesso Admin e audit | Verifica documentale dell'uso e della distribuzione interna |
 | Commissioni | Gestione per CdS/sede, catalogo globale conservato e importazione incrementale | Correttezza delle associazioni e delle nuove designazioni, senza propagazione implicita |
 | Schede PDF | Tre modelli generati, massimali centralizzati, anteprima, acquisizione/nuove versioni e audit | Collaudo interattivo dei PDF su Acrobat/macOS e verifica amministrativa dei modelli |
 | Graduatorie / verbali | Graduatorie CdS e generale, approvazioni, regressioni e archivio delle versioni | Controllo umano degli atti generati e gestione delle firme esterne al programma |
 | Sicurezza | Account Admin/operatori, autorizzazioni, controlli ZIP/XLSX e operazioni concorrenti | Verifiche di sicurezza e conformità all'ambiente d'Ateneo |
 | Persistenza | SQLite con connessioni chiuse, migrazione schema v1 e snapshot prima dell'upgrade | Collaudo aggiornamento e ripristino di emergenza sul Raspberry |
-| Archiviazione bandi | ZIP finale con `manifest.json`, impronte SHA-256 e verifica dei componenti | **Ripristino completo automatizzato dello ZIP non implementato** |
+| Archiviazione bandi | ZIP finale con `manifest.json`, impronte SHA-256; PDF definitivo salvato obbligatorio e recupero degli storici documentato | **Ripristino completo automatizzato dello ZIP non implementato** |
 | Home Assistant | Add-on, Ingress, endpoint salute e configurazione watchdog | Verifica reale del watchdog e del recupero dopo errori |
 | Dipendenze | Versioni delle otto dipendenze dirette fissate | Lock completo con dipendenze transitive/hash e aggiornamenti di sicurezza |
 | ZIP del **codice sorgente** | Test automatico di contenuto, integrità, percorsi e compatibilità dei nomi | Nessuna garanzia di avvio su Windows/macOS: il runtime previsto resta l'add-on Linux/HAOS |
 
-**Ultimo collaudo CI noto prima di questo aggiornamento documentale:** 122 test Python superati e controllo JavaScript superato su v0.9.22. Verificare l'esito della CI della revisione corrente per il dato aggiornato.
+**Collaudo CI:** verificare il risultato del workflow associato alla revisione corrente prima di distribuire questa versione.
 
 ## Priorità operative ancora aperte
 

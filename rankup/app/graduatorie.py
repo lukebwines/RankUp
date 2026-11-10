@@ -5,6 +5,7 @@ gli atti approvati sono registrati con snapshot e non ricalcolati retroattivamen
 """
 from __future__ import annotations
 from io import BytesIO
+import json
 from decimal import Decimal
 from xml.sax.saxutils import escape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, KeepTogether
@@ -25,7 +26,7 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
         ORDER BY insegnamento COLLATE NOCASE,modulo COLLATE NOCASE,key
     """,(bando_id,cds,sede))]
     result = {"cds":cds,"sede":sede,"incarichi":[],"pronta":False,
-              "criticita":[],"totale_candidature":0}
+              "criticita":[],"totale_candidature":0,"totale_annullate":0}
     if not jobs:
         result["criticita"].append("Nessun incarico per CdS/sede")
         return result
@@ -48,8 +49,12 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
         """,(job["id"],))]
         result["totale_candidature"]+=len(candidates)
         warnings=[]
+        excluded_count=0
         if not candidates:
-            warnings.append("Nessuna candidatura attiva: verificare il trattamento dell'incarico")
+            excluded_count=db.execute("""SELECT COUNT(*) FROM candidature
+                WHERE incarico_id=? AND stato<>'Attiva'""",(job["id"],)).fetchone()[0]
+            if not excluded_count:
+                warnings.append("Nessuna candidatura registrata per l'incarico")
         for c in candidates:
             if c["valutazione_id"] is None:
                 warnings.append("Valutazione mancante: ID PICA "+str(c["id_pica"]))
@@ -61,27 +66,67 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
                 warnings.append("Motivazione mancante: ID PICA "+str(c["id_pica"]))
         eligible=[c for c in candidates if c["decisione"]=="idoneo" and c["totale_calcolato"] is not None]
         eligible.sort(key=lambda c:(-_score(c["totale_calcolato"]),str(c["id_pica"])))
-        previous=None;position=0
-        for i,c in enumerate(eligible):
-            score=_score(c["totale_calcolato"])
-            if score!=previous:
-                position=i+1
-            c["posizione"]=position
-            c["punteggio"]=str(score)
-            previous=score
-        ties={}
-        for c in eligible:
-            ties.setdefault(c["posizione"],[]).append(c)
         selection=db.execute("""SELECT candidatura_id,motivazione,riferimento
             FROM graduatorie_vincitori_proposti
             WHERE bando_id=? AND incarico_id=?
         """,(bando_id,job["id"])).fetchone()
-        selected=next((c for c in eligible if selection and c["posizione"]==1
-                       and c["candidatura_id"]==selection["candidatura_id"]),None)
-        for position, group in ties.items():
-            if len(group)>1 and not (position==1 and selected):
-                warnings.append("Parita di punteggio non risolta alla posizione "+str(position))
-        winner=selected or (eligible[0] if eligible and len(ties.get(1,[]))==1 else None)
+        resolutions={}
+        for r in db.execute("""SELECT punteggio,ordine_json,valutazioni_json,
+                       motivazione,riferimento
+                FROM graduatorie_parita_risoluzioni
+                WHERE bando_id=? AND incarico_id=?""",(bando_id,job["id"])):
+            resolutions[r["punteggio"]]=dict(r)
+        ties=[]
+        tie_pending=[]
+        grouped={}
+        for c in eligible:
+            grouped.setdefault(str(_score(c["totale_calcolato"])),[]).append(c)
+        position=1
+        ordered=[]
+        for score,group in grouped.items():
+            resolution=resolutions.get(score)
+            ordered_ids=[]
+            valid=False
+            if resolution and len(group)>1:
+                try:
+                    ordered_ids=json.loads(resolution["ordine_json"])
+                    evaluations=json.loads(resolution["valutazioni_json"])
+                    valid=(len(ordered_ids)==len(group)
+                           and set(ordered_ids)=={c["candidatura_id"] for c in group}
+                           and len(ordered_ids)==len(set(ordered_ids))
+                           and evaluations=={str(c["candidatura_id"]):c["valutazione_id"]
+                                             for c in group})
+                except (TypeError,ValueError,KeyError):
+                    valid=False
+            # Le vecchie decisioni sul primo posto restano riconosciute.
+            if (not valid and position==1 and len(group)==2 and selection
+                    and selection["candidatura_id"] in {c["candidatura_id"] for c in group}):
+                ordered_ids=[selection["candidatura_id"]]+[
+                    c["candidatura_id"] for c in group
+                    if c["candidatura_id"]!=selection["candidatura_id"]]
+                valid=True
+            if valid:
+                rank_order={cid:index for index,cid in enumerate(ordered_ids)}
+                group.sort(key=lambda c:rank_order[c["candidatura_id"]])
+            for index,c in enumerate(group):
+                c["posizione"]=position+index if len(group)==1 or valid else position
+                c["punteggio"]=score
+                c["verifica_parita"]=bool(len(group)>1 and not valid)
+            if len(group)>1:
+                details={"punteggio":score,"posizione":position,
+                         "candidati":[{"candidatura_id":c["candidatura_id"],
+                                      "id_pica":c["id_pica"],"nome":c["nome"],
+                                      "cognome":c["cognome"],"posizione":c["posizione"]}
+                                      for c in group],
+                         "risolta":valid}
+                ties.append(details)
+                if not valid:
+                    warnings.append("Parita di punteggio da verificare alla posizione "+str(position))
+                    tie_pending.append(details)
+            position+=len(group)
+            ordered.extend(group)
+        winner=next((c for c in ordered if c["posizione"]==1 and
+                      not c.get("verifica_parita")),None)
         for c in candidates:
             if c["decisione"]=="idoneo":
                 matching=next((e for e in eligible if e["candidatura_id"]==c["candidatura_id"]),None)
@@ -91,21 +136,30 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
                 c["posizione"]=None
                 c["punteggio"]=None
         jobdata={k:job[k] for k in ("id","key","cds","sede","insegnamento","modulo","ssd","id_copertura")}
-        jobdata["vincitore_motivazione"]=(selection["motivazione"] if selection and selected else "")
-        jobdata["vincitore_riferimento"]=(selection["riferimento"] if selection and selected else "")
+        jobdata["vincitore_motivazione"]=(selection["motivazione"] if selection and winner
+            and winner["candidatura_id"]==selection["candidatura_id"] else "")
+        jobdata["vincitore_riferimento"]=(selection["riferimento"] if selection and winner
+            and winner["candidatura_id"]==selection["candidatura_id"] else "")
+        jobdata["candidature_annullate"]=excluded_count
+        jobdata["parita"]=tie_pending
+        jobdata["parita_risolte"]=[t for t in ties if t["risolta"]]
         jobdata.update(candidature=candidates, vincitore_id=winner["candidatura_id"] if winner else None,
                        vincitore_pica=winner["id_pica"] if winner else None,
                        criticita=warnings,pronta=not warnings)
+        result["totale_annullate"]+=excluded_count
         result["incarichi"].append(jobdata)
         result["criticita"].extend(job["modulo"]+": "+message for message in warnings)
-    result["pronta"]=not result["criticita"] and result["totale_candidature"]>0
+    result["pronta"]=not result["criticita"] and (
+        result["totale_candidature"]>0 or result["totale_annullate"]>0)
     return result
 
 
 def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
-                           reference: str="", approved: bool=False) -> bytes:
+                           reference: str="", approved: bool=False,
+                           internal: bool=False) -> bytes:
     out=BytesIO()
-    title=("Graduatoria generale definitiva parziale" if general else
+    title=("Prospetto nominativo completo - USO INTERNO" if internal else
+           "Graduatoria generale definitiva parziale" if general else
            "Graduatoria della Commissione per Corso di Studio")
     doc=SimpleDocTemplate(out,pagesize=A4,leftMargin=16*mm,rightMargin=16*mm,
                           topMargin=16*mm,bottomMargin=16*mm,title=title)
@@ -118,6 +172,10 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
     if general:
         story.append(Paragraph("Stato: "+("ATTI APPROVATI" if approved else "BOZZA DA SOTTOPORRE AD APPROVAZIONE"),sub))
         story.append(Paragraph("Estremi del provvedimento: "+escape(reference or "[DA VERIFICARE]"),sub))
+        if internal:
+            story.append(Paragraph("Documento istruttorio riservato: non sostituisce la "
+                                   "graduatoria approvata. Dati congelati "
+                                   "al momento dell'approvazione.",sub))
         scopes=data.get("selezioni",[])
     else:
         story.append(Paragraph("CdS: "+escape(data.get("cds") or "[DA VERIFICARE]")+
@@ -154,7 +212,7 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
             for row in cand:
                 is_winner=row["candidatura_id"]==job["vincitore_id"]
                 identity=((str(row["cognome"])+" "+str(row["nome"])+" (ID PICA "+str(row["id_pica"])+")")
-                          if not general or is_winner else "ID PICA "+str(row["id_pica"]))
+                          if not general or is_winner or internal else "ID PICA "+str(row["id_pica"]))
                 rows.append([p(row["posizione"] if row["posizione"] is not None else "-"),
                              p(identity),p(row["punteggio"] if row["punteggio"] is not None else "non attribuito"),
                              p(row["esito"]),p((row["note"] or "—") if not general else "-")])

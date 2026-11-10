@@ -223,7 +223,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.22 · Stabilità e aggiornamenti<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.23 · Eventi e parità<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -610,7 +610,11 @@
                 ready?'Schede validate: la generazione del verbale ne registra automaticamente lo stato definitivo.':
                 esc(g.schede_da_risolvere)+' schede da completare o validare; risolvere anche eventuali parità e anomalie.')+'</p>'+
               '<div class="actions">'+
-              ((final||approved)
+              ((final||approved)&&!g.pdf_definitivo_presente
+                ? '<span class="caption">PDF storico definitivo non conservato; necessario recupero documentato.</span>'+
+                  (state.role==="admin"?'<button class="btn secondary" data-verb-recover="'+i+'">Recupera PDF storico</button>':'')
+                : '')+
+              ((final||approved)&&g.pdf_definitivo_presente
                 ? '<a class="btn" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
                   '&sede='+encodeURIComponent(g.sede)+'">Scarica verbale definitivo con schede</a>'+
@@ -653,12 +657,26 @@
                   (job.vincitore_motivazione
                     ? '<p class="caption">Decisione documentata della Commissione: '+esc(job.vincitore_motivazione)+
                       ' · Riferimento: '+esc(job.vincitore_riferimento)+'</p>':'')+
-                  (state.role==="admin"&&!final&&!approved&&tie
-                    ? '<div class="actions"><label>Trascrizione della decisione della Commissione su parità'+
-                      '<select data-winner-choice="'+esc(job.id)+'"><option value="">Seleziona candidato a pari merito</option>'+
-                      top.map(function(c){return '<option value="'+esc(c.candidatura_id)+'"'+
-                        (job.vincitore_id===c.candidatura_id?' selected':'')+'>'+esc(c.id_pica+' · '+c.cognome+' '+c.nome)+'</option>';}).join('')+
-                      '</select></label><button class="btn secondary" data-winner-save="'+esc(job.id)+'">Registra decisione documentata</button></div>'
+                  (state.role==="admin"&&!final&&!approved&&(job.parita||[]).length
+                    ? job.parita.map(function(t){
+                      return '<div class="notice ru-tie-box" data-tie-inc="'+esc(job.id)+
+                        '" data-tie-score="'+esc(t.punteggio)+'">'+
+                        '<p><strong>Parità da verificare · '+esc(t.punteggio)+' punti</strong> · '+
+                        'Posizione '+esc(t.posizione)+'</p>'+
+                        '<button type="button" class="btn secondary" data-tie-open>Gestisci parità</button>'+
+                        '<div class="ru-tie-form" style="display:none"><p class="caption">'+
+                        'Indica la precedenza comunicata dalla Commissione. I punteggi restano immutati.</p>'+
+                        t.candidati.map(function(c,k){
+                          return '<label>Posizione '+esc(t.posizione+k)+
+                          '<select data-tie-rank="'+esc(k)+'"><option value="">Seleziona candidato</option>'+
+                          t.candidati.map(function(choice){
+                            return '<option value="'+esc(choice.candidatura_id)+'">'+
+                            esc(choice.id_pica+' · '+choice.cognome+' '+choice.nome)+'</option>';
+                          }).join('')+'</select></label>';
+                        }).join('')+
+                        '<button type="button" class="btn" data-tie-save>Registra ordine documentato</button>'+
+                        '</div></div>';
+                    }).join('')
                     : '')+
                   '<div class="tablebox"><table><thead><tr><th>Pos.</th><th>ID PICA</th><th>Candidato</th>'+
                   '<th>Punti</th><th>Esito</th><th>Note Commissione</th></tr></thead><tbody>'+
@@ -674,25 +692,73 @@
           html(controls+(blocks||panel("Nessuna graduatoria","Nessun incarico corrisponde ai filtri.")));
           $("verb-cds").onchange=function(){state.verbaliCds=this.value;state.verbaliSede="";renderVerbaliGraduatorie();};
           $("verb-sede").onchange=function(){state.verbaliSede=this.value;renderVerbaliGraduatorie();};
-          document.querySelectorAll("[data-winner-save]").forEach(function(btn){
+          document.querySelectorAll("[data-tie-open]").forEach(function(btn){
+            btn.onclick=function(){
+              var form=btn.closest(".ru-tie-box").querySelector(".ru-tie-form");
+              form.style.display=form.style.display==="none"?"block":"none";
+            };
+          });
+          document.querySelectorAll("[data-tie-save]").forEach(function(btn){
             btn.onclick=async function(){
-              var assignment=btn.dataset.winnerSave;
-              var value=document.querySelector('[data-winner-choice="'+assignment+'"]');
-              if(!value||!value.value){note("Seleziona una candidatura idonea",true);return;}
-              var reason=prompt("Riporta fedelmente la motivazione della Commissione per la parità al primo posto:");
-              if(!reason||reason.trim().length<10){note("Motivazione obbligatoria di almeno 10 caratteri",true);return;}
-              var reference=prompt("Indica il riferimento al documento della Commissione che stabilisce il vincitore:");
-              if(!reference||reference.trim().length<5){note("Riferimento obbligatorio",true);return;}
+              var box=btn.closest(".ru-tie-box");
+              var vals=[...box.querySelectorAll("[data-tie-rank]")].map(function(s){return Number(s.value);});
+              if(vals.some(function(n){return !n;})||new Set(vals).size!==vals.length){
+                note("Assegna a ogni posizione un candidato diverso fra quelli in parità.",true);return;
+              }
+              var reason=prompt("Motivazione o criterio riportato dalla Commissione:");
+              if(reason===null)return;
+              var reference=prompt("Estremi del documento della Commissione che stabilisce la precedenza:");
+              if(reference===null)return;
+              if(reason.trim().length<10||reference.trim().length<5){
+                note("Motivazione e riferimento documentale obbligatori.",true);return;
+              }
+              if(!confirm("Registrare l'ordine di precedenza documentato, senza modificare i punteggi?"))return;
               btn.disabled=true;
               try{
                 await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/"+
-                    encodeURIComponent(assignment)+"/vincitore",{
-                    method:"PUT",headers:{"Content-Type":"application/json"},
-                    body:JSON.stringify({candidatura_id:Number(value.value),
-                      motivazione:reason.trim(),riferimento:reference.trim()})});
-                note("Decisione documentata della Commissione registrata e tracciata.",false);
+                          encodeURIComponent(box.dataset.tieInc)+"/parita",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({punteggio:box.dataset.tieScore,ordine_candidature:vals,
+                      motivazione:reason.trim(),riferimento:reference.trim()})
+                });
+                note("Parità risolta dalla decisione della Commissione. Punteggi invariati.",false);
                 renderVerbaliGraduatorie();
               }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          document.querySelectorAll("[data-verb-recover]").forEach(function(btn){
+            btn.onclick=function(){
+              var g=shown[Number(btn.dataset.verbRecover)];
+              if(!g)return;
+              var picker=document.createElement("input");
+              picker.type="file";picker.accept=".pdf,application/pdf";
+              picker.onchange=async function(){
+                var file=picker.files&&picker.files[0];
+                if(!file)return;
+                var reason=prompt("Motivazione del recupero del PDF effettivamente adottato:");
+                if(reason===null)return;
+                var reference=prompt("Riferimento documentale verificato del verbale storico:");
+                if(reference===null)return;
+                if(reason.trim().length<10||reference.trim().length<5){
+                  note("Motivazione e riferimento obbligatori.",true);return;
+                }
+                if(!confirm("Hai verificato la corrispondenza del PDF con il verbale definitivo adottato per "+g.cds+" / "+g.sede+"?"))return;
+                var form=new FormData();
+                form.append("cds",g.cds);form.append("sede",g.sede);
+                form.append("motivazione",reason.trim());
+                form.append("riferimento",reference.trim());
+                form.append("conferma_corrispondenza","true");
+                form.append("file",file,file.name);
+                btn.disabled=true;
+                try{
+                  await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/recupera-pdf",{
+                    method:"POST",body:form
+                  });
+                  note("PDF storico conservato con impronta SHA-256.",false);
+                  renderVerbaliGraduatorie();
+                }catch(err){note(err.message,true);btn.disabled=false;}
+              };
+              picker.click();
             };
           });
           document.querySelectorAll("[data-verb-regress]").forEach(function(btn){
@@ -787,6 +853,10 @@
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
                 '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf?inline=true">Apri PDF nel browser</a>'+
+                (state.role==="admin"&&a.stato==="approvata"
+                  ? '<a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
+                    '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+
+                    '/prospetto-interno">Scarica prospetto nominativo · uso interno</a>' : '')+
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
@@ -1723,7 +1793,7 @@
               '<p class="caption">Controllo istruttorio; non determina ammissioni o esclusioni. Il dato dichiarato è riportato senza modifiche.</p>'+
               select+'<p class="caption" id="cand-counter"></p><div class="tablebox"><table><thead><tr>'+
               '<th>ID PICA</th><th>Candidato</th><th>CdS</th><th>Modulo</th><th>Ente richiesto</th>'+
-              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th></tr></thead>'+
+              '<th>Occupazione PICA</th><th>Azienda/ente PICA</th><th>Verifica preliminare</th><th>Stato / azioni</th></tr></thead>'+
               '<tbody id="cand-rows"></tbody></table></div></div>');
             function showCandidates(){
               var course=$("cand-cds").value,status=$("cand-ente-stato").value;
@@ -1738,8 +1808,58 @@
                   '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
                   '</td><td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
                   '<div class="caption">'+esc(e.motivo||"")+'</div></td>'+
-                  '</tr>';
+                  '<td><strong>'+esc(r.stato)+'</strong>'+
+                  (state.role==="admin"
+                    ? '<div class="actions"><select data-cand-choice="'+esc(r.id)+'">'+
+                      '<option value="">Seleziona operazione</option>'+
+                      (r.stato==="Attiva"
+                        ? ['Rinunciata','Ritirata',"Esclusa d'ufficio"].map(function(t){
+                            return '<option value="'+esc(t)+'">'+esc(t)+'</option>';}).join('')
+                        : '<option value="Attiva">Ripristina candidatura</option>')+
+                      '</select><button class="btn secondary" data-cand-save="'+esc(r.id)+'">Registra</button>'+
+                      '<button class="btn secondary" data-cand-history="'+esc(r.id)+'">Storico</button></div>'
+                    : '')+'</td></tr>';
               }).join('');
+              document.querySelectorAll("[data-cand-save]").forEach(function(btn){
+                btn.onclick=async function(){
+                  var cand=rows.find(function(x){return String(x.id)===btn.dataset.candSave;});
+                  var select=document.querySelector('[data-cand-choice="'+btn.dataset.candSave+'"]');
+                  if(!cand||!select||!select.value){note("Seleziona uno stato.",true);return;}
+                  var reason=prompt("Motivazione documentata di "+select.value+" per ID PICA "+cand.id_pica+":");
+                  if(reason===null)return;
+                  var ref=prompt("Riferimento alla comunicazione o al provvedimento:");
+                  if(ref===null)return;
+                  if(reason.trim().length<10||ref.trim().length<5){
+                    note("Inserire motivazione (almeno 10 caratteri) e riferimento (almeno 5).",true);return;
+                  }
+                  if(!confirm("Confermi? I PDF e il PICA originali resteranno conservati. La candidatura non attiva non richiederà più la scheda."))return;
+                  btn.disabled=true;
+                  try{
+                    await api("bandi/"+encodeURIComponent(code)+"/candidature/"+
+                              encodeURIComponent(cand.id)+"/stato",{
+                      method:"POST",headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify({stato:select.value,motivazione:reason.trim(),
+                                           riferimento:ref.trim()})
+                    });
+                    note("Stato della candidatura registrato e tracciato.",false);
+                    renderList("candidature");
+                  }catch(err){note(err.message,true);btn.disabled=false;}
+                };
+              });
+              document.querySelectorAll("[data-cand-history]").forEach(function(btn){
+                btn.onclick=async function(){
+                  try{
+                    var result=await api("bandi/"+encodeURIComponent(code)+"/candidature/"+
+                                       encodeURIComponent(btn.dataset.candHistory)+"/eventi");
+                    if(!result.eventi.length){note("Nessun evento di stato registrato.",false);return;}
+                    alert(result.eventi.map(function(e){
+                      return e.quando+" · "+e.precedente+" → "+e.successivo+
+                             "\nDocumento: "+e.riferimento+"\nMotivazione: "+e.motivazione+
+                             "\nOperatore: "+e.autore;
+                    }).join("\n\n"));
+                  }catch(err){note(err.message,true);}
+                };
+              });
             }
             $("cand-cds").onchange=showCandidates;$("cand-ente-stato").onchange=showCandidates;
             showCandidates();return;
@@ -2064,7 +2184,11 @@
             var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
               (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":
                 provisional==null?"—":provisional+" (da convalidare)");
-            var status=valid?statusIcon(true)+" Scheda corrente":
+            var status=(r.candidatura_id&&r.candidatura_stato&&r.candidatura_stato!=="Attiva")
+              ? '<span class="caption">Scheda non richiesta · candidatura '+esc(r.candidatura_stato)+'</span>'
+              : (valid&&r.verifica_parita)
+                ? '<span style="font-weight:700;color:#d77b3f">Da verificare per parità</span> · Scheda acquisita'
+                : valid?statusIcon(true)+" Scheda corrente":
               (r.stato==="Da verificare"||flagged)
                 ? '<span style="font-weight:700;color:#d77b3f">Da verificare</span>'+
                   (historyView&&!flagged?' · storico':'')
