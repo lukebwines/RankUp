@@ -20,6 +20,7 @@ import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 from contextvars import ContextVar
+from contextlib import closing
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -3710,30 +3711,46 @@ def verifica_ultima_fase_bando(code: str, request: Request):
             "ultimo_archivio":dict(latest) if latest else None}
 
 
-@app.post("/api/bandi/{code}/archivio/chiudi")
-def chiudi_bando_con_zip(code: str, request: Request):
-    require_admin(request)
+def _chiudi_bando_con_snapshot(code: str, actor: str) -> dict:
+    """Prepara uno ZIP da una copia coerente di SQLite, senza tenere
+    BEGIN IMMEDIATE durante la compressione o la verifica dei file.
+
+    Se il DB cambia anche per un bando diverso durante la preparazione,
+    si rifiuta prudenzialmente la chiusura: basta riprovare.
+    """
     code=valid_code(code)
     ARCHIVI.mkdir(mode=0o700,parents=True,exist_ok=True)
     ARCHIVI.chmod(0o700)
     stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename="rankup_bando_"+code+"_"+stamp+"_"+secrets.token_hex(5)+".zip"
     temp=ARCHIVI/(filename+".tmp")
+    snap_path=ARCHIVI/(filename+".sqlite.tmp")
     output=ARCHIVI/filename
     created=False
     try:
-        with connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            b=db.execute("SELECT * FROM bandi WHERE codice=?",(code,)).fetchone()
+        snap_path.touch(mode=0o600,exist_ok=False)
+        snap_path.chmod(0o600)
+        # Le connessioni rimangono aperte, senza transazione di lettura,
+        # fino al commit finale per controllare PRAGMA data_version.
+        with closing(connect()) as live, closing(sqlite3.connect(snap_path)) as snapshot:
+            snapshot.row_factory=sqlite3.Row
+            version_before=live.execute("PRAGMA data_version").fetchone()[0]
+            live.backup(snapshot,pages=256,sleep=0.05)
+            version_after=live.execute("PRAGMA data_version").fetchone()[0]
+            if version_before!=version_after:
+                raise ArchivioNonPronto(
+                    "Database aggiornato durante la fotografia: ripetere la chiusura.")
+            snapshot.execute("PRAGMA query_only=ON")
+            b=snapshot.execute("SELECT * FROM bandi WHERE codice=?",(code,)).fetchone()
             if not b:fail("Bando non trovato",404)
             if b["stato"]=="Archiviato":
                 fail("Bando già archiviato: scarica lo ZIP esistente.",409)
-            status=controlla_chiusura(db,b["id"])
+            status=controlla_chiusura(snapshot,b["id"])
             if not status["pronto"]:
                 fail("Chiusura non possibile: "+"; ".join(status["criticita"]),409)
 
             def cds_pdf(cds,sede):
-                row=db.execute("""
+                row=snapshot.execute("""
                     SELECT g.stato,g.dati_json,d.pdf_definitivo,d.sha256
                     FROM graduatorie_cds g
                     LEFT JOIN graduatorie_cds_documenti d ON d.graduatoria_id=g.id
@@ -3746,44 +3763,69 @@ def chiudi_bando_con_zip(code: str, request: Request):
                     if hashlib.sha256(payload).hexdigest()!=row["sha256"]:
                         raise ArchivioNonPronto("Documento definitivo alterato: "+cds)
                     return payload
-                # Compatibilità con definitivi creati prima della 0.9.12:
-                # ricostruzione da snapshot reale e originali verificati.
-                snapshot=json.loads(row["dati_json"])
-                snapshot["stato"]="approvata"
-                return _costruisci_verbale_completo(db,b["id"],code,snapshot)
+                historical=json.loads(row["dati_json"])
+                historical["stato"]="approvata"
+                return _costruisci_verbale_completo(snapshot,b["id"],code,historical)
 
             def approval_pdf(row):
                 return render_graduatoria_pdf(
                     code,json.loads(row["dati_json"]),general=True,
                     approved=True,reference=row["estremi_atto"])
 
-            metadata=crea_pacchetto(db,dict(b),SOURCES,temp,cds_pdf,approval_pdf)
+            metadata=crea_pacchetto(snapshot,dict(b),SOURCES,temp,
+                                   cds_pdf,approval_pdf)
             temp.chmod(0o600)
+            # Il solo blocco di scrittura resta qui: nessuna compressione ZIP
+            # né generazione PDF mentre altri operatori attendono SQLite.
+            live.execute("BEGIN IMMEDIATE")
+            current_version=live.execute("PRAGMA data_version").fetchone()[0]
+            if current_version!=version_after:
+                raise ArchivioNonPronto(
+                    "Sono stati modificati dati durante la preparazione: "
+                    "verificare e ripetere la chiusura.")
+            current=live.execute("SELECT stato FROM bandi WHERE id=?",
+                                 (b["id"],)).fetchone()
+            if not current or current["stato"]!=b["stato"]:
+                raise ArchivioNonPronto(
+                    "Stato del bando cambiato: verificare e ripetere la chiusura.")
+            # Prima di registrare l'archivio è già stato verificato l'hash
+            # di ogni elemento ZIP, contenuti originali e dati dello snapshot.
             os.replace(temp,output)
             created=True
             now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
-            cur=db.execute("""
+            cur=live.execute("""
                 INSERT INTO bandi_archivi
                 (codice,nome_file,sha256,bytes,file_count,creato_da,
                  creato_il,stato_precedente,riepilogo_json)
                 VALUES(?,?,?,?,?,?,?,?,?)
             """,(code,filename,metadata["sha256"],metadata["bytes"],
-                 metadata["file_count"],request_actor(),now,
-                 b["stato"],json.dumps(metadata["riepilogo"],ensure_ascii=False)))
-            db.execute("UPDATE bandi SET stato='Archiviato' WHERE id=?",(b["id"],))
-            db.commit()
+                 metadata["file_count"],actor,now,b["stato"],
+                 json.dumps(metadata["riepilogo"],ensure_ascii=False)))
+            live.execute("UPDATE bandi SET stato='Archiviato' WHERE id=?",
+                         (b["id"],))
+            live.commit()
             return {"ok":True,"archivio_id":cur.lastrowid,"nome_file":filename,
                     "sha256":metadata["sha256"],"dimensione":metadata["bytes"],
                     "file_count":metadata["file_count"],
                     "cds_sedi":status["cds_sedi_totali"],
                     "approvazioni":status["approvazioni_completate"]}
-    except (ArchivioNonPronto,sqlite3.Error,OSError,ValueError,zipfile.BadZipFile) as error:
+    except (ArchivioNonPronto,sqlite3.Error,OSError,ValueError,
+            zipfile.BadZipFile) as error:
         if created:
             output.unlink(missing_ok=True)
         fail("Archivio non creato: "+str(error),409)
     finally:
         temp.unlink(missing_ok=True)
+        for path in (snap_path,snap_path.with_name(snap_path.name+"-wal"),
+                     snap_path.with_name(snap_path.name+"-shm")):
+            path.unlink(missing_ok=True)
 
+
+@app.post("/api/bandi/{code}/archivio/chiudi")
+def chiudi_bando_con_zip(code: str, request: Request):
+    """Compatibilità API per client esistenti. L'UI usa l'avvio asincrono."""
+    who=require_admin(request)
+    return _chiudi_bando_con_snapshot(valid_code(code),who["username"])
 
 
 class RicercaCandidatoStorico(BaseModel):
