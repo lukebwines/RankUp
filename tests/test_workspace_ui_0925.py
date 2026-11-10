@@ -123,3 +123,43 @@ def test_sqlite_e_api_non_richiesti_dal_restyling():
     assert "async function renderArchivioFinale()" in PAGE
     assert "async function renderBandoReferences()" in PAGE
     assert "async function renderCommissioni(" in PAGE
+
+
+def test_approvazioni_regredite_distinte_dalle_attive_e_storico_consultabile():
+    # Stato storico derivato esclusivamente dall'API, senza conteggiarlo
+    # come approvazione attiva e senza mutare gli atti.
+    for marker in (
+        'var historical=all.filter(function(x){return x.stato==="regredita";}).length',
+        'approvazioni attive',
+        'approvazioni regredite · storico',
+        'Approvazioni attive e storico',
+        'var isHistorical=a.stato==="regredita"',
+        'ru-approval-card--historical',
+        'data-approval-history="true"',
+        'REGREDITA · STORICO',
+        'Approvazione non più attiva, conservata esclusivamente',
+        'Scarica PDF storico',
+        'Apri PDF storico nel browser',
+    ):
+        assert marker in PAGE, marker
+    assert 'a.stato==="bozza"' in PAGE
+    assert 'a.stato==="approvata"' in PAGE
+    assert 'state.role==="admin"&&a.stato==="approvata"' in PAGE
+    assert 'state.role==="admin"&&a.stato==="bozza"' in PAGE
+    assert 'data-grad-approve' in PAGE and 'data-grad-regress' in PAGE
+    assert 'data-pdf-download' in PAGE
+    # La regressione non può diventare un secondo procedimento operativo.
+    assert "state.role===\"admin\"&&a.stato===\"regredita\"" not in PAGE
+
+
+def test_approvazioni_regredite_grigie_ma_link_pdf_accessibili_due_temi():
+    for selector in (
+        '.ru-workspace .ru-approval-card--historical',
+        '.ru-workspace .ru-approval-history-badge',
+        '.ru-workspace .ru-status-pill--historical',
+        'html[data-theme="dark"] .ru-workspace .ru-approval-card--historical',
+        '.ru-workspace .ru-approval-card--historical .actions a.btn',
+    ):
+        assert selector in CSS, selector
+    assert 'opacity:' not in CSS.split('/* Approvazioni regredite:',1)[1].split(
+        '.ru-approval-card > .caption',1)[0]
