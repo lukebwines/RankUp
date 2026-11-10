@@ -1,6 +1,6 @@
 # Roadmap RankUP
 
-> **Stato di riferimento del repository: v0.9.24 (`rankup/config.yaml`).** Le caselle indicano disponibilità nel codice, **non** collaudo in produzione né installazione sul Raspberry. Le note delle versioni precedenti sono mantenute più sotto come cronologia.
+> **Stato di riferimento del repository: v0.9.25 (`rankup/config.yaml`).** Le caselle indicano disponibilità nel codice, **non** collaudo in produzione né installazione sul Raspberry. Le note delle versioni precedenti sono mantenute più sotto come cronologia.
 
 ## Come leggere lo stato
 
@@ -9,12 +9,13 @@
 - **[ ] Da verificare / collaudare:** prova manuale, requisito incompleto oppure funzionalità futura.
 - **Collaudo HAOS e documentale:** richiede verifica su un'installazione Home Assistant e, quando pertinenti, confronto delle schede con i modelli e gli atti ufficiali.
 
-## Stato attuale — repository 0.9.24
+## Stato attuale — repository 0.9.25
 
 | Area | Realizzato nel codice | Resta da verificare o completare |
 | --- | --- | --- |
 | PICA / incarichi | Import Excel, ricostruzione incarichi, filtri e riferimenti del bando; controlli XLSX | Prova con le fonti ufficiali e dati di un bando reale su HAOS |
 | Interfaccia Valutazioni | Fase 1: KPI, filtri, import PDF, avanzamento e gruppi CdS accessibili senza cambiamenti alle API | Verificare visivamente su HAOS e decidere eventuale Fase 2 master-detail |
+| Interfaccia altre sezioni | Fase 1 globale: design system, guida fasi, tabelle/form accessibili, ricerca incarichi/candidature, riepiloghi e stati operativi | Collaudo visuale e funzionale in Home Assistant e attraverso tunnel; eventuale Fase 2 avanzata |
 | Rinunce e ritiri | Admin registra stato e riferimento documentale per singola candidatura; le schede non sono più richieste per posizioni non attive | Scorrimenti dopo approvazione restano esterni a RankUP |
 | Parità | Alert in Valutazioni e comando contestuale «Gestisci parità» nei Verbali; precedenze della Commissione tracciate | Collaudo interattivo e applicazione dei criteri effettivi delle singole procedure |
 | Prospetto interno | PDF con tutti i nominativi ricavato dallo snapshot approvato, accesso Admin e audit | Verifica documentale dell'uso e della distribuzione interna |
