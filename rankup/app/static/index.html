@@ -7,6 +7,7 @@
   <title>RankUp — Gestione bandi di docenza</title>
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
+  <link rel="stylesheet" href="static/valutazioni.css">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -223,7 +224,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.23 · Eventi e parità<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.24 · Valutazioni più leggibili<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -243,7 +244,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",incarichiFilter:{cds:"",sede:""},role:null,username:""};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",valTableQuery:"",valTableFocusOnly:false,valJumpToGroup:false,incarichiFilter:{cds:"",sede:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -432,11 +433,13 @@
         state.preview=null;
         state.valFilter={cds:"",sede:""};
         state.incarichiFilter={cds:"",sede:""};
+        state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         persistSelection();updateHeader();render();
       };
       function setAcademicYear(year){
         state.year=year;state.active="";state.preview=null;
         state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};
+        state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         syncAcademicSelection();updateHeader();render();
       }
       function updateHeader(){
@@ -2125,47 +2128,103 @@
           var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
             .map(function(x){return x.sede;}))].sort();
           var pairs=report.cds_sedi||[];
-          var selectors='<div class="card mb"><h3 class="section-heading">Seleziona il Corso di Studio</h3>'+
-            '<div class="actions"><label for="val-cds" class="caption" style="align-self:center">CdS</label>'+
-            '<select id="val-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px;max-width:100%">'+
-            '<option value="">Tutti i Corsi di Studio</option>'+
+          var selectors='<div class="card ru-val-filters mb">'+
+            '<div class="ru-val-section-head"><div><h3 class="section-heading">Filtri di analisi</h3>'+
+            '<p class="caption">Seleziona il CdS e la sede per concentrarti sulle candidature pertinenti.</p></div></div>'+
+            '<div class="ru-val-filter-row"><label for="val-cds">Corso di Studio'+
+            '<select id="val-cds"><option value="">Tutti i Corsi di Studio</option>'+
             courses.map(function(c){return '<option value="'+esc(c)+'"'+(filter.cds===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')+
-            '</select><label for="val-sede" class="caption" style="align-self:center">Sede</label>'+
-            '<select id="val-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px">'+
+            '</select></label><label for="val-sede">Sede<select id="val-sede">'+
             '<option value="">Tutte le sedi</option>'+
             sites.map(function(site){return '<option value="'+esc(site)+'"'+(filter.sede===site?' selected':'')+'>'+esc(site)+'</option>';}).join('')+
-            '</select></div><p class="caption">La selezione filtra il prospetto, lo storico e le candidature disponibili per la trascrizione manuale. Le schede non associate a una candidatura PICA sono visibili selezionando «Tutti i Corsi di Studio».</p></div>';
+            '</select></label><button id="val-reset-filters" type="button" class="btn secondary ru-val-filter-reset"'+
+            (!filter.cds&&!filter.sede?' disabled':'')+'>Reimposta filtri</button></div>'+
+            '<p class="ru-val-help">Le schede non associate a un ID PICA sono visibili nella vista «Tutti i Corsi di Studio». La selezione filtra anche lo storico e l’acquisizione manuale.</p></div>';
           var scope=filter.cds?filter.cds+(filter.sede?' · '+filter.sede:''):"Tutti i CdS";
-          var reportLink = state.role==="admin"
-            ? '<div class="card mb"><h3 class="section-heading">Report controllo occupazionale · CdS</h3>'+
+          // Una parità non invalida il PDF, ma impedisce la chiusura del verbale.
+          // Il riepilogo corrente è ricavato esclusivamente dai dati restituiti dal server.
+          var tieByArea=new Map();
+          (report.archivio||[]).forEach(function(doc){
+            if(!doc.verifica_parita||doc.candidatura_stato!=="Attiva")return;
+            var key=JSON.stringify([doc.cds,doc.sede]);
+            tieByArea.set(key,(tieByArea.get(key)||0)+1);
+          });
+          var reportLink=state.role==="admin"
+            ? '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
+              '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">▤</span>'+
+              '<div><h3 class="section-heading">Controllo occupazionale</h3>'+
+              '<p class="caption">Report istruttorio per il CdS selezionato.</p></div></div></div>'+
               (filter.cds
-                ? '<p class="caption">Comprende le candidature del CdS selezionato, le dichiarazioni PICA, la riserva prevista e gli esiti Ollama effettivamente registrati. I controlli non eseguiti sono indicati espressamente.</p>'+
+                ? '<p class="caption">Contiene le dichiarazioni PICA, la riserva prevista e gli esiti Ollama effettivamente registrati.</p>'+
                   '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
                   '/valutazioni/ai/occupazione/report.pdf?cds='+encodeURIComponent(filter.cds)+
                   (filter.sede?'&sede='+encodeURIComponent(filter.sede):'')+
-                  '">Scarica report PDF occupazione</a>'
-                : '<p class="caption">Seleziona prima un CdS per generare il relativo report PDF.</p>')+
-              '</div>'
+                  '">Scarica report PDF</a>'
+                : '<p class="caption">Seleziona un CdS per abilitare il download del report.</p>')+
+              '</section>'
             : '';
-          var content=selectors+reportLink+
-            '<div class="card mb"><h3 class="section-heading">Reimportazione schede PDF · '+esc(scope)+'</h3>'+
-            '<p class="muted">Carica i PDF compilati o uno ZIP. La lettura è preliminare: nessun punteggio viene registrato senza conferma. Le schede di CdS diversi da quello selezionato saranno segnalate.</p>'+
+          var content=selectors+'<div class="ru-val-tools'+(reportLink?'':' ru-val-tools--single')+'">'+
+            reportLink+
+            '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
+            '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">↥</span>'+
+            '<div><h3 class="section-heading">Reimportazione schede PDF</h3>'+
+            '<p class="caption">Analizza PDF o ZIP. Nessun punteggio viene registrato senza conferma.</p>'+
+            '</div></div></div>'+
             '<div class="upload"><label for="pdf-eval-files"><strong>Schede PDF o ZIP</strong></label>'+
-            '<input type="file" id="pdf-eval-files" accept=".pdf,.zip,application/pdf,application/zip" multiple>'+
-            '<button class="btn" id="pdf-eval-preview" type="button">Analizza PDF senza acquisire</button>'+
-            '<p class="caption">Limite 120 PDF, 40 MB per caricamento. Le schede anomale si conservano dopo conferma senza attribuire punteggi.</p>'+
-            '</div><div id="pdf-eval-result" style="margin-top:16px"></div></div>';
-          content+='<div class="card mb"><h3 class="section-heading">Avanzamento · '+esc(scope)+'</h3>'+
+            '<div class="ru-val-upload-row"><input type="file" id="pdf-eval-files" accept=".pdf,.zip,application/pdf,application/zip" multiple>'+
+            '<button class="btn" id="pdf-eval-preview" type="button">Analizza PDF senza acquisire</button></div>'+
+            '<p class="caption">Limite 120 PDF, 40 MB per caricamento. I documenti anomali restano da verificare.</p>'+
+            '</div><div id="pdf-eval-result" aria-live="polite" style="margin-top:12px"></div></section></div>';
+          content+='<section class="card mb ru-val-advance"><div class="ru-val-section-head">'+
+            '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">▥</span>'+
+            '<div><h3 class="section-heading">Avanzamento · '+esc(scope)+'</h3>'+
             '<p class="caption"><strong>'+esc(report.totale_acquisite)+'</strong> esiti conclusi su '+esc(report.totale_attese)+
-            ' candidature attive; '+esc(report.totale_idonee||0)+' idonei · '+esc(report.totale_non_idonee||0)+
-            ' non idonei · '+esc(report.totale_escluse||0)+' esclusi. Un esito negativo motivato conclude la valutazione senza attribuire 0 punti.</p>'+
-            '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Attese</th><th>Concluse</th><th>Non idonei</th><th>Esclusi</th><th>Da verificare</th><th>Procedimento</th></tr></thead><tbody>'+
-            pairs.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td>'+
-              '<td>'+esc(r.attese)+'</td><td>'+esc(r.acquisite)+'</td><td>'+esc(r.non_idonee||0)+'</td>'+
-              '<td>'+esc(r.escluse||0)+'</td><td>'+esc(r.da_verificare)+'</td>'+
-              '<td><button type="button" class="btn secondary" data-val-course="'+esc(r.cds)+'" data-val-site="'+esc(r.sede)+'">'+
-              (r.complete?'Completo · Apri':'Apri CdS')+'</button></td></tr>';}).join('')+
-            '</tbody></table></div></div>';
+            ' candidature attive; '+esc(report.totale_idonee||0)+' idonei, '+esc(report.totale_non_idonee||0)+
+            ' non idonei, '+esc(report.totale_escluse||0)+' esclusi. Un esito negativo motivato è concluso senza attribuire 0 punti.</p>'+
+            '</div></div></div>'+
+            '<div class="ru-val-table-tools"><input type="search" id="val-table-search" aria-label="Cerca un CdS o una sede" placeholder="Cerca un CdS o una sede..." value="'+
+            esc(state.valTableQuery||"")+'">'+
+            '<label><input type="checkbox" id="val-table-pending"'+(state.valTableFocusOnly?' checked':'')+
+            '> Solo CdS da completare</label>'+
+            '<span class="caption" id="val-table-count" aria-live="polite"></span></div>'+
+            '<div class="tablebox ru-val-advance-table"><table><thead><tr>'+
+            '<th>Corso di Studio</th><th>Sede</th><th>Esiti conclusi</th><th>Avanzamento</th>'+
+            '<th>Da verificare</th><th>Stato</th><th>Procedimento</th></tr></thead><tbody>'+
+            pairs.map(function(r){
+              var expected=Number(r.attese)||0,concluded=Number(r.acquisite)||0;
+              var ratio=expected?Math.min(100,Math.round(100*concluded/expected)):0;
+              var flagged=Number(r.da_verificare)||0;
+              var tieCandidates=tieByArea.get(JSON.stringify([r.cds,r.sede]))||0;
+              var pending=expected>concluded||flagged>0||tieCandidates>0;
+              var status=tieCandidates>0?'<span class="ru-val-tag ru-val-tag--warning">Parità da verificare</span>':
+                expected===0?'<span class="ru-val-tag ru-val-tag--neutral">Nessuna candidatura attiva</span>':
+                flagged>0?'<span class="ru-val-tag ru-val-tag--warning">Da verificare</span>':
+                !pending?'<span class="ru-val-tag ru-val-tag--good">Completo</span>':
+                concluded===0?'<span class="ru-val-tag ru-val-tag--neutral">Non avviato</span>':
+                '<span class="ru-val-tag">In lavorazione</span>';
+              var place=r.cds.indexOf(" (");
+              var name=place>=0?r.cds.slice(0,place):r.cds;
+              var suffix=place>=0?r.cds.slice(place+2).replace(/\)$/, ""):"";
+              var secondary=(Number(r.non_idonee)||0)+(Number(r.escluse)||0);
+              return '<tr data-val-pending="'+(pending?'1':'0')+
+                '" data-val-search="'+esc((r.cds+" "+r.sede).toLocaleLowerCase("it"))+'">'+
+                '<td title="'+esc(r.cds)+'"><strong class="ru-val-course-name">'+esc(name)+'</strong>'+
+                (suffix?'<span class="ru-val-course-extra">'+esc(suffix)+'</span>':'')+'</td>'+
+                '<td><span class="ru-val-tag ru-val-tag--neutral">'+esc(r.sede)+'</span></td>'+
+                '<td><span class="ru-val-count">'+esc(concluded)+' / '+esc(expected)+'</span>'+
+                (secondary?'<span class="ru-val-count-detail">'+esc(r.non_idonee||0)+' non idonei · '+esc(r.escluse||0)+' esclusi</span>':'')+'</td>'+
+                '<td><div class="ru-val-progress"><div class="ru-val-meter" role="progressbar" aria-label="Avanzamento '+esc(r.cds)+' · '+esc(r.sede)+
+                '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+ratio+'"><span style="width:'+ratio+'%"></span></div>'+
+                '<strong>'+ratio+'%</strong></div></td>'+
+                '<td>'+(flagged?'<span class="ru-val-tag ru-val-tag--warning">'+esc(flagged)+' PDF</span>':'')+
+                (tieCandidates?'<span class="ru-val-tag ru-val-tag--warning">'+esc(tieCandidates)+' candidati in parità</span>':'')+
+                (!flagged&&!tieCandidates?'<span class="ru-val-count-detail">0</span>':'')+'</td>'+
+                '<td>'+status+'</td>'+
+                '<td><button type="button" class="btn secondary" data-val-course="'+esc(r.cds)+
+                '" data-val-site="'+esc(r.sede)+'">Apri CdS</button></td></tr>';
+            }).join('')+
+            '</tbody></table></div>'+
+            '<div id="val-table-empty" class="ru-val-table-empty" hidden>Nessun CdS corrisponde ai filtri della tabella.</div></section>';
           var archive=report.archivio||[];
           var jobs=report.incarichi||[];
           archive.forEach(function(r){
@@ -2173,6 +2232,21 @@
             r.ai_occupazione_lavoro=aiJobs[String(r.id)]||null;
           });
           var split=schedeDaMostrare(archive);
+          var expectedTotal=Number(report.totale_attese)||0;
+          var acquiredTotal=Number(report.totale_acquisite)||0;
+          var outstanding=Math.max(0,expectedTotal-acquiredTotal);
+          var completion=expectedTotal?Math.min(100,Math.round(100*acquiredTotal/expectedTotal)):0;
+          var kpis='<p class="ru-val-intro">Monitora le valutazioni, verifica i documenti e consulta le schede per Corso di Studio.</p>'+
+            '<div class="ru-val-kpis" aria-label="Riepilogo delle valutazioni">'+
+            '<div class="ru-val-kpi"><span>Candidature attive</span><strong>'+esc(expectedTotal)+'</strong><small>Nel filtro corrente</small></div>'+
+            '<div class="ru-val-kpi"><span>Esiti conclusi</span><strong>'+esc(acquiredTotal)+'</strong><small>'+esc(report.totale_idonee||0)+' idonei · '+esc(report.totale_non_idonee||0)+' non idonei</small></div>'+
+            '<div class="ru-val-kpi ru-val-kpi--warning"><span>Ancora da concludere</span><strong>'+esc(outstanding)+'</strong><small>Incluse schede mancanti o non convalidate</small></div>'+
+            '<div class="ru-val-kpi ru-val-kpi--alert"><span>PDF da esaminare</span><strong>'+esc(split.anomalie.length)+'</strong><small>Documenti segnalati nella vista corrente</small></div>'+
+            '<div class="ru-val-kpi ru-val-kpi--progress"><span>Avanzamento</span><strong>'+esc(completion)+'%</strong>'+
+            '<small>'+esc(acquiredTotal)+' di '+esc(expectedTotal)+' candidature attive</small>'+
+            '<div class="ru-val-meter" role="progressbar" aria-label="Avanzamento complessivo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+completion+'"><span style="width:'+completion+'%"></span></div></div>'+
+            '</div>';
+          content=kpis+content;
           var historyView=state.valSchedeView==="all";
           var activeIds=new Set(split.correnti.map(function(r){return Number(r.id);}));
           var flaggedIds=new Set(split.anomalie.map(function(r){return Number(r.id);}));
@@ -2234,20 +2308,18 @@
               '<th>Punteggio</th><th>Motivo / Nota</th><th>Azioni</th></tr></thead><tbody>'+
               rows.map(evalRow).join("")+'</tbody></table></div>';
           }
-          var mode='<div class="card mb"><h3 class="section-heading">Schede di valutazione · '+esc(scope)+'</h3>'+
-            '<p class="caption">Raggruppate per incarico PICA, senza modificare le valutazioni. '+
-            'Il verbale utilizza esclusivamente le schede acquisite, attive e validate; '+
-            'le anomalie non vengono conteggiate come schede valide.</p>'+
-            '<div class="actions" role="group" aria-label="Vista delle schede">'+
+          var mode='<section class="card mb"><div class="ru-val-section-head ru-val-view-tools">'+
+            '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">☷</span>'+
+            '<div><h3 class="section-heading">Schede di valutazione · '+esc(scope)+'</h3>'+
+            '<p class="caption">'+esc(jobs.length)+' incarichi PICA · '+esc(split.correnti.length)+
+            ' schede attive valide · '+esc(split.anomalie.length)+' documenti da esaminare'+
+            (historyView?' · '+esc(archive.length)+' PDF nello storico visualizzato':'')+'</p>'+
+            '</div></div><div class="actions" role="group" aria-label="Vista delle schede">'+
             '<button type="button" class="btn '+(historyView?'secondary':'')+
             '" id="val-view-current" aria-pressed="'+(!historyView)+'">Schede correnti</button>'+
             '<button type="button" class="btn '+(historyView?'':'secondary')+
             '" id="val-view-all" aria-pressed="'+historyView+'">Tutte le versioni</button>'+
-            '</div>'+
-            '<p class="caption">'+esc(jobs.length)+' incarichi PICA · '+
-            esc(split.correnti.length)+' schede attive validate · '+
-            esc(split.anomalie.length)+' anomalie da esaminare'+
-            (historyView?' · '+esc(archive.length)+' documenti nello storico visualizzato':'')+'</p></div>';
+            '</div></div><p class="ru-val-help">Ai fini del verbale vengono utilizzate soltanto le schede acquisite, attive e validate. Le versioni sostituite restano nello storico.</p></section>';
           var grouped=new Map();
           jobs.forEach(function(job){
             var key=JSON.stringify([job.cds,job.sede]);
@@ -2265,28 +2337,34 @@
               var problems=split.anomalie.filter(function(r){return Number(r.incarico_id)===assignmentId;});
               var assignmentTitle=job.insegnamento+
                 (job.modulo&&job.modulo!==job.insegnamento?' · '+job.modulo:'');
-              return '<details'+(filter.cds?' open':'')+' class="ru-verb-details" style="margin:8px 0 12px 14px">'+
-                '<summary style="cursor:pointer;padding:9px 0;font-weight:650">'+
-                esc(index+1)+'. '+esc(assignmentTitle)+' · SSD '+esc(job.ssd||"Non indicato")+
-                ' — '+esc(currentCount)+' schede valide / '+esc(job.candidature)+' candidature'+
-                (problems.length?' · '+esc(problems.length)+' da verificare':'')+'</summary>'+
-                '<p class="caption">Incarico PICA: '+esc(job.key)+
+              return '<details class="ru-val-job"><summary>'+
+                '<span class="ru-val-job-title">'+esc(index+1)+'. '+esc(assignmentTitle)+
+                '<span class="ru-val-course-extra">SSD '+esc(job.ssd||"Non indicato")+'</span></span>'+
+                '<span class="ru-val-job-metrics"><span class="ru-val-tag ru-val-tag--neutral">'+
+                esc(currentCount)+' schede correnti</span>'+
+                '<span class="ru-val-tag ru-val-tag--neutral">'+esc(job.candidature)+' candidature</span>'+
+                (problems.length?'<span class="ru-val-tag ru-val-tag--warning">'+
+                  esc(problems.length)+' da verificare</span>':'')+'</span></summary>'+
+                '<div class="ru-val-job-body"><p class="caption">Incarico PICA: '+esc(job.key)+
                 (job.id_copertura?' · ID copertura: '+esc(job.id_copertura):'')+'</p>'+
                 (selected.length?rowsTable(selected):
                   '<p class="caption">Nessuna scheda '+
-                  (historyView?'registrata':'attiva e validata')+
+                  (historyView?'registrata':'corrente e validata')+
                   ' per questo incarico.</p>')+
                 (!historyView&&problems.length?
-                  '<div class="notice"><strong>Schede da verificare — non incluse nel verbale</strong>'+
+                  '<div class="notice"><strong>Documenti da verificare — non inclusi nel verbale</strong>'+
                   rowsTable(problems)+'</div>':'')+
-                '</details>';
+                '</div></details>';
             }).join("");
-            return '<details'+(filter.cds?' open':'')+' style="margin:12px 0">'+
-              '<summary style="cursor:pointer;padding:11px 0;font-weight:700">'+
-              esc(area.cds)+' · '+esc(area.sede)+' — '+esc(areaJobs.length)+
-              ' incarichi · '+esc(activeCount)+' schede valide'+
-              (problemCount?' · '+esc(problemCount)+' anomalie':'')+'</summary>'+
-              jobHtml+'</details>';
+            return '<details class="ru-val-group"'+(filter.cds?' open':'')+'>'+
+              '<summary><span class="ru-val-group-label">'+esc(area.cds)+' · '+esc(area.sede)+
+              '<small>Consulta gli incarichi e le schede della Commissione</small></span>'+
+              '<span class="ru-val-group-counts"><span class="ru-val-tag ru-val-tag--neutral">'+
+              esc(areaJobs.length)+' incarichi</span>'+
+              '<span class="ru-val-tag '+(activeCount?'ru-val-tag--good':'ru-val-tag--neutral')+'">'+esc(activeCount)+' schede correnti</span>'+
+              (problemCount?'<span class="ru-val-tag ru-val-tag--warning">'+
+                esc(problemCount)+' da verificare</span>':'')+
+              '</span></summary><div class="ru-val-group-body">'+jobHtml+'</div></details>';
           }).join("");
           // Un PDF senza associazione PICA non può mai essere usato nel verbale.
           var unassociated=(historyView?archive:split.anomalie).filter(function(r){
@@ -2297,29 +2375,88 @@
             'Schede non associate · '+esc(unassociated.length)+
             ' — escluse dal verbale</summary>'+
             rowsTable(unassociated)+'</details>':'';
-          content+=mode+'<div class="card mb"><h3 class="section-heading">'+
+          content+=mode+'<section class="card mb ru-val-groups" id="val-groups">'+
+            '<div class="ru-val-section-head"><div class="ru-val-section-title">'+
+            '<span class="ru-val-icon" aria-hidden="true">☷</span><div>'+
+            '<h3 class="section-heading">'+
             (historyView?'Archivio completo delle schede':'Schede correnti ai fini del verbale')+
             ' · '+esc(scope)+'</h3>'+
+            '<p class="caption">Apri un Corso di Studio, poi un incarico, per consultare le singole schede.</p>'+
+            '</div></div></div>'+
             (groupHtml||'<p class="muted">Nessun incarico PICA per questa selezione.</p>')+
             unassociatedHtml+
             (report.pdf_non_associati && !unassociated.length?
-              '<p class="caption">'+esc(report.pdf_non_associati)+
+              '<p class="ru-val-help">'+esc(report.pdf_non_associati)+
               ' PDF non associati nel bando: seleziona Tutti i CdS per consultarli.</p>':'')+
-            '<p class="caption">Le versioni sostituite non risultano come errori correnti: '+
-            'sono consultabili nella vista «Tutte le versioni». '+
-            'Le schede mancanti sono evidenziate dai conteggi per incarico.</p></div>';
+            '<p class="ru-val-help">Le versioni sostituite sono disponibili in «Tutte le versioni»; non vengono utilizzate nei verbali. Gli incarichi con schede mancanti sono contrassegnati dal rapporto fra schede correnti e candidature.</p>'+
+            '</section>';
           content+='<div id="manual-eval-panel"></div>';
-          html(content);
+          html('<div class="ru-val-page">'+content+'</div>');
+          if(state.valJumpToGroup){
+            state.valJumpToGroup=false;
+            requestAnimationFrame(function(){
+              var target=$("val-groups");
+              if(target)target.scrollIntoView({behavior:"smooth",block:"start"});
+            });
+          }
           $("val-view-current").onclick=function(){
-            state.valSchedeView="current";renderValutazioni();
+            state.valSchedeView="current";state.valJumpToGroup=true;renderValutazioni();
           };
           $("val-view-all").onclick=function(){
-            state.valSchedeView="all";renderValutazioni();
+            state.valSchedeView="all";state.valJumpToGroup=true;renderValutazioni();
           };
-          $("val-cds").onchange=function(){state.valFilter.cds=this.value;state.valFilter.sede="";renderValutazioni();};
-          $("val-sede").onchange=function(){state.valFilter.sede=this.value;renderValutazioni();};
+          function applyLocalValFilters(){
+            var term=(state.valTableQuery||"").trim().toLocaleLowerCase("it");
+            var pendingOnly=!!state.valTableFocusOnly;
+            var rows=[...document.querySelectorAll(".ru-val-advance-table tbody tr[data-val-search]")];
+            var visibleCount=0;
+            rows.forEach(function(row){
+              var show=(!pendingOnly||row.dataset.valPending==="1")&&
+                (!term||(row.dataset.valSearch||"").includes(term));
+              row.hidden=!show;
+              if(show)visibleCount++;
+            });
+            var empty=$("val-table-empty");
+            if(empty)empty.hidden=visibleCount>0;
+            var count=$("val-table-count");
+            if(count)count.textContent=visibleCount+" su "+rows.length+" CdS/sedi";
+          }
+          $("val-table-search").oninput=function(){
+            state.valTableQuery=this.value;
+            applyLocalValFilters();
+          };
+          $("val-table-pending").onchange=function(){
+            state.valTableFocusOnly=this.checked;
+            applyLocalValFilters();
+          };
+          applyLocalValFilters();
+          $("val-reset-filters").onclick=function(){
+            state.valFilter={cds:"",sede:""};
+            state.valTableQuery="";
+            state.valTableFocusOnly=false;
+            renderValutazioni();
+          };
+          $("val-cds").onchange=function(){
+            state.valFilter.cds=this.value;
+            state.valFilter.sede="";
+            state.valTableQuery="";
+            state.valTableFocusOnly=false;
+            renderValutazioni();
+          };
+          $("val-sede").onchange=function(){
+            state.valFilter.sede=this.value;
+            state.valTableQuery="";
+            state.valTableFocusOnly=false;
+            renderValutazioni();
+          };
           document.querySelectorAll("[data-val-course]").forEach(function(btn){
-            btn.onclick=function(){state.valFilter={cds:btn.dataset.valCourse,sede:btn.dataset.valSite};renderValutazioni();};
+            btn.onclick=function(){
+              state.valFilter={cds:btn.dataset.valCourse,sede:btn.dataset.valSite};
+              state.valTableQuery="";
+              state.valTableFocusOnly=false;
+              state.valJumpToGroup=true;
+              renderValutazioni();
+            };
           });
           document.querySelectorAll("[data-val-manual]").forEach(function(btn){
             btn.onclick=function(){
