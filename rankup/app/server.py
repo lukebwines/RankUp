@@ -1521,6 +1521,19 @@ def _ollama_settings():
     return endpoint
 
 
+def _ollama_keep_alive() -> str:
+    # Opzione Home Assistant. Valore 0 libera subito la RAM del Raspberry;
+    # 30s evita di ricaricare i pesi a ogni controllo ravvicinato.
+    try:
+        options=json.loads((BASE/"options.json").read_text(encoding="utf-8"))
+    except (OSError,ValueError,TypeError):
+        options={}
+    value=str(options.get("ollama_keep_alive") or "30s").strip().lower()
+    if re.fullmatch(r"(?:0|[1-9][0-9]{0,3}[smh])",value):
+        return value
+    return "30s"
+
+
 @app.get("/api/ai/ollama/status")
 def stato_ollama(request: Request):
     require_admin(request)
@@ -1719,7 +1732,8 @@ _AI_POOL=ThreadPoolExecutor(max_workers=1,thread_name_prefix="rankup-ai")
 def _esegui_controllo_occupazione(job_id: str, code: str, pdf_id: int,
                                  candidatura_id: int, bando_id: int,
                                  requirement: str, candidate: dict,
-                                 endpoint: str, autore: str) -> None:
+                                 endpoint: str, autore: str,
+                                 keep_alive: str) -> None:
     now=lambda: datetime.now(timezone.utc).isoformat(timespec="microseconds")
     try:
         with connect() as db:
@@ -1732,7 +1746,8 @@ def _esegui_controllo_occupazione(job_id: str, code: str, pdf_id: int,
         result=review_occupation(
             requirement,candidate.get("occupazione") or "",
             candidate.get("azienda_ente") or "",
-            candidate.get("profilo_professionale") or "",endpoint)
+            candidate.get("profilo_professionale") or "",endpoint,
+            keep_alive=keep_alive)
         finished=now()
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -1831,7 +1846,7 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
         db.commit()
     _AI_POOL.submit(_esegui_controllo_occupazione,job_id,code,pdf_id,
                     archived["candidatura_id"],b["id"],requirement,
-                    candidate,endpoint,who["username"])
+                    candidate,endpoint,who["username"],_ollama_keep_alive())
     return {"lavoro_id":job_id,"stato":"in_coda"}
 
 
