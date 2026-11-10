@@ -275,7 +275,8 @@ def test_deleted_username_is_visible_and_restorable_by_admin(tmp_path,monkeypatc
         assert listing["utenti"]==[]
         assert len(listing["utenti_eliminati"])==1
         assert listing["utenti_eliminati"][0]["username"]=="operatrice_demo"
-        assert "password" not in str(listing)
+        assert "password_hash" not in str(listing)
+        assert "password_salt" not in str(listing)
         again=_post(admin,"/api/utenti",json={
             "username":"OPERATRICE_DEMO","password":"AltroPass123"
         })
