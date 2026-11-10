@@ -20,8 +20,10 @@ ports_description:
 options:
   admin_username: admin
   ollama_url: ""
+  ollama_keep_alive: "30s"
 schema:
   admin_username: str(3,50)
   admin_password: password(12,128)
   ollama_url: str?
+  ollama_keep_alive: str?
 stage: experimental
