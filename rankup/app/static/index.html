@@ -2889,17 +2889,18 @@
           var statuses=rows.map(function(item){
             var missing=!item.tipo;
             var nn=item.ssd==="NN";
-            var select='<select class="ssd-type" aria-label="Modello PDF per SSD '+esc(item.ssd)+'"'+
+            var select=nn?'<span class="caption">Per singolo incarico: vedi tabella qui sotto</span>':
+              '<select class="ssd-type" aria-label="Modello PDF per SSD '+esc(item.ssd)+'"'+
                 ((missing||nn||state.role!=="admin")?' disabled':'')+'>'+
                 (missing?'<option value="" selected>SSD da verificare</option>':'')+
                 '<option value="ordinario"'+(item.tipo==="ordinario"?' selected':'')+'>Non professionalizzante</option>'+
                 '<option value="professionalizzante"'+(item.tipo==="professionalizzante"?' selected':'')+'>Professionalizzante</option>'+
                 '<option value="inglese"'+(item.tipo==="inglese"?' selected':'')+'>Inglese (50 punti)</option>'+
                 '</select>';
-            var stato=nn?'NN: modello ordinario predefinito':(missing?'SSD da verificare':
+            var stato=nn?'Scelta specifica per incarico':(missing?'SSD da verificare':
                 (item.tipo_salvato?'Scelta salvata':'Predefinito'));
             return '<tr data-sector="'+esc(item.ssd)+'"><td class="code">'+
-              esc(!item.ssd?'[SSD mancante]':(item.ssd==="NN"?'NN — modello ordinario':item.ssd))+
+              esc(!item.ssd?'[SSD mancante]':(item.ssd==="NN"?'NN — verifica per incarico':item.ssd))+
               '</td><td>'+esc(item.incarichi)+'</td><td>'+select+
               '</td><td><span class="caption">'+esc(stato)+'</span></td></tr>';
           }).join('');
@@ -2922,7 +2923,8 @@
             '<span class="ru-status-pill">'+english+' Inglese</span>'+
             (unresolved?'<span class="ru-status-pill ru-status-pill--warning">'+unresolved+' SSD da verificare</span>':'')+
             '</div><p class="caption">Non è necessario salvare le scelte predefinite.</p>'+
-            (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
+            (nnRows.length?'<p class="caption">Per SSD NN seleziona il modello in base all’incarico, con riferimento documentale. Senza scelta esplicita rimane il precedente modello ordinario.</p>':'')+
+            (unresolved?'<p class="caption">Gli incarichi con SSD mancante richiedono la verifica della copertura PICA prima di generare le schede.</p>':'')+infoMigration+
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
             nnModelliEditor(nnRows)+
