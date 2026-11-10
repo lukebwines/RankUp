@@ -1233,7 +1233,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.20"}
+    return {"status": "ok", "version": "0.9.21"}
 
 
 class NuovoBandoInput(BaseModel):
