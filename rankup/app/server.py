@@ -22,8 +22,6 @@ from decimal import Decimal
 from contextvars import ContextVar
 from contextlib import closing
 from db_lifecycle import AutoClosingConnection, SCHEMA_VERSION, prepare_schema_upgrade, record_schema_version
-from concurrent.futures import ThreadPoolExecutor
-import threading
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -33,7 +31,7 @@ from pypdf import PdfReader, PdfWriter
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_ente import status as ai_ollama_status, review_occupation, AIEmployerError
+from title_date_check import check_three_years
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
@@ -45,7 +43,6 @@ from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf
 from pdf_definitivo import verbale_definitivo
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
-from occupazione_report import report_cds_pdf
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
 
@@ -293,6 +290,7 @@ def initialize() -> None:
             repertorio TEXT NOT NULL DEFAULT '',
             protocollo TEXT NOT NULL DEFAULT '',
             data_avviso TEXT NOT NULL DEFAULT '',
+            data_scadenza TEXT NOT NULL DEFAULT '',
             anno_accademico TEXT NOT NULL DEFAULT '',
             aggiornato_il TEXT NOT NULL
         );
@@ -409,6 +407,9 @@ def initialize() -> None:
             """)
             db.execute("DROP TABLE ssd_classificazioni")
             db.execute("ALTER TABLE ssd_classificazioni_v3 RENAME TO ssd_classificazioni")
+        ref_columns={r["name"] for r in db.execute("PRAGMA table_info(bandi_riferimenti)")}
+        if "data_scadenza" not in ref_columns:
+            db.execute("ALTER TABLE bandi_riferimenti ADD COLUMN data_scadenza TEXT NOT NULL DEFAULT ''")
         user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
         if "eliminato" not in user_columns:
             db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
@@ -453,29 +454,6 @@ def initialize() -> None:
                 autore TEXT NOT NULL,
                 quando TEXT NOT NULL
             )
-        """)
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS valutazioni_occupazione_ai (
-                id INTEGER PRIMARY KEY,
-                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
-                valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id),
-                candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
-                requisito_analizzato TEXT NOT NULL,
-                tipo_cds_pica TEXT NOT NULL,
-                occupazione_pica TEXT NOT NULL,
-                azienda_pica TEXT NOT NULL,
-                profilo_pica TEXT NOT NULL,
-                stato TEXT NOT NULL,
-                motivo TEXT NOT NULL,
-                evidenza TEXT NOT NULL,
-                modello_locale INTEGER NOT NULL DEFAULT 0,
-                autore TEXT NOT NULL,
-                quando TEXT NOT NULL
-            )
-        """)
-        db.execute("""
-            CREATE INDEX IF NOT EXISTS ix_ai_occupazione_pdf
-            ON valutazioni_occupazione_ai(valutazione_pdf_id, id DESC)
         """)
         db.execute("""
             CREATE TABLE IF NOT EXISTS graduatorie_vincitori_proposti (
@@ -846,37 +824,9 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 
 
-def initialize_ai_work_items():
-    """Persistenza dei lavori IA. Dopo riavvio gli incompleti sono riavviabili."""
-    with connect() as db:
-        db.executescript("""
-          CREATE TABLE IF NOT EXISTS ai_occupazione_lavori(
-              id TEXT PRIMARY KEY,
-              bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
-              valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id),
-              candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
-              stato TEXT NOT NULL,
-              creato_il TEXT NOT NULL,
-              aggiornato_il TEXT NOT NULL,
-              autore TEXT NOT NULL,
-              risultato_json TEXT,
-              errore TEXT
-          );
-          CREATE INDEX IF NOT EXISTS ix_ai_lavori_bando
-            ON ai_occupazione_lavori(bando_id,valutazione_pdf_id,creato_il DESC);
-        """)
-        db.execute("""UPDATE ai_occupazione_lavori
-            SET stato='interrotto',errore='Elaborazione interrotta dal riavvio: ripetere il controllo',
-                aggiornato_il=?
-            WHERE stato IN ('in_coda','in_elaborazione')""",
-            (datetime.now(timezone.utc).isoformat(timespec="microseconds"),))
-        db.commit()
-
-
-initialize_ai_work_items()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.21", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.26", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1299,7 +1249,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "0.9.22", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "0.9.26", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1382,6 +1332,7 @@ class RiferimentiBando(BaseModel):
     repertorio: str = Field(default="", max_length=90)
     protocollo: str = Field(default="", max_length=90)
     data_avviso: str = Field(default="", max_length=20)
+    data_scadenza: str = Field(default="", max_length=16)
     anno_accademico: str = Field(default="", max_length=20)
     expected_updated_at: str | None = None
 
@@ -1393,10 +1344,10 @@ def get_riferimenti_bando(code: str):
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
-        row = db.execute("SELECT repertorio,protocollo,data_avviso,anno_accademico,aggiornato_il "
+        row = db.execute("SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,aggiornato_il "
                          "FROM bandi_riferimenti WHERE bando_id=?", (b["id"],)).fetchone()
     return {"riferimenti": dict(row) if row else {
-        "repertorio": "", "protocollo": "", "data_avviso": "",
+        "repertorio": "", "protocollo": "", "data_avviso": "", "data_scadenza": "",
         "anno_accademico": "", "aggiornato_il": None,
     }}
 
@@ -1415,6 +1366,14 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
             datetime.strptime(data, "%d/%m/%Y")
         except ValueError:
             fail("Data avviso: utilizzare GG/MM/AAAA, senza valori presunti")
+    deadline = values["data_scadenza"]
+    if deadline:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", deadline):
+                raise ValueError()
+            datetime.strptime(deadline, "%Y-%m-%dT%H:%M")
+        except ValueError:
+            fail("Scadenza candidature: indicare data e ora valide")
     anno = values["anno_accademico"]
     if anno:
         if not re.fullmatch(r"\d{4}-\d{4}", anno):
@@ -1430,7 +1389,7 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
         if not b:
             fail("Bando non trovato", 404)
         current = db.execute("""
-          SELECT repertorio,protocollo,data_avviso,anno_accademico
+          SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico
           FROM bandi_riferimenti WHERE bando_id=?
         """, (b["id"],)).fetchone()
         previous = dict(current) if current else {key: "" for key in values}
@@ -1442,16 +1401,17 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
         if previous != values:
             db.execute("""
               INSERT INTO bandi_riferimenti(bando_id,repertorio,protocollo,data_avviso,
-                  anno_accademico,aggiornato_il)
-              VALUES(?,?,?,?,?,?)
+                  data_scadenza,anno_accademico,aggiornato_il)
+              VALUES(?,?,?,?,?,?,?)
               ON CONFLICT(bando_id) DO UPDATE SET
                 repertorio=excluded.repertorio,
                 protocollo=excluded.protocollo,
                 data_avviso=excluded.data_avviso,
+                data_scadenza=excluded.data_scadenza,
                 anno_accademico=excluded.anno_accademico,
                 aggiornato_il=excluded.aggiornato_il
             """, (b["id"], values["repertorio"], values["protocollo"],
-                  values["data_avviso"], values["anno_accademico"], now))
+                  values["data_avviso"], values["data_scadenza"], values["anno_accademico"], now))
             db.execute("""
               INSERT INTO bandi_riferimenti_eventi
               (bando_id,prima_json,dopo_json,autore,quando)
@@ -1576,40 +1536,6 @@ async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile =
             "Le occorrenze sono indizi testuali, non requisiti automaticamente assegnati agli incarichi. Confermare ogni requisito con la tabella ufficiale."}
 
 
-def _ollama_settings():
-    try:
-        options = json.loads((BASE / "options.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        options = {}
-    endpoint = (options.get("ollama_url") or "").strip()
-    if not endpoint:
-        fail("Configurare Ollama locale nelle opzioni di RankUP", 503)
-    return endpoint
-
-
-def _ollama_keep_alive() -> str:
-    # Opzione Home Assistant. Valore 0 libera subito la RAM del Raspberry;
-    # 30s evita di ricaricare i pesi a ogni controllo ravvicinato.
-    try:
-        options=json.loads((BASE/"options.json").read_text(encoding="utf-8"))
-    except (OSError,ValueError,TypeError):
-        options={}
-    value=str(options.get("ollama_keep_alive") or "30s").strip().lower()
-    if re.fullmatch(r"(?:0|[1-9][0-9]{0,3}[smh])",value):
-        return value
-    return "30s"
-
-
-@app.get("/api/ai/ollama/status")
-def stato_ollama(request: Request):
-    require_admin(request)
-    try:
-        return ai_ollama_status(_ollama_settings())
-    except AIEmployerError as exc:
-        fail(str(exc), 503)
-
-
-# Il PDF ufficiale non viene analizzato da Ollama.
 def tipo_cds_key(label: str | None) -> str:
     return " ".join(str(label or "").split()).casefold()
 
@@ -1821,12 +1747,14 @@ def list_candidature(code: str):
     with connect() as db:
         rows = db.execute("""
            SELECT c.id, c.id_pica, c.cognome, c.nome, c.stato, c.source_json,
-                  i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo, i.tipo_cds,
+                  i.key AS incarico_key, i.cds, i.sede, i.insegnamento, i.modulo, i.ssd, i.tipo_cds,
+                  COALESCE(ref.data_scadenza, '') AS data_scadenza,
                   er.ente_richiesto
            FROM candidature c
            JOIN incarichi i ON i.id=c.incarico_id
            JOIN bandi b ON b.id=c.bando_id
            LEFT JOIN incarichi_ente_requisiti er ON er.bando_id=b.id AND er.key_incarico=i.key
+           LEFT JOIN bandi_riferimenti ref ON ref.bando_id=b.id
            WHERE b.codice=?
            ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE,
                     i.insegnamento COLLATE NOCASE, i.modulo COLLATE NOCASE,
@@ -1857,6 +1785,9 @@ def list_candidature(code: str):
         candidate={name:(record.get(name) or original.get(name) or "") for name in
                    ("occupazione","azienda_ente","profilo_professionale")}
         d.update(candidate)
+        d["titolo_studio"] = (record.get("titolo_studio") or original.get("titolo_studio") or "")
+        d["data_conseguimento"] = (record.get("data_conseguimento") or original.get("data_conseguimento") or "")
+        d["verifica_anzianita"] = check_three_years(d["data_conseguimento"], d["data_scadenza"])
         if not d.get("ente_richiesto"):
             mapping = dictionary.get(tipo_cds_key(d.get("tipo_cds")))
             d["ente_richiesto"] = mapping["requisito"] if mapping else None
@@ -1867,258 +1798,6 @@ def list_candidature(code: str):
         output.append(d)
     return {"candidature":output}
 
-
-
-_AI_POOL=ThreadPoolExecutor(max_workers=1,thread_name_prefix="rankup-ai")
-
-
-def _esegui_controllo_occupazione(job_id: str, code: str, pdf_id: int,
-                                 candidatura_id: int, bando_id: int,
-                                 requirement: str, candidate: dict,
-                                 endpoint: str, autore: str,
-                                 keep_alive: str) -> None:
-    now=lambda: datetime.now(timezone.utc).isoformat(timespec="microseconds")
-    try:
-        with connect() as db:
-            db.execute("""UPDATE ai_occupazione_lavori SET stato='in_elaborazione',
-                          aggiornato_il=? WHERE id=? AND stato='in_coda'""",
-                       (now(),job_id))
-            db.commit()
-        # Fino a 300 s di esecuzione Ollama, senza collegamento HTTP aperto.
-        # Nessun identificativo del candidato viene inviato al modello.
-        result=review_occupation(
-            requirement,candidate.get("occupazione") or "",
-            candidate.get("azienda_ente") or "",
-            candidate.get("profilo_professionale") or "",endpoint,
-            keep_alive=keep_alive)
-        finished=now()
-        with connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            _require_bando_aperto(db,code)
-            # Non salvare il controllo su una scheda sostituita o non più valida.
-            present=db.execute("""
-                SELECT 1 FROM valutazioni_pdf
-                WHERE id=? AND bando_id=? AND candidatura_id=?
-                  AND attiva=1
-            """,(pdf_id,bando_id,candidatura_id)).fetchone()
-            if not present:
-                fail("Scheda variata durante l'analisi; ripetere la verifica",409)
-            db.execute("""INSERT INTO valutazioni_occupazione_ai
-                (bando_id,valutazione_pdf_id,candidatura_id,requisito_analizzato,
-                 tipo_cds_pica,occupazione_pica,azienda_pica,profilo_pica,
-                 stato,motivo,evidenza,modello_locale,autore,quando)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,(bando_id,pdf_id,candidatura_id,requirement,
-                 str(candidate.get("tipo_cds") or ""),
-                 str(candidate.get("occupazione") or ""),
-                 str(candidate.get("azienda_ente") or ""),
-                 str(candidate.get("profilo_professionale") or ""),
-                 result["stato"],result["motivo"],result.get("evidenza") or "",
-                 1 if result.get("modello_locale") else 0,autore,finished))
-            db.execute("""UPDATE ai_occupazione_lavori
-                SET stato='completato',risultato_json=?,errore=NULL,aggiornato_il=?
-                WHERE id=?""",(json.dumps(result,ensure_ascii=False),finished,job_id))
-            db.commit()
-    except Exception as error:
-        detail=str(getattr(error,"detail",str(error)))[:500]
-        with connect() as db:
-            db.execute("""UPDATE ai_occupazione_lavori
-                SET stato='errore',errore=?,aggiornato_il=?
-                WHERE id=?""",(detail,now(),job_id))
-            db.commit()
-
-
-@app.post("/api/bandi/{code}/valutazioni/{pdf_id}/ai/occupazione",status_code=202)
-def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Request):
-    """Avvia controllo locale persistente, con risposta immediata e polling.
-
-    Nessun PDF, nome, CF o ID PICA viene trasmesso a Ollama. La verifica
-    istruttoria non modifica esito/punteggio e richiede sempre l'Admin.
-    """
-    who=require_admin(request)
-    code=valid_code(code)
-    if pdf_id<=0:fail("Identificativo scheda non valido")
-    with connect() as db:
-        b=db.execute("SELECT id,stato FROM bandi WHERE codice=?",
-                     (code,)).fetchone()
-        if not b:fail("Bando non trovato",404)
-        if b["stato"]=="Archiviato":
-            fail("Bando archiviato: controllo IA non consentito",409)
-        archived=db.execute("""
-            SELECT c.id AS candidatura_id,c.id_pica,
-                   i.key AS incarico_key,v.bando_id
-            FROM valutazioni_pdf v
-            JOIN candidature c ON c.id=v.candidatura_id
-            JOIN incarichi i ON i.id=c.incarico_id
-            WHERE v.bando_id=? AND v.id=? AND v.candidatura_id IS NOT NULL
-              AND v.stato IN ('Acquisita','Da verificare') AND v.attiva=1
-        """,(b["id"],pdf_id)).fetchone()
-    if not archived:
-        fail("Scheda restituita non trovata o candidatura non associata",404)
-    records=list_candidature(code)["candidature"]
-    matches=[r for r in records if str(r["id_pica"])==str(archived["id_pica"])
-             and r["incarico_key"]==archived["incarico_key"]]
-    if len(matches)!=1:
-        fail("Dichiarazioni occupazionali non associabili univocamente",409)
-    candidate=matches[0]
-    requirement=candidate.get("ente_richiesto") or ""
-    if not requirement:
-        fail("Requisito ente non classificato: verificare il dizionario PICA",409)
-    if requirement=="NESSUNA RISERVA":
-        fail("Nessuna riserva occupazionale da controllare",400)
-    endpoint=_ollama_settings()
-    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
-    job_id=secrets.token_urlsafe(20)
-    with connect() as db:
-        db.execute("BEGIN IMMEDIATE")
-        _require_bando_aperto(db,code)
-        existing=db.execute("""
-            SELECT id,stato FROM ai_occupazione_lavori
-            WHERE bando_id=? AND valutazione_pdf_id=?
-              AND stato IN ('in_coda','in_elaborazione')
-            ORDER BY creato_il DESC LIMIT 1
-        """,(b["id"],pdf_id)).fetchone()
-        if existing:
-            return {"lavoro_id":existing["id"],"stato":existing["stato"]}
-        db.execute("""INSERT INTO ai_occupazione_lavori
-            (id,bando_id,valutazione_pdf_id,candidatura_id,stato,
-             creato_il,aggiornato_il,autore)
-            VALUES(?,?,?,?,'in_coda',?,?,?)""",
-            (job_id,b["id"],pdf_id,archived["candidatura_id"],
-             now,now,who["username"]))
-        db.commit()
-    _AI_POOL.submit(_esegui_controllo_occupazione,job_id,code,pdf_id,
-                    archived["candidatura_id"],b["id"],requirement,
-                    candidate,endpoint,who["username"],_ollama_keep_alive())
-    return {"lavoro_id":job_id,"stato":"in_coda"}
-
-
-@app.get("/api/bandi/{code}/valutazioni/{pdf_id}/ai/occupazione/lavoro/{job_id}")
-def stato_controllo_occupazionale(code: str,pdf_id: int,job_id: str,request: Request):
-    require_admin(request)
-    code=valid_code(code)
-    with connect() as db:
-        row=db.execute("""
-            SELECT j.stato,j.errore,j.risultato_json,j.aggiornato_il
-            FROM ai_occupazione_lavori j JOIN bandi b ON b.id=j.bando_id
-            WHERE b.codice=? AND j.valutazione_pdf_id=? AND j.id=?
-        """,(code,pdf_id,job_id)).fetchone()
-    if not row:fail("Controllo IA non trovato",404)
-    return {"stato":row["stato"],"errore":row["errore"],
-            "risultato":json.loads(row["risultato_json"]) if row["risultato_json"] else None,
-            "aggiornato_il":row["aggiornato_il"]}
-
-
-@app.get("/api/bandi/{code}/valutazioni/ai/occupazione/storico")
-def storico_occupazione_ai(code: str, request: Request):
-    """Soli amministratori vedono storico e risultati delle verifiche IA."""
-    require_admin(request)
-    code = valid_code(code)
-    with connect() as db:
-        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
-        if not b:
-            fail("Bando non trovato", 404)
-        records = db.execute("""
-            SELECT a.valutazione_pdf_id, a.requisito_analizzato,
-                a.stato,a.motivo,a.evidenza,a.autore,a.quando,
-                a.id AS audit_id
-            FROM valutazioni_occupazione_ai a
-            WHERE a.bando_id=?
-            ORDER BY a.id DESC
-        """, (b["id"],)).fetchall()
-    latest = {}
-    counts = {}
-    for row in records:
-        key = str(row["valutazione_pdf_id"])
-        counts[key] = counts.get(key, 0) + 1
-        if key not in latest:
-            latest[key] = dict(row)
-    for key, value in latest.items():
-        value["numero_controlli"] = counts[key]
-    with connect() as db:
-        jobs=db.execute("""
-          SELECT valutazione_pdf_id,id,stato,creato_il,aggiornato_il,errore
-          FROM ai_occupazione_lavori WHERE bando_id=?
-          ORDER BY creato_il DESC,id DESC
-        """,(b["id"],)).fetchall()
-    pending={}
-    for job in jobs:
-        key=str(job["valutazione_pdf_id"])
-        if key not in pending:
-            pending[key]=dict(job)
-    return {"controlli":latest,"lavori":pending}
-
-
-@app.get("/api/bandi/{code}/valutazioni/ai/occupazione/report.pdf")
-def report_occupazione_cds(code: str, cds: str, request: Request, sede: str = ""):
-    """Report per CdS, riservato Admin; soltanto controlli IA registrati."""
-    require_admin(request)
-    code = valid_code(code)
-    cds = cds.strip()
-    sede = sede.strip()
-    if not cds or len(cds) > 250 or len(sede) > 100:
-        fail("Selezionare un Corso di Studio valido", 400)
-    with connect() as db:
-        bando = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
-        if not bando:
-            fail("Bando non trovato", 404)
-        conditions = ["i.bando_id=?", "i.cds=?", "c.stato='Attiva'"]
-        args = [bando["id"], cds]
-        if sede:
-            conditions.append("i.sede=?")
-            args.append(sede)
-        rows = db.execute("""
-            SELECT c.id AS candidatura_id,c.id_pica,c.cognome,c.nome,
-                i.cds,i.sede,i.insegnamento,i.modulo,i.tipo_cds,i.key,
-                er.ente_richiesto AS requisito_manuale,
-                v.id AS pdf_id,v.stato AS scheda_stato
-            FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
-            LEFT JOIN incarichi_ente_requisiti er
-              ON er.bando_id=i.bando_id AND er.key_incarico=i.key
-            LEFT JOIN valutazioni_pdf v ON v.id=(
-                SELECT vv.id FROM valutazioni_pdf vv
-                WHERE vv.candidatura_id=c.id AND vv.bando_id=i.bando_id
-                ORDER BY CASE WHEN vv.attiva=1 THEN 0 ELSE 1 END, vv.id DESC
-                LIMIT 1)
-            WHERE """+" AND ".join(conditions)+"""
-            ORDER BY i.sede COLLATE NOCASE, i.insegnamento COLLATE NOCASE,
-                     i.modulo COLLATE NOCASE, c.cognome COLLATE NOCASE,
-                     c.nome COLLATE NOCASE, c.id
-        """, args).fetchall()
-        dictionary = _dizionario(db)
-        latest = {}
-        for record in rows:
-            pdf_id = record["pdf_id"]
-            if pdf_id is not None and pdf_id not in latest:
-                audit = db.execute("""
-                    SELECT requisito_analizzato,stato,motivo,evidenza,autore,quando
-                    FROM valutazioni_occupazione_ai WHERE valutazione_pdf_id=?
-                    ORDER BY id DESC LIMIT 1
-                """, (pdf_id,)).fetchone()
-                latest[pdf_id] = dict(audit) if audit else None
-    if not rows:
-        fail("Nessuna candidatura attiva per il CdS e la sede selezionati", 404)
-    candidates = {
-        (str(x["id_pica"]), x["incarico_key"]): x
-        for x in list_candidature(code)["candidature"]
-    }
-    entries = []
-    for record in rows:
-        item = dict(record)
-        candidate = candidates.get((str(item["id_pica"]), item["key"]), {})
-        match = dictionary.get(tipo_cds_key(item["tipo_cds"]))
-        item["requisito"] = (item["requisito_manuale"] or
-                            (match["requisito"] if match else None))
-        for field in ("occupazione", "azienda_ente", "profilo_professionale"):
-            item[field] = candidate.get(field) or ""
-        item["ai"] = latest.get(item["pdf_id"])
-        entries.append(item)
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    report = report_cds_pdf(code, cds, entries, now)
-    filename = "RankUP_" + _safe_filename(code, 40) + "_occupazione_" + _safe_filename(cds, 55) + ".pdf"
-    return Response(content=report, media_type="application/pdf",
-        headers={"Content-Disposition": 'attachment; filename="' + filename + '"',
-                 "Cache-Control": "no-store"})
 
 
 @app.post("/api/pica/preview")
@@ -2834,9 +2513,8 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
     # Il file PICA usa spesso la denominazione estesa "(ABILITANTE ...)".
     # Usare soltanto il nome canonico CdS + sede. Non applicare somiglianze
     # parziali e non ereditare una commissione da un'altra sede.
-    # La stessa valutazione istruttoria gia esposta in "Candidature"
-    # accompagna la scheda del candidato. Non invocare Ollama per creare PDF,
-    # non usare i suoi esiti come decisione e non variare le schede archiviate.
+    # La verifica istruttoria dell’ente è indipendente dal controllo date.
+    # Le schede archiviate restano invariate.
     verification = {
         (str(r["id_pica"]), r["incarico_key"]): r
         for r in list_candidature(code)["candidature"]
