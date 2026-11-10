@@ -787,7 +787,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.17", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.18", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1124,6 +1124,55 @@ def valid_code(code: str) -> str:
     return code
 
 
+def valid_anno_accademico(value: str) -> str:
+    """A.A. dichiarato dall'operatore, mai presunto dall'anno corrente."""
+    anno=str(value or "").strip()
+    if not anno:
+        return ""
+    if not re.fullmatch(r"\d{4}-\d{4}",anno):
+        fail("Anno accademico: utilizzare AAAA-AAAA senza dati presunti")
+    first,second=map(int,anno.split("-"))
+    if second!=first+1:
+        fail("Anno accademico incoerente: il secondo anno deve essere consecutivo")
+    return anno
+
+
+def _associa_anno_esplicito(db, bando_id: int, anno: str, autore: str, quando: str) -> None:
+    """Registra l'A.A. del bando senza sostituire riferimenti già verificati.
+
+    Utilizzata solo con anno fornito esplicitamente dall'operatore.
+    Conserva lo storico delle modifiche al pari del form Riferimenti.
+    """
+    anno=valid_anno_accademico(anno)
+    if not anno:
+        return
+    row=db.execute("""
+        SELECT repertorio,protocollo,data_avviso,anno_accademico
+        FROM bandi_riferimenti WHERE bando_id=?
+    """,(bando_id,)).fetchone()
+    prior=dict(row) if row else {
+        "repertorio":"","protocollo":"","data_avviso":"","anno_accademico":""}
+    if prior["anno_accademico"] and prior["anno_accademico"]!=anno:
+        fail("Anno accademico diverso da quello già registrato per il bando: "
+             "verificare i Riferimenti del bando",409)
+    if prior["anno_accademico"]==anno:
+        return
+    if row:
+        db.execute("""UPDATE bandi_riferimenti
+            SET anno_accademico=?,aggiornato_il=? WHERE bando_id=?""",
+            (anno,quando,bando_id))
+    else:
+        db.execute("""INSERT INTO bandi_riferimenti
+            (bando_id,anno_accademico,aggiornato_il) VALUES(?,?,?)""",
+            (bando_id,anno,quando))
+    after=dict(prior,anno_accademico=anno)
+    db.execute("""INSERT INTO bandi_riferimenti_eventi
+        (bando_id,prima_json,dopo_json,autore,quando)
+        VALUES(?,?,?,?,?)""",(bando_id,
+        json.dumps(prior,ensure_ascii=False),json.dumps(after,ensure_ascii=False),
+        autore,quando))
+
+
 @app.get("/")
 def index():
     return FileResponse(ASSETS / "index.html", media_type="text/html")
@@ -1131,11 +1180,12 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.4"}
+    return {"status": "ok", "version": "0.9.18"}
 
 
 class NuovoBandoInput(BaseModel):
     codice: str = Field(min_length=3,max_length=50)
+    anno_accademico: str = Field(default="",max_length=20)
 
 
 @app.post("/api/bandi")
@@ -1143,16 +1193,20 @@ def prepara_bando(body: NuovoBandoInput,request: Request):
     """Crea contenitore vuoto per PDF e requisiti PRIMA delle candidature PICA."""
     require_admin(request)
     code=valid_code(body.codice.strip().upper())
+    anno=valid_anno_accademico(body.anno_accademico)
     now=datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as db:
         try:
-            db.execute("""INSERT INTO bandi
+            db.execute("BEGIN IMMEDIATE")
+            cur=db.execute("""INSERT INTO bandi
                 (codice,stato,created_at,source_filename,source_hash,import_at)
                 VALUES(?,'In preparazione',?,'','',?)""",(code,now,now))
+            _associa_anno_esplicito(db,cur.lastrowid,anno,request_actor(),now)
             db.commit()
         except sqlite3.IntegrityError:
             fail("Bando già presente",409)
-    return {"ok":True,"codice":code,"stato":"In preparazione"}
+    return {"ok":True,"codice":code,"stato":"In preparazione",
+            "anno_accademico":anno}
 
 
 @app.get("/api/bandi")
@@ -1160,14 +1214,28 @@ def list_bandi():
     with connect() as db:
         rows = db.execute("""
           SELECT b.codice, b.stato, b.import_at, b.source_filename,
+                 COALESCE(ref.anno_accademico,'') AS anno_accademico,
                  (SELECT COUNT(*) FROM candidature c WHERE c.bando_id=b.id) AS candidature,
                  (SELECT COUNT(*) FROM incarichi i WHERE i.bando_id=b.id) AS incarichi,
                  (SELECT COUNT(DISTINCT i.cds) FROM incarichi i WHERE i.bando_id=b.id) AS cds,
-                 (SELECT COUNT(*) FROM valutazioni_pdf v
-                   WHERE v.bando_id=b.id AND v.stato='Acquisita' AND v.attiva=1
+                 (SELECT COUNT(DISTINCT v.candidatura_id) FROM valutazioni_pdf v
+                   JOIN candidature c ON c.id=v.candidatura_id
+                   WHERE v.bando_id=b.id AND c.stato='Attiva'
+                     AND v.stato='Acquisita' AND v.attiva=1
                      AND v.decisione IN ('idoneo','non_idoneo','escluso'))
-                   AS valutazioni_acquisite
-          FROM bandi b ORDER BY b.import_at DESC, b.id DESC
+                   AS valutazioni_acquisite,
+                 (SELECT COUNT(*) FROM (
+                   SELECT DISTINCT i.cds,i.sede FROM incarichi i
+                   WHERE i.bando_id=b.id AND NOT EXISTS (
+                     SELECT 1 FROM graduatorie_cds g
+                     LEFT JOIN graduatorie_cds_riaperte ri ON ri.graduatoria_id=g.id
+                     WHERE g.bando_id=b.id AND g.cds=i.cds AND g.sede=i.sede
+                       AND g.stato IN ('definitiva','approvata')
+                       AND ri.graduatoria_id IS NULL
+                   )
+                 )) AS cds_in_lavorazione
+          FROM bandi b LEFT JOIN bandi_riferimenti ref ON ref.bando_id=b.id
+          ORDER BY b.import_at DESC, b.id DESC
         """).fetchall()
     return {"bandi": [dict(x) for x in rows]}
 
@@ -1800,6 +1868,7 @@ async def preview_pica(request: Request, file: UploadFile = File(...)):
 class CommitRequest(BaseModel):
     token: str
     tipologie: list[VocePICA] = Field(default_factory=list)
+    anno_accademico: str = Field(default="",max_length=20)
 
 
 @app.post("/api/pica/commit")
@@ -1819,6 +1888,7 @@ def commit_pica(body: CommitRequest, request: Request):
     meta = json.loads(metadata_path.read_text(encoding="utf-8"))
     parsed = meta["parsed"]
     code = valid_code(parsed["code"])
+    anno = valid_anno_accademico(body.anno_accademico)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as db:
         try:
@@ -1858,6 +1928,7 @@ def commit_pica(body: CommitRequest, request: Request):
                     VALUES(?,?,?,?,?)
                 """, (code, now, meta["filename"], meta["sha256"], now))
                 bando_id = cur.lastrowid
+            _associa_anno_esplicito(db,bando_id,anno,who,now)
             assignment_ids = {}
             for record in parsed["rows"]:
                 item = record["incarico"]
