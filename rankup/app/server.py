@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from contextvars import ContextVar
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -3826,6 +3828,67 @@ def chiudi_bando_con_zip(code: str, request: Request):
     """Compatibilità API per client esistenti. L'UI usa l'avvio asincrono."""
     who=require_admin(request)
     return _chiudi_bando_con_snapshot(valid_code(code),who["username"])
+
+
+# Esecuzione in un thread limitato. Il browser interroga soltanto lo stato,
+# evitando di tenere aperta una richiesta Cloudflare per tutta la compressione.
+_ARCHIVE_POOL=ThreadPoolExecutor(max_workers=1,thread_name_prefix="rankup-zip")
+_ARCHIVE_LOCK=threading.Lock()
+_ARCHIVE_JOBS={}
+
+
+def _background_archive(job_id: str, code: str, actor: str) -> None:
+    with _ARCHIVE_LOCK:
+        _ARCHIVE_JOBS[job_id]["stato"]="in_elaborazione"
+    try:
+        outcome=_chiudi_bando_con_snapshot(code,actor)
+    except Exception as error:
+        detail=str(getattr(error,"detail",str(error)))[:700]
+        with _ARCHIVE_LOCK:
+            _ARCHIVE_JOBS[job_id].update(stato="errore",errore=detail)
+    else:
+        with _ARCHIVE_LOCK:
+            _ARCHIVE_JOBS[job_id].update(stato="completato",risultato=outcome)
+
+
+@app.post("/api/bandi/{code}/archivio/chiudi/avvia",status_code=202)
+def avvia_archiviazione_bando(code: str, request: Request):
+    who=require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id,stato FROM bandi WHERE codice=?",
+                     (code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        if b["stato"]=="Archiviato":
+            fail("Bando già archiviato",409)
+        ready=controlla_chiusura(db,b["id"])
+        if not ready["pronto"]:
+            fail("Chiusura non possibile: "+"; ".join(ready["criticita"]),409)
+    with _ARCHIVE_LOCK:
+        for key,job in _ARCHIVE_JOBS.items():
+            if job["codice"]==code and job["stato"] in ("in_coda","in_elaborazione"):
+                return {"lavoro_id":key,"stato":job["stato"]}
+        # Limite per evitare accumulo illimitato in memoria.
+        completed=[key for key,job in _ARCHIVE_JOBS.items()
+                   if job["stato"] in ("completato","errore")]
+        for key in completed[:-30]:
+            del _ARCHIVE_JOBS[key]
+        job_id=secrets.token_urlsafe(18)
+        _ARCHIVE_JOBS[job_id]={"codice":code,"stato":"in_coda",
+                               "errore":None,"risultato":None}
+        _ARCHIVE_POOL.submit(_background_archive,job_id,code,who["username"])
+    return {"lavoro_id":job_id,"stato":"in_coda"}
+
+
+@app.get("/api/bandi/{code}/archivio/chiudi/lavoro/{job_id}")
+def stato_archiviazione_bando(code: str,job_id: str,request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with _ARCHIVE_LOCK:
+        entry=_ARCHIVE_JOBS.get(job_id)
+        if not entry or entry["codice"]!=code:
+            fail("Lavoro non disponibile; verificare se il bando è già archiviato",404)
+        return {k:v for k,v in entry.items() if k!="codice"}
 
 
 class RicercaCandidatoStorico(BaseModel):
