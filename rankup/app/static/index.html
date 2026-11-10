@@ -653,12 +653,26 @@
                   (job.vincitore_motivazione
                     ? '<p class="caption">Decisione documentata della Commissione: '+esc(job.vincitore_motivazione)+
                       ' · Riferimento: '+esc(job.vincitore_riferimento)+'</p>':'')+
-                  (state.role==="admin"&&!final&&!approved&&tie
-                    ? '<div class="actions"><label>Trascrizione della decisione della Commissione su parità'+
-                      '<select data-winner-choice="'+esc(job.id)+'"><option value="">Seleziona candidato a pari merito</option>'+
-                      top.map(function(c){return '<option value="'+esc(c.candidatura_id)+'"'+
-                        (job.vincitore_id===c.candidatura_id?' selected':'')+'>'+esc(c.id_pica+' · '+c.cognome+' '+c.nome)+'</option>';}).join('')+
-                      '</select></label><button class="btn secondary" data-winner-save="'+esc(job.id)+'">Registra decisione documentata</button></div>'
+                  (state.role==="admin"&&!final&&!approved&&(job.parita||[]).length
+                    ? job.parita.map(function(t){
+                      return '<div class="notice ru-tie-box" data-tie-inc="'+esc(job.id)+
+                        '" data-tie-score="'+esc(t.punteggio)+'">'+
+                        '<p><strong>Parità da verificare · '+esc(t.punteggio)+' punti</strong> · '+
+                        'Posizione '+esc(t.posizione)+'</p>'+
+                        '<button type="button" class="btn secondary" data-tie-open>Gestisci parità</button>'+
+                        '<div class="ru-tie-form" style="display:none"><p class="caption">'+
+                        'Indica la precedenza comunicata dalla Commissione. I punteggi restano immutati.</p>'+
+                        t.candidati.map(function(c,k){
+                          return '<label>Posizione '+esc(t.posizione+k)+
+                          '<select data-tie-rank="'+esc(k)+'"><option value="">Seleziona candidato</option>'+
+                          t.candidati.map(function(choice){
+                            return '<option value="'+esc(choice.candidatura_id)+'">'+
+                            esc(choice.id_pica+' · '+choice.cognome+' '+choice.nome)+'</option>';
+                          }).join('')+'</select></label>';
+                        }).join('')+
+                        '<button type="button" class="btn" data-tie-save>Registra ordine documentato</button>'+
+                        '</div></div>';
+                    }).join('')
                     : '')+
                   '<div class="tablebox"><table><thead><tr><th>Pos.</th><th>ID PICA</th><th>Candidato</th>'+
                   '<th>Punti</th><th>Esito</th><th>Note Commissione</th></tr></thead><tbody>'+
@@ -674,23 +688,36 @@
           html(controls+(blocks||panel("Nessuna graduatoria","Nessun incarico corrisponde ai filtri.")));
           $("verb-cds").onchange=function(){state.verbaliCds=this.value;state.verbaliSede="";renderVerbaliGraduatorie();};
           $("verb-sede").onchange=function(){state.verbaliSede=this.value;renderVerbaliGraduatorie();};
-          document.querySelectorAll("[data-winner-save]").forEach(function(btn){
+          document.querySelectorAll("[data-tie-open]").forEach(function(btn){
+            btn.onclick=function(){
+              var form=btn.closest(".ru-tie-box").querySelector(".ru-tie-form");
+              form.style.display=form.style.display==="none"?"block":"none";
+            };
+          });
+          document.querySelectorAll("[data-tie-save]").forEach(function(btn){
             btn.onclick=async function(){
-              var assignment=btn.dataset.winnerSave;
-              var value=document.querySelector('[data-winner-choice="'+assignment+'"]');
-              if(!value||!value.value){note("Seleziona una candidatura idonea",true);return;}
-              var reason=prompt("Riporta fedelmente la motivazione della Commissione per la parità al primo posto:");
-              if(!reason||reason.trim().length<10){note("Motivazione obbligatoria di almeno 10 caratteri",true);return;}
-              var reference=prompt("Indica il riferimento al documento della Commissione che stabilisce il vincitore:");
-              if(!reference||reference.trim().length<5){note("Riferimento obbligatorio",true);return;}
+              var box=btn.closest(".ru-tie-box");
+              var vals=[...box.querySelectorAll("[data-tie-rank]")].map(function(s){return Number(s.value);});
+              if(vals.some(function(n){return !n;})||new Set(vals).size!==vals.length){
+                note("Assegna a ogni posizione un candidato diverso fra quelli in parità.",true);return;
+              }
+              var reason=prompt("Motivazione o criterio riportato dalla Commissione:");
+              if(reason===null)return;
+              var reference=prompt("Estremi del documento della Commissione che stabilisce la precedenza:");
+              if(reference===null)return;
+              if(reason.trim().length<10||reference.trim().length<5){
+                note("Motivazione e riferimento documentale obbligatori.",true);return;
+              }
+              if(!confirm("Registrare l'ordine di precedenza documentato, senza modificare i punteggi?"))return;
               btn.disabled=true;
               try{
                 await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/"+
-                    encodeURIComponent(assignment)+"/vincitore",{
-                    method:"PUT",headers:{"Content-Type":"application/json"},
-                    body:JSON.stringify({candidatura_id:Number(value.value),
-                      motivazione:reason.trim(),riferimento:reference.trim()})});
-                note("Decisione documentata della Commissione registrata e tracciata.",false);
+                          encodeURIComponent(box.dataset.tieInc)+"/parita",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({punteggio:box.dataset.tieScore,ordine_candidature:vals,
+                      motivazione:reason.trim(),riferimento:reference.trim()})
+                });
+                note("Parità risolta dalla decisione della Commissione. Punteggi invariati.",false);
                 renderVerbaliGraduatorie();
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
