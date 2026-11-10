@@ -208,7 +208,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.16 · Ricerca storica candidati<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.17 · Recupero utenti<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1104,7 +1104,7 @@
         try{
           var result=await api("utenti");
           if(state.page!=="utenti"||state.role!=="admin")return;
-          var users=result.utenti||[];
+          var users=result.utenti||[],deletedUsers=result.utenti_eliminati||[];
           var content='<div class="card mb"><h3 class="section-heading">Amministratore del sistema</h3>'+
             '<p><strong>'+esc(result.admin.username)+'</strong> · Admin</p>'+
             '<p class="caption">Le credenziali dell’amministratore rimangono nella Configurazione dell’add-on Home Assistant. Gli utenti creati qui non possono attribuirsi privilegi amministrativi.</p>'+
@@ -1131,6 +1131,28 @@
                 '<label>Nuova password (minimo 8 caratteri)'+
                 '<input class="rankup-user-input" type="password" name="password" minlength="8" maxlength="128" required autocomplete="new-password" placeholder="Nuova password"></label>'+
                 '<button type="submit" class="btn">Salva nuova password</button></form></td></tr>';
+              }).join('')+'</tbody></table></div>';
+          }
+          content+='</div>'+
+            '<div class="card"><h3 class="section-heading">Utenti eliminati ('+deletedUsers.length+')</h3>'+
+            '<p class="caption">Gli account eliminati non possono accedere, ma il nome rimane riservato '+
+            'per conservare la tracciabilità. Per riutilizzare lo stesso nome ripristina '+
+            'l’account originale e imposta una nuova password.</p>';
+          if(!deletedUsers.length)content+='<p class="muted">Nessun utente eliminato.</p>';
+          else{
+            content+='<div class="tablebox"><table><thead><tr><th>Utente</th><th>Stato</th>'+
+              '<th>Ultima modifica</th><th>Azioni</th></tr></thead><tbody>'+
+              deletedUsers.map(function(u){
+                return '<tr><td><strong>'+esc(u.username)+'</strong></td>'+
+                  '<td>Eliminato · accesso revocato</td><td>'+esc(u.aggiornato_il||"—")+'</td>'+
+                  '<td><button type="button" class="btn secondary" data-user-restore="'+esc(u.id)+'">'+
+                  'Ripristina utente</button>'+
+                  '<form data-restore-form="'+esc(u.id)+'" style="display:none;margin-top:10px" autocomplete="off">'+
+                  '<label>Nuova password (minimo 8 caratteri)'+
+                  '<input class="rankup-user-input" type="password" name="password" '+
+                  'minlength="8" maxlength="128" required autocomplete="new-password" '+
+                  'placeholder="Nuova password"></label>'+
+                  '<button type="submit" class="btn">Conferma ripristino</button></form></td></tr>';
               }).join('')+'</tbody></table></div>';
           }
           content+='</div>';
@@ -1175,6 +1197,35 @@
               try{
                 await api("utenti/"+id,{method:"DELETE"});
                 note("Utente eliminato: "+name+". Storico conservato.",false);renderUtenti();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          document.querySelectorAll("[data-user-restore]").forEach(function(btn){
+            btn.onclick=function(){
+              var form=document.querySelector('[data-restore-form="'+btn.dataset.userRestore+'"]');
+              form.style.display=form.style.display==="none"?"block":"none";
+              if(form.style.display==="block")form.querySelector("input").focus();
+              else form.reset();
+            };
+          });
+          document.querySelectorAll("[data-restore-form]").forEach(function(form){
+            form.onsubmit=async function(event){
+              event.preventDefault();
+              var id=Number(form.dataset.restoreForm);
+              var password=form.querySelector("input").value;
+              if(password.length<8){note("Password: almeno 8 caratteri",true);return;}
+              if(!confirm("Ripristinare l'account eliminato con la nuova password? "+
+                 "Lo storico precedente sarà conservato."))return;
+              var btn=form.querySelector("button");
+              btn.disabled=true;
+              try{
+                await api("utenti/"+id+"/ripristina",{method:"PUT",
+                  headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({password:password})});
+                form.querySelector("input").value="";
+                note("Account ripristinato. La nuova password può essere comunicata all'utente "+
+                     "tramite canale riservato.",false);
+                renderUtenti();
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
           });
