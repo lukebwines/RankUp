@@ -30,3 +30,21 @@ jobs:
                   path.write_text(script,encoding="utf-8")
                   subprocess.run(["node","--check",str(path)],check=True)
           PY
+
+  source-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Crea ZIP sorgenti dai file versionati
+        run: git archive --format=zip --prefix=RankUp-source/ -o "$RUNNER_TEMP/RankUp-source.zip" HEAD
+      - name: Verifica integrita e portabilita ZIP
+        run: python scripts/verify_source_zip.py "$RUNNER_TEMP/RankUp-source.zip"
+      - name: Pubblica ZIP sorgenti verificato come artifact della CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: RankUp-source-verified
+          path: ${{ runner.temp }}/RankUp-source.zip
+          if-no-files-found: error
