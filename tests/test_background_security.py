@@ -113,33 +113,9 @@ def test_login_not_globally_or_per_username_locked_by_unrelated_origins(tmp_path
                                  source="indirizzo-legittimo")
 
 
-def test_ollama_keep_alive_configurable_and_restarts_mark_jobs_interrupted(tmp_path,monkeypatch):
-    server,client,_=_setup(tmp_path,monkeypatch)
+def test_no_ollama_runtime_enabled(tmp_path, monkeypatch):
+    server, client, _ = _setup(tmp_path, monkeypatch)
     with client:
-        assert server._ollama_keep_alive()=="30s"
-        import json
-        options=json.loads((tmp_path/"options.json").read_text())
-        options["ollama_keep_alive"]="0"
-        (tmp_path/"options.json").write_text(json.dumps(options))
-        assert server._ollama_keep_alive()=="0"
-        options["ollama_keep_alive"]="not a duration"
-        (tmp_path/"options.json").write_text(json.dumps(options))
-        assert server._ollama_keep_alive()=="30s"
-        _complete_all(client,_)
-        with server.connect() as db:
-            b=db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()["id"]
-            v=db.execute("""SELECT id,candidatura_id FROM valutazioni_pdf
-                             WHERE bando_id=? LIMIT 1""",(b,)).fetchone()
-            # Solo il collaudo inserisce un lavoro fittizio non ancora completato.
-            db.execute("""INSERT INTO ai_occupazione_lavori
-                (id,bando_id,valutazione_pdf_id,candidatura_id,
-                 stato,creato_il,aggiornato_il,autore)
-                 VALUES(?,?,?,?,'in_coda','t0','t0','test')""",
-                ("job_sintetico",b,v["id"],v["candidatura_id"]))
-            db.commit()
-        server.initialize_ai_work_items()
-        with server.connect() as db:
-            job=db.execute("SELECT stato,errore FROM ai_occupazione_lavori WHERE id=?",
-                           ("job_sintetico",)).fetchone()
-            assert job["stato"]=="interrotto"
-            assert "riavvio" in job["errore"]
+        assert not hasattr(server, "_ollama_settings")
+        assert not hasattr(server, "initialize_ai_work_items")
+        assert not any("/ai/occupazione" in route.path for route in server.app.routes)
