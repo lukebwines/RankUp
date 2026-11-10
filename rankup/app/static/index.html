@@ -225,7 +225,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.32 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.0<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1310,6 +1310,7 @@
             'associazioni delle commissioni ai bandi, schede acquisite, PDF originali nell\u0027area operativa, graduatorie, esiti e verifiche IA. '+
             'Un backup ZIP integrale sarà creato e verificato prima della pulizia. Non viene cancellata la configurazione, '+
             'né vengono rimosse le credenziali Admin, gli account operativi, le classificazioni SSD o l’anagrafica delle commissioni.</p>'+
+            '<p class="caption"><strong>Da distinguere:</strong> restano i modelli SSD permanenti e le composizioni delle commissioni nell’anagrafica; non restano le associazioni delle commissioni ai singoli bandi cancellati né i modelli scelti per i relativi incarichi NN. Per i nuovi bandi occorrerà verificare e ripristinare tali assegnazioni.</p>'+
             '<div class="summary">'+
             [['Bandi',data.bandi],['Candidature',data.candidature],['Schede valutate',data.valutazioni],
               ['Graduatorie CdS',data.graduatorie_cds],['Approvazioni',data.graduatorie_approvazioni],
