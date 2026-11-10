@@ -244,7 +244,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",incarichiFilter:{cds:"",sede:""},role:null,username:""};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",valTableQuery:"",valTableFocusOnly:false,valJumpToGroup:false,incarichiFilter:{cds:"",sede:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -2386,15 +2386,63 @@
             });
           }
           $("val-view-current").onclick=function(){
-            state.valSchedeView="current";renderValutazioni();
+            state.valSchedeView="current";state.valJumpToGroup=true;renderValutazioni();
           };
           $("val-view-all").onclick=function(){
-            state.valSchedeView="all";renderValutazioni();
+            state.valSchedeView="all";state.valJumpToGroup=true;renderValutazioni();
           };
-          $("val-cds").onchange=function(){state.valFilter.cds=this.value;state.valFilter.sede="";renderValutazioni();};
-          $("val-sede").onchange=function(){state.valFilter.sede=this.value;renderValutazioni();};
+          function applyLocalValFilters(){
+            var term=(state.valTableQuery||"").trim().toLocaleLowerCase("it");
+            var pendingOnly=!!state.valTableFocusOnly;
+            var rows=[...document.querySelectorAll(".ru-val-advance-table tbody tr[data-val-search]")];
+            var visibleCount=0;
+            rows.forEach(function(row){
+              var show=(!pendingOnly||row.dataset.valPending==="1")&&
+                (!term||(row.dataset.valSearch||"").includes(term));
+              row.hidden=!show;
+              if(show)visibleCount++;
+            });
+            var empty=$("val-table-empty");
+            if(empty)empty.hidden=visibleCount>0;
+            var count=$("val-table-count");
+            if(count)count.textContent=visibleCount+" su "+rows.length+" CdS/sedi";
+          }
+          $("val-table-search").oninput=function(){
+            state.valTableQuery=this.value;
+            applyLocalValFilters();
+          };
+          $("val-table-pending").onchange=function(){
+            state.valTableFocusOnly=this.checked;
+            applyLocalValFilters();
+          };
+          applyLocalValFilters();
+          $("val-reset-filters").onclick=function(){
+            state.valFilter={cds:"",sede:""};
+            state.valTableQuery="";
+            state.valTableFocusOnly=false;
+            renderValutazioni();
+          };
+          $("val-cds").onchange=function(){
+            state.valFilter.cds=this.value;
+            state.valFilter.sede="";
+            state.valTableQuery="";
+            state.valTableFocusOnly=false;
+            renderValutazioni();
+          };
+          $("val-sede").onchange=function(){
+            state.valFilter.sede=this.value;
+            state.valTableQuery="";
+            state.valTableFocusOnly=false;
+            renderValutazioni();
+          };
           document.querySelectorAll("[data-val-course]").forEach(function(btn){
-            btn.onclick=function(){state.valFilter={cds:btn.dataset.valCourse,sede:btn.dataset.valSite};renderValutazioni();};
+            btn.onclick=function(){
+              state.valFilter={cds:btn.dataset.valCourse,sede:btn.dataset.valSite};
+              state.valTableQuery="";
+              state.valTableFocusOnly=false;
+              state.valJumpToGroup=true;
+              renderValutazioni();
+            };
           });
           document.querySelectorAll("[data-val-manual]").forEach(function(btn){
             btn.onclick=function(){
