@@ -54,6 +54,7 @@ def test_general_header_partial_index_compact_and_identifications():
     assert "Stato: ATTI APPROVATI" in text
     assert "Indice CdS e sedi" in text
     assert "CdS: Corso sintetico 01" in text
+    assert "ABILITANTE ALLA PROFESSIONE SANITARIA" not in text
     assert "UL: UL 1" in text
     assert "Partizione: Canale A (cod. A1)" in text
     assert "Insegnamento / Modulo:" in text
