@@ -125,16 +125,17 @@ def test_ollama_keep_alive_configurable_and_restarts_mark_jobs_interrupted(tmp_p
         options["ollama_keep_alive"]="not a duration"
         (tmp_path/"options.json").write_text(json.dumps(options))
         assert server._ollama_keep_alive()=="30s"
+        _complete_all(client,_)
         with server.connect() as db:
             b=db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()["id"]
-            v=db.execute("SELECT id FROM candidature WHERE bando_id=? LIMIT 1",
-                         (b,)).fetchone()["id"]
+            v=db.execute("""SELECT id,candidatura_id FROM valutazioni_pdf
+                             WHERE bando_id=? LIMIT 1""",(b,)).fetchone()
             # Solo il collaudo inserisce un lavoro fittizio non ancora completato.
             db.execute("""INSERT INTO ai_occupazione_lavori
                 (id,bando_id,valutazione_pdf_id,candidatura_id,
                  stato,creato_il,aggiornato_il,autore)
                  VALUES(?,?,?,?,'in_coda','t0','t0','test')""",
-                ("job_sintetico",b,999999,v))
+                ("job_sintetico",b,v["id"],v["candidatura_id"]))
             db.commit()
         server.initialize_ai_work_items()
         with server.connect() as db:
