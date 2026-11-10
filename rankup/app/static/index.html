@@ -435,7 +435,9 @@
           if(box.dataset.ruSearchReady)return;
           var table=box.querySelector("table");
           if(!table||!table.tBodies.length||table.tBodies[0].rows.length<8)return;
-          if(table.querySelector("tbody input, tbody select, tbody textarea, tbody details"))return;
+          if(table.querySelector("tbody input[type='checkbox'],tbody details"))return;
+          if(!["ssdconfig","schede"].includes(state.page)
+              && table.querySelector("tbody input,tbody select,tbody textarea"))return;
           var rows=[...table.tBodies[0].rows];
           var outer=document.createElement("div");
           outer.className="ru-table-tools";
