@@ -7,6 +7,10 @@ from io import BytesIO
 import re
 from reportlab.pdfgen import canvas
 from occupazione_pdf import draw_occupazione_warning
+from score_rules import (
+    indicator_limit, area_limit, total_limit, fixed_value,
+    PRO_ACTIVITY_OPTIONS, PRO_PLUS_OPTIONS,
+)
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor, white, black
 from pypdf import PdfReader, PdfWriter
@@ -20,35 +24,23 @@ GRAY = HexColor("#dddddd")
 INK = HexColor("#151c26")
 
 AREA1 = [
-    ("P01", "Master pertinente all’insegnamento", 3),
-    ("P02", "Corsi di perfezionamento-specializzazione pertinente", 1),
-    ("P03", "Assegni di ricerca/dottorato", 2),
-    ("P04", "Esperienze professionali pertinenti effettuate all’estero", 2),
-    ("P05", "Corsi di formazione alla didattica", 3),
-    ("P06", "Attività di aggiornamento pertinente all’insegnamento", 4),
+    ("P01", "Master pertinente all’insegnamento", indicator_limit("professionalizzante", "P01")),
+    ("P02", "Corsi di perfezionamento-specializzazione pertinente", indicator_limit("professionalizzante", "P02")),
+    ("P03", "Assegni di ricerca/dottorato", indicator_limit("professionalizzante", "P03")),
+    ("P04", "Esperienze professionali pertinenti effettuate all’estero", indicator_limit("professionalizzante", "P04")),
+    ("P05", "Corsi di formazione alla didattica", indicator_limit("professionalizzante", "P05")),
+    ("P06", "Attività di aggiornamento pertinente all’insegnamento", indicator_limit("professionalizzante", "P06")),
 ]
 AREA3 = [
-    ("P14", "Docenza in ambito accademico pertinente all’insegnamento", 10, "max 2 per docenza/anno"),
-    ("P15", "Insegnamenti non universitari con incarico formale e affini alla disciplina", 2, "max 2"),
-    ("P16", "Relatore a corsi, convegni, congressi", 3, "max 3"),
+    ("P14", "Docenza in ambito accademico pertinente all’insegnamento", indicator_limit("professionalizzante", "P14"), "max 2 per docenza/anno"),
+    ("P15", "Insegnamenti non universitari con incarico formale e affini alla disciplina", indicator_limit("professionalizzante", "P15"), "max 2"),
+    ("P16", "Relatore a corsi, convegni, congressi", indicator_limit("professionalizzante", "P16"), "max 3"),
 ]
-AREA4 = ("P17", "Pubblicazioni pertinenti all’insegnamento", 7)
-AREA5 = ("P18", "Indicatore Q12 relativo alla soddisfazione complessiva >3", 3)
-AREA6 = ("P19", "Valorizzazione dell’esperienza e della competenza nel settore specifico richiesto dall’insegnamento del corso di laurea", 10)
-
-PRO_ACTIVITY = [
-    ("0", "NESSUNA (0 pt)"),
-    ("1.5", "Dirigente Professioni Sanitarie (1.5 pt)"),
-    ("1", "Coordinatore reparto/servizio (1 pt)"),
-    ("0.5", "Collaboratore professionale (0.5 pt)"),
-    ("0.25", "Libero professionista (0.25 pt)"),
-    ("1.5", "Coordinatore Corso di Laurea (1.5 pt)"),
-]
-PRO_PLUS = [
-    ("0", "NESSUNA (0 pt)"),
-    ("0.5", "Tutor dedicato (0.5 pt)"),
-    ("0.5", "Guida/supervis. tirocin. (0.5 pt)"),
-]
+AREA4 = ("P17", "Pubblicazioni pertinenti all’insegnamento", indicator_limit("professionalizzante", "P17"))
+AREA5 = ("P18", "Indicatore Q12 relativo alla soddisfazione complessiva >3", indicator_limit("professionalizzante", "P18"))
+AREA6 = ("P19", "Valorizzazione dell’esperienza e della competenza nel settore specifico richiesto dall’insegnamento del corso di laurea", indicator_limit("professionalizzante", "P19"))
+PRO_ACTIVITY = list(PRO_ACTIVITY_OPTIONS)
+PRO_PLUS = list(PRO_PLUS_OPTIONS)
 # Esiti selezionabili nelle tre schede di valutazione.
 # La Commissione dichiara l'idoneità; RankUP determina la posizione in graduatoria.
 STATUSES = [
@@ -180,7 +172,8 @@ def make_professional(record: dict) -> bytes:
 
     def numbers(name, x, top, width, height, maximum):
         options = (
-            [("0", "0"), ("3", "3")] if name == "P18" else
+            [("0", "0"), (str(maximum), str(maximum))]
+            if fixed_value("professionalizzante", name) else
             [(str(i), str(i)) for i in range(maximum + 1)]
         )
         choice(name, x, top, width, height, options)
@@ -254,7 +247,7 @@ def make_professional(record: dict) -> bytes:
         txt(137, top+3, label, 7)
         centered(401, top+3, 44, "max " + str(maximum), 7)
         numbers(key, 449, top+1, 47, 14.3, maximum)
-    area(500, 267, 50, 104, 15)
+    area(500, 267, 50, 104, area_limit("professionalizzante", 1))
 
     rect(50, 373, 83, 85, BLUE)
     multiline(53, 391, [
@@ -276,7 +269,7 @@ def make_professional(record: dict) -> bytes:
         choice(f"plus{i}", 325, top+1, 119, 14, PRO_PLUS)
         field(f"extraField{i}", 449, top+1, 47, 14, "0",
               readonly=True, fontsize=7.4, background=BLUE)
-    area(500, 373, 50, 85, 10)
+    area(500, 373, 50, 85, area_limit("professionalizzante", 2))
 
     rect(50, 461, 83, 68, BLUE)
     multiline(53, 479, ["Attività didattica", "(ultimi 5 anni)"],
@@ -297,14 +290,14 @@ def make_professional(record: dict) -> bytes:
                  desc if key != "P14" else "max 2/anno", 6.5)
         numbers(key, 449, top+2, 47, height-4, maxpt)
         top += height
-    area(500, 461, 50, 68, 15)
+    area(500, 461, 50, 68, area_limit("professionalizzante", 3))
 
     blocks = [
-        (531, 28, ["Attività scientifica", "(ultimi 5 anni)"], 7,
+        (531, 28, ["Attività scientifica", "(ultimi 5 anni)"], area_limit("professionalizzante", 4),
          AREA4, ["Rilevanza", "scientifica"]),
-        (561, 30, ["Valutazione didattica", "Questionario studenti"], 3,
+        (561, 30, ["Valutazione didattica", "Questionario studenti"], area_limit("professionalizzante", 5),
          AREA5, ["3"]),
-        (594, 30, ["Esperienze e", "competenze specifiche"], 10,
+        (594, 30, ["Esperienze e", "competenze specifiche"], area_limit("professionalizzante", 6),
          AREA6, ["max 10"]),
     ]
     for top, height, title, maximum_area, item, hints in blocks:
@@ -337,7 +330,7 @@ def make_professional(record: dict) -> bytes:
     centered(401, 629, 45, "TOTALE", 8.2, True, white)
     field("TOT", 449, 628, 47, 15, "0", readonly=True, fontsize=9,
           background=white)
-    centered(500, 629, 50, "60", 10, True, white)
+    centered(500, 629, 50, str(total_limit("professionalizzante")), 10, True, white)
 
     txt(53, 650, "Note commissione / Esito:", 7.5, True)
     choice("STATUS", 210, 651, 340, 17, STATUSES)
