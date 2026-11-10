@@ -51,7 +51,7 @@ def test_dashboard_bando_esistente_senza_anno_non_presume_aa(tmp_path,monkeypatc
 
 
 def test_anno_esplicito_nel_nuovo_bando_e_validazioni(tmp_path,monkeypatch):
-    _,client,_=_setup(tmp_path,monkeypatch)
+    server,client,_sheets=_setup(tmp_path,monkeypatch)
     with client:
         invalid=_post(client,"/api/bandi",json={
             "codice":"PROVA-ANNO","anno_accademico":"2026-2028"})
@@ -63,7 +63,7 @@ def test_anno_esplicito_nel_nuovo_bando_e_validazioni(tmp_path,monkeypatch):
         assert _row(client,"PROVA-ANNO")["anno_accademico"]=="2027-2028"
         assert client.get("/api/bandi/PROVA-ANNO/riferimenti").json()[
             "riferimenti"]["anno_accademico"]=="2027-2028"
-        with _.connect() as db:
+        with server.connect() as db:
             events=db.execute("""
               SELECT prima_json,dopo_json FROM bandi_riferimenti_eventi
               WHERE bando_id=(SELECT id FROM bandi WHERE codice='PROVA-ANNO')
