@@ -96,7 +96,7 @@ html[data-theme="dark"] .ru-val-page .card { background: var(--rv-panel); border
 .ru-val-page .ru-val-advance-table th:first-child { width: 44%; }
 .ru-val-page .ru-val-advance-table th:last-child { min-width: 120px; }
 .ru-val-course-name { display: block; font-weight: 800; font-size: 14px; color: var(--rv-ink); overflow-wrap: anywhere; line-height: 1.35; }
-.ru-val-course-extra { display: block; color: var(--rv-subtle); font-size: 12px; margin-top: 3px; line-height: 1.45; }
+.ru-val-course-extra { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--rv-subtle); font-size: 12px; margin-top: 3px; line-height: 1.45; }
 .ru-val-count { font-variant-numeric: tabular-nums; font-weight: 750; white-space: nowrap; }
 .ru-val-count-detail { display: block; color: var(--rv-subtle); font-size: 12px; font-weight: 500; white-space: normal; }
 .ru-val-progress { display: flex; gap: 9px; align-items: center; min-width: 140px; }
@@ -163,3 +163,5 @@ html[data-theme="dark"] .ru-val-page .card { background: var(--rv-panel); border
 @media (prefers-reduced-motion: reduce) {
   .ru-val-meter > span, .ru-val-group > summary::before { transition: none; }
 }
+
+.ru-val-page .ru-val-advance-table td:nth-child(5) .ru-val-tag { margin: 2px 4px 2px 0; }
