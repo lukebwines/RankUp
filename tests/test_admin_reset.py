@@ -18,6 +18,16 @@ def test_admin_reset_requires_password_and_preserves_backup_and_accounts(tmp_pat
         preview=_preview(admin,[("scheda.pdf",altered)])
         assert _confirm(admin,preview["token"])["acquisite"]==1
 
+        # Configurazioni permanenti verificate prima dell'azzeramento.
+        with server.connect() as db:
+            ssd_before=db.execute(
+                "SELECT ssd,tipo FROM ssd_classificazioni ORDER BY ssd").fetchall()
+            commissions_before=db.execute(
+                "SELECT impronta FROM commissioni_catalogo ORDER BY impronta").fetchall()
+            assert len(ssd_before)>=1
+            assert len(commissions_before)>=1
+            assert db.execute("SELECT COUNT(*) FROM commissioni").fetchone()[0]>=1
+
         status=admin.get("/api/admin/azzeramento")
         assert status.status_code==200,status.text
         summary=status.json()
@@ -60,6 +70,9 @@ def test_admin_reset_requires_password_and_preserves_backup_and_accounts(tmp_pat
             assert db.execute("SELECT COUNT(*) FROM bandi").fetchone()[0]==0
             assert db.execute("SELECT COUNT(*) FROM valutazioni_pdf").fetchone()[0]==0
             assert db.execute("SELECT COUNT(*) FROM rankup_utenti").fetchone()[0]==1
+            assert db.execute("SELECT COUNT(*) FROM commissioni").fetchone()[0]==0
+            assert db.execute("SELECT ssd,tipo FROM ssd_classificazioni ORDER BY ssd").fetchall()==ssd_before
+            assert db.execute("SELECT impronta FROM commissioni_catalogo ORDER BY impronta").fetchall()==commissions_before
             assert db.execute("SELECT COUNT(*) FROM pica_tipo_cds_dizionario").fetchone()[0]==5
         assert not list((tmp_path/"sources").rglob("*"))
         assert not list((tmp_path/"pending").rglob("*"))
