@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css">
+  <link rel="stylesheet" href="static/workspace.css?v=0.9.32">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -225,7 +225,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.31 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.32 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -973,13 +973,13 @@
             (state.role==="admin"?'<button class="btn" id="grad-draft"'+(ready.length?'':' disabled')+'>Crea bozza graduatoria generale</button>':'')+
             '</div><div class="card"><h3 class="section-heading">Approvazioni attive e storico</h3>'+
             (all.length?all.map(function(a){
-              var isHistorical=a.stato==="regredita";
-              return '<div class="card mb ru-approval-card'+(isHistorical?' ru-approval-card--historical':'')+'"'+
+              var isHistorical=a.stato==="regredita",isActive=a.stato==="approvata";
+              var cardClass=isHistorical?' ru-approval-card--historical':isActive?' ru-approval-card--active':'';
+              var status=isHistorical?"REGREDITA · STORICO":isActive?"ATTI APPROVATI":"BOZZA DA APPROVARE";
+              return '<div class="card mb ru-approval-card'+cardClass+'"'+
                 (isHistorical?' data-approval-history="true"':'')+'>'+
-                '<strong>Procedura '+esc(a.id)+' · '+
-                esc(a.stato==="approvata"?"Atti approvati":a.stato==="regredita"?
-                    "Approvazione regredita · storico":"Bozza da approvare")+'</strong>'+
-                (isHistorical?'<span class="ru-approval-history-badge">REGREDITA · STORICO</span>':'')+
+                '<div class="ru-approval-heading"><strong>Procedura '+esc(a.id)+'</strong>'+
+                '<span class="ru-approval-status-badge">'+status+'</span></div>'+
                 '<div class="caption">'+esc(a.ambiti.map(function(g){return g.cds+" / "+g.sede;}).join("; "))+'</div>'+
                 (a.estremi_atto?'<p>Estremi atto: '+esc(a.estremi_atto)+'</p>':'')+
                 (a.stato==="regredita"
