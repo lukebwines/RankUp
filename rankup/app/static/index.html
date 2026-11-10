@@ -2126,6 +2126,58 @@
           var sites=[...new Set(locations.filter(function(x){return !filter.cds||x.cds===filter.cds;})
             .map(function(x){return x.sede;}))].sort();
           var pairs=report.cds_sedi||[];
+          var selectors='<div class="card mb"><h3 class="section-heading">Seleziona il Corso di Studio</h3>'+
+            '<div class="actions"><label for="val-cds" class="caption" style="align-self:center">CdS</label>'+
+            '<select id="val-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px;max-width:100%">'+
+            '<option value="">Tutti i Corsi di Studio</option>'+
+            courses.map(function(c){return '<option value="'+esc(c)+'"'+(filter.cds===c?' selected':'')+'>'+esc(c)+'</option>';}).join('')+
+            '</select><label for="val-sede" class="caption" style="align-self:center">Sede</label>'+
+            '<select id="val-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px">'+
+            '<option value="">Tutte le sedi</option>'+
+            sites.map(function(site){return '<option value="'+esc(site)+'"'+(filter.sede===site?' selected':'')+'>'+esc(site)+'</option>';}).join('')+
+            '</select></div><p class="caption">La selezione filtra il prospetto, lo storico e le candidature disponibili per la trascrizione manuale. Le schede non associate a una candidatura PICA sono visibili selezionando «Tutti i Corsi di Studio».</p></div>';
+          var scope=filter.cds?filter.cds+(filter.sede?' · '+filter.sede:''):"Tutti i CdS";
+          var reportLink = state.role==="admin"
+            ? '<div class="card mb"><h3 class="section-heading">Report controllo occupazionale · CdS</h3>'+
+              (filter.cds
+                ? '<p class="caption">Comprende le candidature del CdS selezionato, le dichiarazioni PICA, la riserva prevista e gli esiti Ollama effettivamente registrati. I controlli non eseguiti sono indicati espressamente.</p>'+
+                  '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+
+                  '/valutazioni/ai/occupazione/report.pdf?cds='+encodeURIComponent(filter.cds)+
+                  (filter.sede?'&sede='+encodeURIComponent(filter.sede):'')+
+                  '">Scarica report PDF occupazione</a>'
+                : '<p class="caption">Seleziona prima un CdS per generare il relativo report PDF.</p>')+
+              '</div>'
+            : '';
+          var content=selectors+reportLink+
+            '<div class="card mb"><h3 class="section-heading">Reimportazione schede PDF · '+esc(scope)+'</h3>'+
+            '<p class="muted">Carica i PDF compilati o uno ZIP. La lettura è preliminare: nessun punteggio viene registrato senza conferma. Le schede di CdS diversi da quello selezionato saranno segnalate.</p>'+
+            '<div class="upload"><label for="pdf-eval-files"><strong>Schede PDF o ZIP</strong></label>'+
+            '<input type="file" id="pdf-eval-files" accept=".pdf,.zip,application/pdf,application/zip" multiple>'+
+            '<button class="btn" id="pdf-eval-preview" type="button">Analizza PDF senza acquisire</button>'+
+            '<p class="caption">Limite 120 PDF, 40 MB per caricamento. Le schede anomale si conservano dopo conferma senza attribuire punteggi.</p>'+
+            '</div><div id="pdf-eval-result" style="margin-top:16px"></div></div>';
+          content+='<div class="card mb"><h3 class="section-heading">Avanzamento · '+esc(scope)+'</h3>'+
+            '<p class="caption"><strong>'+esc(report.totale_acquisite)+'</strong> esiti conclusi su '+esc(report.totale_attese)+
+            ' candidature attive; '+esc(report.totale_idonee||0)+' idonei · '+esc(report.totale_non_idonee||0)+
+            ' non idonei · '+esc(report.totale_escluse||0)+' esclusi. Un esito negativo motivato conclude la valutazione senza attribuire 0 punti.</p>'+
+            '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Attese</th><th>Concluse</th><th>Non idonei</th><th>Esclusi</th><th>Da verificare</th><th>Procedimento</th></tr></thead><tbody>'+
+            pairs.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td>'+
+              '<td>'+esc(r.attese)+'</td><td>'+esc(r.acquisite)+'</td><td>'+esc(r.non_idonee||0)+'</td>'+
+              '<td>'+esc(r.escluse||0)+'</td><td>'+esc(r.da_verificare)+'</td>'+
+              '<td><button type="button" class="btn secondary" data-val-course="'+esc(r.cds)+'" data-val-site="'+esc(r.sede)+'">'+
+              (r.complete?'Completo · Apri':'Apri CdS')+'</button></td></tr>';}).join('')+
+            '</tbody></table></div></div>';
+          var archive=report.archivio||[];
+          var jobs=report.incarichi||[];
+          archive.forEach(function(r){
+            r.ai_occupazione_storico=aiHistory[String(r.id)]||null;
+            r.ai_occupazione_lavoro=aiJobs[String(r.id)]||null;
+          });
+          var split=schedeDaMostrare(archive);
+          var historyView=state.valSchedeView==="all";
+          var activeIds=new Set(split.correnti.map(function(r){return Number(r.id);}));
+          var flaggedIds=new Set(split.anomalie.map(function(r){return Number(r.id);}));
+          var visible=historyView?archive:split.correnti;
           function evalRow(r){
             var valid=activeIds.has(Number(r.id));
             var flagged=flaggedIds.has(Number(r.id));
