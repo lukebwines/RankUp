@@ -433,11 +433,13 @@
         state.preview=null;
         state.valFilter={cds:"",sede:""};
         state.incarichiFilter={cds:"",sede:""};
+        state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         persistSelection();updateHeader();render();
       };
       function setAcademicYear(year){
         state.year=year;state.active="";state.preview=null;
         state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};
+        state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         syncAcademicSelection();updateHeader();render();
       }
       function updateHeader(){
