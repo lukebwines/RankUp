@@ -259,6 +259,97 @@ def test_delete_user_revokes_access_and_preserves_audit(tmp_path,monkeypatch):
             assert actions==["Creato account operativo","Eliminato (storico conservato)"]
 
 
+
+def test_deleted_username_is_visible_and_restorable_by_admin(tmp_path,monkeypatch):
+    server,admin=_empty_setup(tmp_path,monkeypatch)
+    with admin:
+        created=_post(admin,"/api/utenti",json={
+            "username":"operatrice_demo","password":"VecchiaPass123"
+        })
+        assert created.status_code==200,created.text
+        uid=created.json()["utente"]["id"]
+        deleted=admin.delete(f"/api/utenti/{uid}",
+                             headers={"X-RankUp-Request":"1"})
+        assert deleted.status_code==200,deleted.text
+        listing=admin.get("/api/utenti").json()
+        assert listing["utenti"]==[]
+        assert len(listing["utenti_eliminati"])==1
+        assert listing["utenti_eliminati"][0]["username"]=="operatrice_demo"
+        assert "password" not in str(listing)
+        again=_post(admin,"/api/utenti",json={
+            "username":"OPERATRICE_DEMO","password":"AltroPass123"
+        })
+        assert again.status_code==409
+        assert "Utenti eliminati" in again.json()["detail"]
+        invalid=admin.put(f"/api/utenti/{uid}/ripristina",
+                          headers={"X-RankUp-Request":"1"},
+                          json={"password":"corta"})
+        assert invalid.status_code==422
+        restored=admin.put(f"/api/utenti/{uid}/ripristina",
+                           headers={"X-RankUp-Request":"1"},
+                           json={"password":"NuovaPass123"})
+        assert restored.status_code==200,restored.text
+        assert restored.json()["utente"]["id"]==uid
+        after=admin.get("/api/utenti").json()
+        assert len(after["utenti"])==1
+        assert after["utenti"][0]["id"]==uid
+        assert after["utenti_eliminati"]==[]
+        assert admin.put(f"/api/utenti/{uid}/ripristina",
+                         headers={"X-RankUp-Request":"1"},
+                         json={"password":"AncheQuesto123"}).status_code==409
+        with server.connect() as db:
+            record=db.execute("""
+                SELECT attivo,eliminato,credenziali_versione,password_hash
+                FROM rankup_utenti WHERE id=?
+            """,(uid,)).fetchone()
+            assert record["attivo"]==1 and record["eliminato"]==0
+            assert record["credenziali_versione"]==3
+            assert record["password_hash"]!="NuovaPass123"
+            history=[r["azione"] for r in db.execute("""
+                SELECT azione FROM rankup_utenti_eventi
+                WHERE utente_id=? ORDER BY id
+            """,(uid,))]
+            assert history==[
+                "Creato account operativo","Eliminato (storico conservato)",
+                "Ripristinato account eliminato con nuova password"]
+        with TestClient(server.app) as account:
+            assert _post(account,"/api/auth/login",json={
+                "username":"operatrice_demo","password":"VecchiaPass123"
+            }).status_code==401
+            assert _post(account,"/api/auth/login",json={
+                "username":"operatrice_demo","password":"NuovaPass123"
+            }).status_code==200
+
+
+def test_restoration_is_admin_only_and_ui_shows_deleted_users(tmp_path,monkeypatch):
+    server,admin=_empty_setup(tmp_path,monkeypatch)
+    with admin:
+        first=_post(admin,"/api/utenti",json={
+            "username":"operatore_demo","password":"PasswordDemo123"
+        })
+        assert first.status_code==200
+        uid=first.json()["utente"]["id"]
+        with TestClient(server.app) as account:
+            assert _post(account,"/api/auth/login",json={
+                "username":"operatore_demo","password":"PasswordDemo123"
+            }).status_code==200
+            assert account.put(f"/api/utenti/{uid}/ripristina",
+                headers={"X-RankUp-Request":"1"},
+                json={"password":"NuovaPass123"}).status_code==403
+        assert admin.delete(f"/api/utenti/{uid}",
+                            headers={"X-RankUp-Request":"1"}).status_code==200
+        with TestClient(server.app) as other:
+            assert other.put(f"/api/utenti/{uid}/ripristina",
+                headers={"X-RankUp-Request":"1"},
+                json={"password":"NuovaPass123"}).status_code==401
+        path=Path(__file__).resolve().parents[1]/"rankup/app/static/index.html"
+        html=path.read_text(encoding="utf-8")
+        assert "Utenti eliminati" in html
+        assert "data-user-restore" in html
+        assert "data-restore-form" in html
+        assert 'api("utenti/"+id+"/ripristina"' in html
+
+
 def test_dashboard_hosts_pica_import_and_assessment_flags():
     path=Path(__file__).resolve().parents[1]/"rankup"/"app"/"static"/"index.html"
     html=path.read_text(encoding="utf-8")
