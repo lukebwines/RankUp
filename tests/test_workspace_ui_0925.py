@@ -199,3 +199,17 @@ def test_nn_assignment_choices_visible_in_schede_and_valutazioni():
         assert marker in PAGE, marker
     assert "NN — modello ordinario" not in PAGE
     assert "ru-nn-model-row" in CSS
+
+def test_v1_footer_and_reset_preservation_notice():
+    for marker in (
+        "RANKUP · v1.0.0",
+        "Crafted by Luca B.",
+        "© 2026 Luca B. · All rights reserved.",
+        "ru-footer-credit",
+        "restano i modelli SSD permanenti",
+        "non restano le associazioni delle commissioni",
+    ):
+        assert marker in PAGE, marker
+    assert ".sidebar-footer .ru-footer-credit" in CSS
+    assert 'id="logout-btn"' in PAGE
+    assert 'id="account-info"' in PAGE
