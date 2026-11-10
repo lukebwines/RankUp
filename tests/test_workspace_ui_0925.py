@@ -28,7 +28,7 @@ def test_tutte_le_sezioni_presenti_e_guide_procedurali():
 
 
 def test_layout_di_tutte_le_sezioni_isolato_dalle_valutazioni():
-    assert '<link rel="stylesheet" href="static/workspace.css?v=0.9.32">' in PAGE
+    assert '<link rel="stylesheet" href="static/workspace.css?v=1.0.0">' in PAGE
     assert '<link rel="stylesheet" href="static/valutazioni.css">' in PAGE
     assert 'if(state.page==="valutazioni"||!content)' in PAGE
     assert 'ru-workspace ru-page-' in PAGE
