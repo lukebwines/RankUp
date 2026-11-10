@@ -1,5 +1,6 @@
 """Audit persistente Ollama e report PDF per CdS, solo amministratore."""
 from io import BytesIO
+import time
 
 from pypdf import PdfReader
 from fastapi.testclient import TestClient
@@ -31,7 +32,7 @@ def test_report_and_persistent_ai_audit(tmp_path, monkeypatch):
                                 "requisito":"SSN","motivo":"Caso sintetico di prova"})
         assert changed.status_code==200,changed.text
 
-        def fake_review(req,occ,company,profile,endpoint):
+        def fake_review(req,occ,company,profile,endpoint,keep_alive="30s"):
             assert req=="SSN"
             return {"stato":"DA VERIFICARE","motivo":"Rapporto attivo da documentare",
                     "evidenza":"","modello_locale":True}
@@ -40,7 +41,16 @@ def test_report_and_persistent_ai_audit(tmp_path, monkeypatch):
         endpoint=f"/api/bandi/26-02/valutazioni/{pdf_id}/ai/occupazione"
         for _ in range(2):
             answer=_post(admin,endpoint,json={})
-            assert answer.status_code==200,answer.text
+            assert answer.status_code==202,answer.text
+            job=answer.json()["lavoro_id"]
+            status=None
+            for attempt in range(100):
+                follow=admin.get(endpoint+"/lavoro/"+job)
+                assert follow.status_code==200,follow.text
+                status=follow.json()
+                if status["stato"] in ("completato","errore"):break
+                time.sleep(0.05)
+            assert status["stato"]=="completato",status
 
         history=admin.get("/api/bandi/26-02/valutazioni/ai/occupazione/storico")
         assert history.status_code==200

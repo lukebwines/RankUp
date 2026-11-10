@@ -110,7 +110,8 @@ OCCUPATIONAL_STATUSES = {"COERENTE (PRELIMINARE)", "DA VERIFICARE",
 
 def review_occupation(requirement: str, occupation: str, employer: str,
                       profile: str, endpoint_url: str,
-                      model: str = DEFAULT_MODEL) -> dict:
+                      model: str = DEFAULT_MODEL,
+                      keep_alive: str = "30s") -> dict:
     """Valutazione SOLO istruttoria, locale, di tre campi dichiarativi PICA.
 
     Non riceve nome, cognome, ID, codice fiscale, PDF o dati valutativi.
@@ -152,7 +153,7 @@ def review_occupation(requirement: str, occupation: str, employer: str,
     )
     raw = _request_json(endpoint, "/api/generate", {
         "model": model, "prompt": prompt, "stream": False,
-        "format": "json", "keep_alive": "0",
+        "format": "json", "keep_alive": keep_alive,
         "options": {"temperature": 0, "num_ctx": 2048,
                     "num_predict": 250, "num_thread": 4}
     }, timeout=300)

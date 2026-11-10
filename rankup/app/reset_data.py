@@ -24,6 +24,7 @@ BUSINESS_TABLES = (
     "graduatorie_cds_riaperte",
     "graduatorie_cds_revisioni",
     "graduatorie_approvazioni_regressioni",
+    "ai_occupazione_lavori",
     "valutazioni_occupazione_ai",
     "valutazioni_pdf_eventi",
     "graduatorie_vincitori_proposti",

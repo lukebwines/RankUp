@@ -33,5 +33,5 @@ if ! ollama list | grep -Fq "$MODEL"; then
   echo "Download iniziale del modello $MODEL (solo pesi pubblici)."
   ollama pull "$MODEL" || { echo "Download modello non riuscito"; cleanup; exit 1; }
 fi
-echo "RankUP Ollama pronto. Il modello si scarica dalla RAM dopo ogni richiesta."
+echo "RankUP Ollama pronto. Il tempo di permanenza del modello in RAM è configurabile in RankUP."
 wait "$server_pid"

@@ -1,5 +1,6 @@
 """La verifica IA occupazionale si avvia solo da schede restituite e solo come Admin."""
 from io import BytesIO
+import time
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 from test_pdf_import import _setup, _edit, _post, _preview, _confirm
@@ -41,15 +42,25 @@ def test_admin_only_after_returned_sheet(tmp_path, monkeypatch):
             assert _post(operator,request_path,json={}).status_code==403
 
         captured={}
-        def fake_review(req,occ,company,profile,endpoint):
+        def fake_review(req,occ,company,profile,endpoint,keep_alive="30s"):
             captured.update(req=req,occ=occ,company=company,profile=profile)
             return {"stato":"DA VERIFICARE","motivo":"Verifica documentale necessaria",
                     "evidenza":"","modello_locale":True}
         monkeypatch.setattr(server,"review_occupation",fake_review)
         monkeypatch.setattr(server,"_ollama_settings",lambda:"http://127.0.0.1:11434")
         answer=_post(admin,request_path,json={})
-        assert answer.status_code==200,answer.text
-        assert answer.json()["risultato"]["stato"]=="DA VERIFICARE"
+        assert answer.status_code==202,answer.text
+        job=answer.json()["lavoro_id"]
+        result=None
+        for _ in range(100):
+            status=admin.get("/api/bandi/26-02/valutazioni/"+str(document_id)+
+                "/ai/occupazione/lavoro/"+job)
+            assert status.status_code==200,status.text
+            result=status.json()
+            if result["stato"] in ("completato","errore"):break
+            time.sleep(0.05)
+        assert result["stato"]=="completato",result
+        assert result["risultato"]["stato"]=="DA VERIFICARE"
         assert captured["req"]=="SSN"
         after=admin.get("/api/bandi/26-02/valutazioni").json()["archivio"]
         assert next(x for x in after if x["id"]==document_id)["decisione"]=="idoneo"
