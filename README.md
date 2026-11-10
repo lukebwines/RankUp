@@ -1,5 +1,13 @@
 # RankUp
 
+## Aggiornamento 0.9.29 — UL e partizioni nei PDF del CdS
+
+- Nella **Graduatoria della Commissione per Corso di Studio**, le intestazioni degli incarichi riportano anche **UL**, **partizione studenti** ed eventuale **codice partizione** quando presenti in PICA, con lo stesso criterio della graduatoria generale.
+- L'informazione appare sia nelle **anteprime PDF CdS** sia nei **nuovi verbali definitivi con schede**. Per le istantanee vecchie è previsto un arricchimento di sola stampa tramite la chiave univoca dell'incarico PICA, senza modificare dati o graduatorie.
+- **I PDF definitivi già salvati e approvati non vengono modificati**, per garantirne integrità e SHA-256: non è corretto riscrivere un documento formalmente adottato solo per aggiungere intestazioni. L'eventuale nuova versione necessita del procedimento di regressione e nuova approvazione quando pertinente.
+- Invariati criteri, punteggi, esiti, nomi e ordine dei candidati. Nessuna migrazione di database. Eseguire backup e collaudo PDF in Home Assistant prima della messa in produzione.
+
+
 ## Aggiornamento 0.9.28 — Graduatoria generale compatta
 
 - **Titolo del PDF generale pubblico:** soltanto **Graduatoria**. Quando l'approvazione include meno CdS/sedi rispetto al totale del bando, la seconda riga riporta **Bando: [codice] — Graduatoria parziale**; negli altri casi non compare l'indicazione di parzialità. Il totale dei CdS/sedi viene congelato nella nuova bozza di approvazione e recuperato dal database per gli atti preesistenti.
