@@ -1,5 +1,12 @@
 # RankUp
 
+## RankUP v1.0.0 — Prima versione stabile
+
+Prima versione stabile dell'add-on Home Assistant, con l'intestazione laterale «RANKUP · v1.0.0», il credito «Crafted by Luca B.» e «© 2026 Luca B. · All rights reserved.». Restano invariati il modello dati (schema SQLite v4), i controlli delle valutazioni e la gestione documentale.
+
+**Prima dell'uso operativo:** effettuare un backup completo dell'add-on e verificare le funzionalità e i PDF con i dati effettivi. Per ripartire dall'ambiente di test: **Amministrazione → Azzeramento archivi** genera un ZIP integrale verificato prima di svuotare i dati dei bandi. Mantiene classificazioni SSD permanenti, anagrafica commissioni, account e archivi ZIP già chiusi. Le associazioni delle commissioni ai singoli bandi, le scelte dei modelli NN per incarico, le candidature, le valutazioni e le graduatorie operative vengono eliminate e devono essere riconfigurate nel nuovo procedimento. Scaricare e conservare esternamente il backup di azzeramento e verificare che il file sia integro. Non eseguire l'azzeramento se contiene procedimenti reali da preservare.
+
+
 ## Aggiornamento 0.9.32 — Stato delle approvazioni e schede specifiche SSD NN
 
 - **Graduatorie:** intestazione delle schede «Procedura X» con un solo badge di stato in alto a destra. Le approvazioni attive sono evidenziate con riquadro **verde**, quelle regredite conservate per consultazione storica con riquadro **grigio** e le bozze mantengono un riquadro neutro. L'interfaccia include un riferimento versione al CSS per evitare che il browser mantenga lo stile precedente.

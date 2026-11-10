@@ -45,6 +45,18 @@ body,main{background:var(--ru-canvas)}
 .sidebar nav button.active{background:#335c80;box-shadow:inset 3px 0 0 #8fd8ee}
 .sidebar nav button .navicon{width:19px;height:19px;opacity:.94}
 .sidebar-footer{line-height:1.6}
+.sidebar-footer .ru-footer-version{margin:12px 0 0;font-size:12px;line-height:1.65;color:#b5c8dd}
+.sidebar-footer .ru-footer-credit{
+  margin-top:13px;padding-top:11px;border-top:1px solid #44617a;
+  display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  max-width:225px;overflow-wrap:anywhere;
+}
+.sidebar-footer .ru-footer-credit strong{
+  font-size:12px;font-weight:750;letter-spacing:.01em;color:#edf6fc;
+}
+.sidebar-footer .ru-footer-credit span{
+  font-size:10px;line-height:1.5;color:#b2c7d8;
+}
 .topbar{padding:2px 0 14px;margin-bottom:18px;border-bottom:1px solid var(--ru-stroke);align-items:flex-start}
 .topbar h2{font-size:clamp(22px,2vw,29px);letter-spacing:-.02em;line-height:1.25}
 .crumb{font-size:12px;letter-spacing:.01em}
