@@ -1,5 +1,10 @@
 # RankUp
 
+## Aggiornamento 0.9.30 — Vincitori in grassetto nella graduatoria generale
+
+Nella graduatoria generale pubblica e nel prospetto nominativo interno si evidenzia **in grassetto l'intera riga del vincitore effettivamente indicato per l'incarico alla posizione 1** (posizione, candidato, punti, esito, note). Le altre candidature rimangono a carattere normale e i non vincitori nel PDF pubblico continuano a essere identificati tramite ID PICA. Nessuna variazione a punteggi, graduatorie, contenuti o PDF CdS. Gli atti e i PDF definitivi già conservati non vengono riscritti.
+
+
 ## Aggiornamento 0.9.29 — UL e partizioni nei PDF del CdS
 
 - Nella **Graduatoria della Commissione per Corso di Studio**, le intestazioni degli incarichi riportano anche **UL**, **partizione studenti** ed eventuale **codice partizione** quando presenti in PICA, con lo stesso criterio della graduatoria generale.
