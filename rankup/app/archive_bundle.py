@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from pypdf import PdfReader
@@ -81,7 +82,7 @@ def controlla_chiusura(db, bando_id: int) -> dict:
 
 def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
                    pdf_cds, pdf_generale) -> dict:
-    """Crea ZIP da snapshot DB consistente; il chiamante detiene BEGIN IMMEDIATE.
+    """Crea ZIP da snapshot SQLite autonomo, senza bloccare le scritture operative.
 
     pdf_cds(cds,sede) e pdf_generale(approvazione) devono leggere dati reali,
     senza creare nuovi atti, senza modificare le fonti.
@@ -94,6 +95,22 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
         raise ArchivioNonPronto("Bando già archiviato.")
 
     manifest_files={}
+    def write_stream(zf, path, file_handle):
+        if path in manifest_files:
+            raise ArchivioNonPronto("Percorso duplicato nel pacchetto: "+path)
+        checksum=hashlib.sha256()
+        size=0
+        with zf.open(path,"w",force_zip64=True) as dest:
+            while True:
+                chunk=file_handle.read(1024*1024)
+                if not chunk:break
+                checksum.update(chunk)
+                size+=len(chunk)
+                dest.write(chunk)
+        meta={"sha256":checksum.hexdigest(),"bytes":size}
+        manifest_files[path]=meta
+        return meta
+
     def write_bytes(zf, path, data):
         if path in manifest_files:
             raise ArchivioNonPronto("Percorso duplicato nel pacchetto: "+path)
@@ -110,7 +127,7 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
         original_folder=(source_root/code)
         if not original_folder.is_dir():
             raise ArchivioNonPronto("La cartella degli originali PICA/PDF non è disponibile.")
-        originals=[]
+        originals={}
         for f in sorted(original_folder.rglob("*")):
             if f.is_symlink():
                 raise ArchivioNonPronto("Collegamento simbolico negli originali: "+f.name)
@@ -119,15 +136,15 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
             if not f.resolve().is_relative_to(original_folder.resolve()):
                 raise ArchivioNonPronto("Originale fuori dalla cartella del bando.")
             relative=f.relative_to(original_folder).as_posix()
-            data=f.read_bytes()
-            write_bytes(zf,"01_originali/"+relative,data)
-            originals.append((relative,data))
+            with f.open("rb") as file_handle:
+                originals[relative]=write_stream(zf,"01_originali/"+relative,file_handle)
         if not originals:
             raise ArchivioNonPronto("Nessun documento originale conservato.")
         # Il PICA deve essere verificabile anche come documento originale.
-        pica=[raw for name,raw in originals if name in ("pica_originale.xls","pica_originale.xlsx")]
+        pica=[meta for name,meta in originals.items()
+              if name in ("pica_originale.xls","pica_originale.xlsx")]
         if bando["source_hash"]:
-            if len(pica)!=1 or _sha(pica[0])!=bando["source_hash"]:
+            if len(pica)!=1 or pica[0]["sha256"]!=bando["source_hash"]:
                 raise ArchivioNonPronto("Originale PICA mancante o impronta non corrispondente.")
         # Tutte le valutazioni archiviate devono avere un originale presente e integro.
         for item in db.execute("""SELECT id,percorso,sha256 FROM valutazioni_pdf
@@ -135,7 +152,9 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
             path=(source_root.parent/item["percorso"]).resolve()
             if not path.is_relative_to(original_folder.resolve()) or not path.is_file():
                 raise ArchivioNonPronto("Originale della scheda "+str(item["id"])+" mancante.")
-            if _sha(path.read_bytes())!=item["sha256"]:
+            original=path.relative_to(original_folder.resolve()).as_posix()
+            meta=originals.get(original)
+            if not meta or meta["sha256"]!=item["sha256"]:
                 raise ArchivioNonPronto("Impronta originale scheda "+str(item["id"])+" non corrispondente.")
 
         # Snapshot di tutte le tabelle operative appartenenti al bando,
@@ -156,7 +175,7 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
             if "bando_id" not in columns:
                 continue
             rows=db.execute('SELECT * FROM "'+table+'" WHERE bando_id=?',
-                            (bando["id"],)).fetchall()
+                            (bando["id"],))
             exported=[]
             for index,row in enumerate(rows):
                 values={}
@@ -233,13 +252,21 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
                                                indent=2,sort_keys=True).encode("utf-8"))
 
     with ZipFile(temporary_zip,"r") as test:
-        if test.testzip() is not None:
-            raise ArchivioNonPronto("Verifica integrità ZIP fallita.")
         expected=set(manifest_files)|{"manifest.json"}
         if set(test.namelist())!=expected:
             raise ArchivioNonPronto("Indice ZIP incompleto.")
+        # Leggere i membri a blocchi e confrontare SHA-256; ZipFile controlla
+        # anche il CRC senza duplicare la decompressione con testzip().
         for member,expected_meta in manifest_files.items():
-            if _sha(test.read(member))!=expected_meta["sha256"]:
+            digest=hashlib.sha256()
+            size=0
+            with test.open(member,"r") as stream:
+                while True:
+                    chunk=stream.read(1024*1024)
+                    if not chunk:break
+                    digest.update(chunk)
+                    size+=len(chunk)
+            if digest.hexdigest()!=expected_meta["sha256"] or size!=expected_meta["bytes"]:
                 raise ArchivioNonPronto("Verifica impronta fallita: "+member)
     with temporary_zip.open("rb") as stream:
         archive_hash=hashlib.file_digest(stream,"sha256").hexdigest()
