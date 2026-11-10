@@ -655,7 +655,12 @@
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
-        document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
+        document.querySelectorAll("#nav button").forEach(function(n){
+          var active=n.dataset.page===state.page;
+          n.classList.toggle("active",active);
+          if(active)n.setAttribute("aria-current","page");
+          else n.removeAttribute("aria-current");
+        });
         if(state.page==="dashboard")return dashboard();
         if(!state.active && ["riferimenti","incarichi","candidature","commissioni",
                             "schede","valutazioni","verbali","graduatorie"].includes(state.page)){
