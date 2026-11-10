@@ -2314,10 +2314,14 @@
           var responses=await Promise.all([
             api("bandi/"+encodeURIComponent(code)),
             api("bandi/"+encodeURIComponent(code)+"/valutazioni?"+query.toString()),
-            api("bandi/"+encodeURIComponent(code)+"/candidature")
+            api("bandi/"+encodeURIComponent(code)+"/candidature"),
+            api("bandi/"+encodeURIComponent(code)+"/incarichi/modelli-nn")
           ]);
           if(state.active!==code||state.page!=="valutazioni")return;
           var locations=responses[0].cds_sedi||[],report=responses[1];
+          var nnRows=(responses[3].incarichi||[]).filter(function(x){
+            return (!filter.cds||x.cds===filter.cds)&&(!filter.sede||x.sede===filter.sede);
+          });
           var candidateChecks=new Map((responses[2].candidature||[]).map(function(c){
             return [String(c.id),c.verifica_anzianita||{}];
           }));
@@ -2346,7 +2350,7 @@
             var key=JSON.stringify([doc.cds,doc.sede]);
             tieByArea.set(key,(tieByArea.get(key)||0)+1);
           });
-          var content=selectors+'<div class="ru-val-tools ru-val-tools--single">'+
+          var content=selectors+nnModelliEditor(nnRows)+'<div class="ru-val-tools ru-val-tools--single">'+
             '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
             '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">↥</span>'+
             '<div><h3 class="section-heading">Reimportazione schede PDF</h3>'+
@@ -2560,6 +2564,7 @@
             '</section>';
           content+='<div id="manual-eval-panel"></div>';
           html('<div class="ru-val-page">'+content+'</div>');
+          collegaModelliNN(code,renderValutazioni);
           if(state.valJumpToGroup){
             state.valJumpToGroup=false;
             requestAnimationFrame(function(){
@@ -2809,6 +2814,59 @@
           }catch(err){note(err.message,true);button.disabled=false;button.textContent="Conferma acquisizione";}
         };
       }
+      function nnModelliEditor(rows){
+        if(!rows.length)return "";
+        var names={ordinario:"Non professionalizzante",professionalizzante:"Professionalizzante",
+                   inglese:"Inglese (50 punti)"};
+        return '<section class="card mb ru-nn-model-editor">'+
+          '<h3 class="section-heading">SSD NN · modello scheda per incarico</h3>'+
+          '<p class="caption">Il modello non si attribuisce globalmente al settore NN: ogni incarico può avere il proprio modello. '+
+          'In mancanza di una scelta verificata resta il modello non professionalizzante precedente. '+
+          'Scegliere prima di generare e distribuire le schede; le modifiche sono tracciate e bloccate dopo l’acquisizione.</p>'+
+          '<div class="tablebox"><table><thead><tr><th>Incarico PICA / CdS</th>'+
+          '<th>Modello per questo incarico</th><th>Riferimento documentale</th><th>Operazione</th></tr></thead><tbody>'+
+          rows.map(function(r){
+            var locked=Boolean(r.bloccato),readOnly=locked||state.role!=="admin";
+            var name=[r.insegnamento,r.modulo].filter(Boolean).join(" · ");
+            var partition=[r.ul?"UL: "+r.ul:"",r.partizione_studenti?
+              "Partizione: "+r.partizione_studenti:"",r.codice_partizione?
+              "Codice: "+r.codice_partizione:""].filter(Boolean).join(" · ");
+            var selection=Object.keys(names).map(function(k){
+              return '<option value="'+k+'"'+(r.modello_effettivo===k?' selected':'')+'>'+names[k]+'</option>';
+            }).join('');
+            return '<tr class="ru-nn-model-row" data-nn-job="'+esc(r.key)+'">'+
+              '<td><strong>'+esc(r.cds)+' · '+esc(r.sede)+'</strong>'+
+              '<small>'+esc(name)+'</small>'+(partition?'<small>'+esc(partition)+'</small>':'')+'</td>'+
+              '<td><label>Modello<select data-nn-type'+(readOnly?' disabled':'')+'>'+selection+'</select></label>'+
+              '<small>'+(r.modello_esplicito?'Scelta documentata':'Predefinito: non professionalizzante')+'</small></td>'+
+              '<td><label>Riferimento verificato<input class="ru-nn-model-ref" data-nn-ref maxlength="500"'+
+              ' value="'+esc(r.riferimento||"")+'"'+(readOnly?' disabled':'')+
+              ' placeholder="Riferimento effettivo dell’incarico"></label></td>'+
+              '<td>'+(readOnly?'<span class="ru-nn-model-locked">'+
+              (locked?'Bloccato: schede acquisite o CdS definitivo':'Riservato all’Admin')+'</span>':
+              '<button type="button" class="btn secondary" data-nn-save>Salva modello</button>')+
+              '</td></tr>';
+          }).join('')+'</tbody></table></div></section>';
+      }
+      function collegaModelliNN(code,rerender){
+        document.querySelectorAll("[data-nn-save]").forEach(function(btn){
+          btn.onclick=async function(){
+            var row=btn.closest("[data-nn-job]"),tipo=row.querySelector("[data-nn-type]").value;
+            var riferimento=row.querySelector("[data-nn-ref]").value.trim();
+            if(riferimento.length<5){note("Indica il riferimento documentale verificato dell’incarico NN.",true);return;}
+            if(!confirm("Confermi il modello scelto per questo incarico? I PDF distribuiti in precedenza vanno rigenerati."))return;
+            btn.disabled=true;
+            try{
+              var res=await api("bandi/"+encodeURIComponent(code)+"/incarichi/"+
+                encodeURIComponent(row.dataset.nnJob)+"/modello-scheda",{
+                method:"PUT",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({tipo:tipo,riferimento:riferimento})});
+              note(res.avviso||"Modello NN salvato e tracciato per l’incarico.",false);
+              rerender();
+            }catch(error){note("Modello NN non salvato: "+error.message,true);btn.disabled=false;}
+          };
+        });
+      }
       async function renderSchede(){
         if(!cur()){html(panel("Seleziona bando","Importa o apri un bando prima di classificare gli SSD."));return;}
         var code=state.active;
@@ -2817,10 +2875,12 @@
           var data=await Promise.all([
             api("bandi/"+encodeURIComponent(code)+"/ssd"),
             api("bandi/"+encodeURIComponent(code)),
-            api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni")
+            api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni"),
+            api("bandi/"+encodeURIComponent(code)+"/incarichi/modelli-nn")
           ]);
           if(state.active!==code||state.page!=="schede")return;
           var rows=data[0].ssd, locations=data[1].cds_sedi||[];
+          var nnRows=data[3].incarichi||[];
           var commissionsReport=data[2];
           var unresolved=rows.filter(function(item){return !item.tipo;}).length;
           var professional=rows.filter(function(item){return item.tipo==="professionalizzante";}).length;
@@ -2865,6 +2925,7 @@
             (unresolved?'<p class="caption">Gli incarichi con SSD NN o mancante richiedono una verifica della copertura PICA prima di generare le relative schede.</p>':'')+infoMigration+
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
+            nnModelliEditor(nnRows)+
             '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+commissionSummary+
             '<p class="caption">Modelli tecnici facsimile. Criteri, massimali e layout devono essere verificati rispetto alle schede ufficiali prima dell’impiego amministrativo.</p>'+
             '<div class="actions" style="margin-top:14px"><select id="sheet-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutti i CdS</option>'+
@@ -2872,6 +2933,7 @@
             '</select><select id="sheet-sede" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutte le sedi</option></select>'+
             '<button class="btn" id="sheet-download">Genera e scarica ZIP</button></div>'+
             '<p class="caption">Per generare un singolo CdS scegli il corso; lasciando tutti i CdS selezionati otterrai lo ZIP completo.</p></div>');
+          collegaModelliNN(code,renderSchede);
           document.querySelectorAll(".ssd-type").forEach(function(select){
             select.onchange=async function(){
               var sector=select.closest("tr").dataset.sector;
