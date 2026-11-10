@@ -225,7 +225,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.25 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.27 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1974,6 +1974,10 @@
               $("cand-rows").innerHTML=(filtered.length?filtered.map(function(r){
                 var e=r.verifica_ente||{},st=e.stato||"DA VERIFICARE",ok=st.indexOf("COERENTE")===0;
                 var years=r.verifica_anzianita||{}, yState=years.stato||"DA VERIFICARE";
+                var isoDate=String(years.data_iso||"");
+                var displayDate=/^\d{4}-\d{2}-\d{2}$/.test(isoDate)
+                  ? isoDate.slice(8,10)+"/"+isoDate.slice(5,7)+"/"+isoDate.slice(0,4)
+                  : "[DA VERIFICARE]";
                 var warning=yState==="ATTENZIONE"
                   ? '<span class="ru-status-pill ru-status-pill--warning">Meno di 3 anni</span>'
                   : yState==="OK" ? '<span class="ru-status-pill ru-status-pill--good">Almeno 3 anni</span>'
@@ -1984,9 +1988,8 @@
                   '<div class="caption"><strong>SSD:</strong> '+esc(r.ssd||"Non indicato")+'</div></td><td>'+
                   esc(r.ente_richiesto||"DA CONFIGURARE")+
                   '</td><td>'+esc(r.occupazione||"—")+'</td><td>'+esc(r.azienda_ente||"—")+
-                  '</td><td>'+esc(r.data_conseguimento||"[DA VERIFICARE]")+
-                  '<div class="caption">'+warning+'</div>'+
-                  (years.motivo?'<div class="caption">'+esc(years.motivo)+'</div>':'')+'</td>'+
+                  '</td><td>'+esc(displayDate)+
+                  '<div class="caption">'+warning+'</div></td>'+
                   '<td><span class="badge '+(ok?'':'gray')+'">'+esc(st)+'</span>'+
                   '<div class="caption">'+esc(e.motivo||"")+'</div></td>'+
                   '<td><span class="ru-status-pill '+(r.stato==="Attiva"?'ru-status-pill--good':'ru-status-pill--warning')+'">'+esc(r.stato)+'</span>'+
