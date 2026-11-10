@@ -22,7 +22,9 @@ def test_three_years_exact_boundary_and_missing_deadline():
     assert check_three_years("30 ottobre 2023",deadline)["stato"] == "ATTENZIONE"
     assert check_three_years("data inesistente",deadline)["stato"] == "DA VERIFICARE"
     assert check_three_years("29 ottobre 2023","")["stato"] == "DA VERIFICARE"
-    assert check_three_years("29/02/2024","2027-02-28T12:00")["stato"] == "OK"
+    # Anniversario di 29 febbraio: la verifica resta prudenziale fino a marzo.
+    assert check_three_years("29/02/2024","2027-02-28T12:00")["stato"] == "ATTENZIONE"
+    assert check_three_years("29/02/2024","2027-03-01T12:00")["stato"] == "OK"
 
 
 def _pica_example():
