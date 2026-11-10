@@ -92,7 +92,15 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
                      json={"estremi_atto":"ALTRO ATTO"}).status_code==409
         report=client.get(base+f"/graduatorie/approvazioni/{approval_id}/pdf")
         assert report.status_code==200
-        assert "ATTO DI COLLAUDO VERIFICATO" in PdfReader(BytesIO(report.content)).pages[0].extract_text()
+        approved_text=PdfReader(BytesIO(report.content)).pages[0].extract_text()
+        assert "Graduatoria" in approved_text
+        assert "ATTI APPROVATI" in approved_text
+        assert "Estremi del provvedimento" not in approved_text
+        assert "ATTO DI COLLAUDO VERIFICATO" not in approved_text
+        # Gli estremi dell'atto rimangono nel database, non sono stampati.
+        with server.connect() as db:
+            assert db.execute("SELECT estremi_atto FROM graduatorie_approvazioni WHERE id=?",
+                              (approval_id,)).fetchone()[0]=="ATTO DI COLLAUDO VERIFICATO"
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM graduatorie_eventi").fetchone()[0]>=3
 
