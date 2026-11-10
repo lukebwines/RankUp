@@ -12,7 +12,7 @@ def test_date_italiane_iso_e_seriale_excel():
     assert parse_pica_title_date("15 novembre 2012").isoformat() == "2012-11-15"
     assert parse_pica_title_date("01 dicembre 2023").isoformat() == "2023-12-01"
     assert parse_pica_title_date("2024-03-20 00:00:00").isoformat() == "2024-03-20"
-    assert parse_pica_title_date("45261").isoformat() == "2023-11-30"
+    assert parse_pica_title_date("45261").isoformat() == "2023-12-01"
     assert parse_pica_title_date("31 febbraio 2023") is None
 
 
