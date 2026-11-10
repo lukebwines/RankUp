@@ -416,8 +416,10 @@
           state.year=current?(current.anno_accademico||NO_AA):
             years.length?years[0]:state.bandi.length?NO_AA:"";
         }
+        // L'assenza di un bando è una selezione valida: la Dashboard mostra
+        // il riepilogo aggregato di tutte le procedure dell'A.A. scelto.
         if(!bandiAnno().some(function(b){return b.codice===state.active;})){
-          state.active=bandiAnno().length?bandiAnno()[0].codice:"";
+          state.active="";
         }
         persistSelection();
       }
@@ -438,10 +440,10 @@
         syncAcademicSelection();updateHeader();render();
       }
       function updateHeader(){
-        var selected=cur(),code=selected?selected.codice:"nessuno";
+        var selected=cur(),code=selected?selected.codice:"Tutti i bandi";
         $("side-year").textContent=annoLabel();
-        $("side-code").textContent=selected?code:"Nessuno";
-        $("top-code").textContent="A.A. "+annoLabel()+" · Bando: "+code;
+        $("side-code").textContent=code;
+        $("top-code").textContent="A.A. "+annoLabel()+" · "+(selected?"Bando: ":"")+code;
         var aa=$("academic-year-select");aa.innerHTML="";
         if(!state.year){var empty=document.createElement("option");
           empty.value="";empty.textContent="Seleziona A.A.";aa.appendChild(empty);}
@@ -458,24 +460,33 @@
           item.value="";item.textContent="Aggiungi il primo A.A.";aa.appendChild(item);}
         aa.value=state.year||"";
         var sel=$("band-select");sel.innerHTML="";
-        var available=bandiAnno();sel.disabled=!available.length;
-        if(!available.length){var op=document.createElement("option");
-          op.value="";op.textContent="Nessun bando per questo A.A.";sel.appendChild(op);}
+        var available=bandiAnno();sel.disabled=!state.year;
+        var all=document.createElement("option");
+        all.value="";
+        all.textContent=available.length?"Tutti i bandi dell’A.A.":"Nessun bando per questo A.A.";
+        sel.appendChild(all);
         available.forEach(function(b){
           var op=document.createElement("option");op.value=b.codice;
           op.textContent=b.codice+(b.stato==="Archiviato"?" (archiviato)":"");
-          op.selected=b.codice===state.active;sel.appendChild(op);
+          sel.appendChild(op);
         });
+        sel.value=state.active||"";
         $("add-academic-year").textContent="+ Seleziona un nuovo A.A.";
       }
       function panel(title,text){return '<div class="card"><h3 class="section-heading">'+esc(title)+'</h3><p class="muted">'+esc(text)+'</p></div>';}
       function cards(){
-        var selected=cur(),open=bandiAnno().filter(function(b){return b.stato!=="Archiviato";}).length;
+        var selected=cur(),scoped=bandiAnno();
+        var open=scoped.filter(function(b){return b.stato!=="Archiviato";}).length;
+        var shown=selected?[selected]:scoped;
+        function count(field){
+          return shown.reduce(function(total,b){return total+(Number(b[field])||0);},0);
+        }
+        var general=!selected;
         var metrics=[
           [open,"Bandi aperti nell'A.A."],
-          [selected?selected.candidature:"—","Candidature PICA del bando"],
-          [selected?selected.incarichi:"—","Incarichi nel bando"],
-          [selected?selected.valutazioni_acquisite:"—","Candidature valutate"]
+          [count("candidature"),general?"Candidature PICA nell’A.A.":"Candidature PICA del bando"],
+          [count("incarichi"),general?"Incarichi nell’A.A.":"Incarichi nel bando"],
+          [count("valutazioni_acquisite"),general?"Candidature valutate nell’A.A.":"Candidature valutate"]
         ];
         // Conservare le 4 icone originali, nella stessa posizione.
         var icons=['ri-folders','ri-users','ri-book','ri-clipboard'];
@@ -485,10 +496,11 @@
             '<strong>'+esc(m[0])+'</strong><span>'+esc(m[1])+'</span></div>';
         }).join('')+'</div>'+
           '<div class="card dashboard-work-status"><strong>CdS/sedi ancora in lavorazione: '+
-          esc(selected?selected.cds_in_lavorazione:"—")+'</strong>'+
+          esc(count("cds_in_lavorazione"))+'</strong>'+
           '<span>'+(selected?'Riferito al bando '+esc(selected.codice)+
           '; conteggio per CdS e sede senza verbale definitivo.':
-          'Seleziona un bando dell’anno accademico per visualizzare il progresso.')+
+          'Totale dei CdS/sedi ancora aperti nei bandi dell’A.A.; '+
+          'lo stesso CdS in bandi diversi conta una volta per procedura.')+
           '</span></div>';
       }
       function row(b){
@@ -499,7 +511,8 @@
       function dashboard(){
         var scoped=bandiAnno(),validYear=annoValido(state.year);
         html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Anno accademico: '+esc(annoLabel())+
-          ' · dati riferiti al bando selezionato. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
+          (cur()?' · Bando '+esc(state.active):' · Totali di tutti i bandi dell’A.A.')+
+          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
           (scoped.length?scoped.map(row).join(''):'<div class="empty"><strong>Nessun bando per questo anno accademico</strong>Seleziona o registra l’A.A. corretto; i bandi preesistenti senza anno sono consultabili in «Da associare».</div>')+
           '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit"'+(validYear?'':' disabled')+'>Prepara bando</button></form>'+
           '<p class="caption">Per creare o importare un bando occorre scegliere prima un A.A. verificato. L’anno sarà registrato nei Riferimenti del bando. La preparazione consente di caricare il PDF ufficiale prima delle candidature PICA.</p></div>'+
