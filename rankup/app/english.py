@@ -9,6 +9,7 @@ from reportlab.lib.colors import HexColor, white, black
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, DictionaryObject, TextStringObject, ArrayObject
 from professional import STATUSES
+from score_rules import indicator_limit, area_limit, total_limit, fixed_value
 
 W, H = A4
 GREEN = HexColor("#4f86c2")
@@ -91,7 +92,7 @@ def make_english(record: dict) -> bytes:
         # Il modello ufficiale attribuisce valori fissi a Dottorato (3)
         # e Assegni di ricerca (1): non sono massimali graduabili.
         vals = ([("0","0"),(str(maximum),str(maximum))]
-                if name in ("P02","P05") else
+                if fixed_value("inglese", name) else
                 [(str(n),str(n)) for n in range(maximum+1)])
         form.choice(name=name, tooltip=name, x=x, y=H-top-height,
                     width=width, height=height, value="0",
@@ -170,35 +171,35 @@ def make_english(record: dict) -> bytes:
             lines(402,top+3,hints,size=5.9,leading=8)
         else:
             centered(401,top+4,44,
-                     str(maximum) if key in ("P02","P05") else "max "+str(maximum),6.6)
+                     str(maximum) if fixed_value("inglese", key) else "max "+str(maximum),6.6)
         choice(key,450,top+1,45,min(height-2,20),maximum)
 
-    group(267,119,["Ulteriori titoli","di studio / attivita","di aggiornamento","pertinenti","(ultimi 5 anni)"],13)
+    group(267,119,["Ulteriori titoli","di studio / attivita","di aggiornamento","pertinenti","(ultimi 5 anni)"],area_limit("inglese",1))
     titles=[
-        ("Altra Laurea",2),("Dottorato di Ricerca",3),("Master",2),
-        ("Corsi di perfezionamento",1),("Assegni di ricerca",1),
-        ("Corsi di formazione alla didattica",2),
-        ("Attivita di aggiornamento pertinente all'insegnamento",2),
+        ("Altra Laurea","P01"),("Dottorato di Ricerca","P02"),("Master","P03"),
+        ("Corsi di perfezionamento","P04"),("Assegni di ricerca","P05"),
+        ("Corsi di formazione alla didattica","P06"),
+        ("Attivita di aggiornamento pertinente all'insegnamento","P07"),
     ]
-    for i,(label,maximum) in enumerate(titles):
-        score(f"P{i+1:02d}",267+i*17,17,label,maximum)
+    for i,(label,key) in enumerate(titles):
+        score(key,267+i*17,17,label,indicator_limit("inglese", key))
 
-    group(389,112,["Attivita didattica","(ultimi 5 anni)"],20)
+    group(389,112,["Attivita didattica","(ultimi 5 anni)"],area_limit("inglese",2))
     score("P08",389,52,[
         "Docenza accademica pertinente all'insegnamento di INGLESE",
         "SCIENTIFICO in ambito sanitario (anche in piu CdS:",
         "la stessa docenza si conta una sola volta).",
         "Valutazione studenti positiva (Q12 >= 3).",
         "Max 2 punti per docenza/anno, fino a 5 anni.",
-    ],10,["max 2 per","docenza/anno","fino a 5 anni"])
-    for i,(label,mx) in enumerate([
-        ("Altre docenze in ambito accademico",5),
-        ("Insegnamenti non universitari formalizzati e affini alla disciplina",2),
-        ("Relazioni scientifiche a seminari, master, corsi/convegni",3),
+    ],indicator_limit("inglese","P08"),["max 2 per","docenza/anno","fino a 5 anni"])
+    for i,(label,key) in enumerate([
+        ("Altre docenze in ambito accademico","P09"),
+        ("Insegnamenti non universitari formalizzati e affini alla disciplina","P10"),
+        ("Relazioni scientifiche a seminari, master, corsi/convegni","P11"),
     ]):
-        score(f"P{i+9:02d}",441+i*20,20,label,mx)
+        score(key,441+i*20,20,label,indicator_limit("inglese",key))
 
-    group(504,84,["Attivita scientifica","(ultimi 5 anni)","- pertinenza al","modulo a bando"],10)
+    group(504,84,["Attivita scientifica","(ultimi 5 anni)","- pertinenza al","modulo a bando"],area_limit("inglese",3))
     scientific=[
         "Pubblicazione di libro/monografia come unico autore",
         "Pubblicazione di libro/monografia come coautore",
@@ -212,16 +213,16 @@ def make_english(record: dict) -> bytes:
     rect(401,504,44,84,BLUE)
     lines(403,520,["Punteggio","in base alla","rilevanza","scientifica"],6.1,9)
     rect(447,504,52,84,BLUE)
-    choice("P12",450,533,45,22,10)
+    choice("P12",450,533,45,22,indicator_limit("inglese","P12"))
 
-    group(591,29,["Esperienze e","competenze","specifiche"],7)
+    group(591,29,["Esperienze e","competenze","specifiche"],area_limit("inglese",4))
     row_bgs(591,29)
     lines(137,595,[
         "Valorizzazione dell'esperienza e della competenza nel",
         "settore specifico richiesto dall'insegnamento del CdS",
     ],6.5,9)
-    centered(401,597,44,"max 7",6.7)
-    choice("P13",450,596,45,17,7)
+    centered(401,597,44,"max "+str(indicator_limit("inglese","P13")),6.7)
+    choice("P13",450,596,45,17,indicator_limit("inglese","P13"))
 
     lines(53,624,[
         "Tutte le variabili vanno pesate in rapporto alla pertinenza del curriculum.",
@@ -232,7 +233,7 @@ def make_english(record: dict) -> bytes:
         rect(x,636,width,19,GREEN)
     centered(401,639,44,"TOTALE",8,True,white)
     field("TOT",449,638,48,15,"0",readonly=True,fontsize=9,background=white)
-    centered(501,639,49,"50",10,True,white)
+    centered(501,639,49,str(total_limit("inglese")),10,True,white)
 
     text(53,659,"Note commissione / Esito:",7.4,True)
     form.choice(name="STATUS",tooltip="Esito della commissione",
