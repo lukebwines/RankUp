@@ -1,8 +1,11 @@
 """Test del controllo ZIP sorgenti, con pacchetti interamente sintetici."""
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED, ZipInfo
+import sys
 import pytest
 
+# Compatibile anche con pytest avviato con PYTHONPATH limitato a rankup/app.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.verify_source_zip import (
     REQUIRED_FILES, SourceArchiveError, verify_source_zip,
 )
