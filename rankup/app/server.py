@@ -787,7 +787,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.16", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.17", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -949,7 +949,12 @@ def elenco_utenti(request: Request):
             SELECT id,username,attivo,creato_il,aggiornato_il,creato_da
             FROM rankup_utenti WHERE eliminato=0 ORDER BY username COLLATE NOCASE
         """).fetchall()
+        deleted=db.execute("""
+            SELECT id,username,creato_il,aggiornato_il
+            FROM rankup_utenti WHERE eliminato=1 ORDER BY username COLLATE NOCASE
+        """).fetchall()
     return {"utenti":[dict(r) for r in rows],
+            "utenti_eliminati":[dict(r) for r in deleted],
             "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
             "password_minima":8}
 
@@ -969,6 +974,12 @@ def crea_utente(body: CreaUtente,request: Request):
     now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        existing=db.execute("SELECT eliminato FROM rankup_utenti WHERE username=? COLLATE NOCASE",
+                            (username,)).fetchone()
+        if existing:
+            if existing["eliminato"]:
+                fail("Nome utente già presente nello storico: ripristinalo nella sezione Utenti eliminati",409)
+            fail("Nome utente già attivo o disattivato: usa la gestione dell'utente esistente",409)
         try:
             cur=db.execute("""
                 INSERT INTO rankup_utenti
@@ -1001,6 +1012,45 @@ def elimina_utente(user_id: int,request: Request):
         db.commit()
     AUTH.revoke_user(user_id)
     return {"ok":True,"id":user_id,"username":row["username"],"eliminato":True}
+
+
+@app.put("/api/utenti/{user_id}/ripristina")
+def ripristina_utente_eliminato(user_id: int,body: ReimpostaPasswordUtente,request: Request):
+    """Ripristina l'account originale, conservandone ID e storico.
+
+    Richiede password nuova: non ripristina mai la credenziale disattivata.
+    Il cambio versione invalida le eventuali sessioni anteriori.
+    """
+    who=require_admin(request)
+    if user_id<=0:fail("Identificativo utente non valido")
+    try:
+        salt,digest=AUTH.password_record(body.password)
+    except ValueError as exc:
+        fail(str(exc))
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("""
+            SELECT id,username,eliminato FROM rankup_utenti WHERE id=?
+        """,(user_id,)).fetchone()
+        if not row:fail("Utente non trovato",404)
+        if not row["eliminato"]:
+            fail("L'utente non risulta eliminato: utilizzare la gestione ordinaria",409)
+        db.execute("""
+            UPDATE rankup_utenti
+            SET eliminato=0,attivo=1,password_salt=?,password_hash=?,
+                credenziali_versione=credenziali_versione+1,aggiornato_il=?
+            WHERE id=? AND eliminato=1
+        """,(salt,digest,now,user_id))
+        db.execute("""
+            INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
+            VALUES(?,?,?,?)
+        """,(user_id,"Ripristinato account eliminato con nuova password",
+              who["username"],now))
+        db.commit()
+    AUTH.revoke_user(user_id)
+    return {"ok":True,"utente":{"id":user_id,"username":row["username"],"attivo":1},
+            "avviso":"Account ripristinato con nuova password. Storico precedente conservato."}
 
 
 @app.put("/api/utenti/{user_id}/stato")
