@@ -225,7 +225,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.30 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.31 · Interfaccia coordinata<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -957,10 +957,12 @@
           var all=results[1].approvazioni||[];
           var completed=all.filter(function(x){return x.stato==="approvata";}).length;
           var drafts=all.filter(function(x){return x.stato==="bozza";}).length;
+          var historical=all.filter(function(x){return x.stato==="regredita";}).length;
           var content='<div class="ru-quick-stats"><span class="ru-status-pill">'+
-            esc(ready.length)+' CdS definitivi disponibili</span>'+
-            '<span class="ru-status-pill ru-status-pill--good">'+esc(completed)+' approvazioni registrate</span>'+
+            esc(ready.length)+' CdS definitivi in attesa di approvazione generale</span>'+
+            '<span class="ru-status-pill ru-status-pill--good">'+esc(completed)+' approvazioni attive</span>'+
             (drafts?'<span class="ru-status-pill ru-status-pill--warning">'+esc(drafts)+' bozze aperte</span>':'')+
+            (historical?'<span class="ru-status-pill ru-status-pill--historical">'+esc(historical)+' approvazioni regredite · storico</span>':'')+
             '</div><div class="card mb"><h3 class="section-heading">Graduatoria generale definitiva anche parziale</h3>'+
             '<p class="caption">Seleziona solo graduatorie CdS definitive non ancora approvate. Una bozza non chiude alcuna posizione; la chiusura segue la registrazione degli estremi dell\'atto.</p>'+
             (ready.length?ready.map(function(g){
@@ -969,21 +971,25 @@
                 '<span class="caption">Sede: '+esc(g.sede)+' · '+esc(g.totale_candidature)+' candidature</span></span></label>';
             }).join(''):'<p class="muted">Nessuna graduatoria CdS definitiva disponibile per una nuova approvazione.</p>')+
             (state.role==="admin"?'<button class="btn" id="grad-draft"'+(ready.length?'':' disabled')+'>Crea bozza graduatoria generale</button>':'')+
-            '</div><div class="card"><h3 class="section-heading">Approvazioni atti</h3>'+
+            '</div><div class="card"><h3 class="section-heading">Approvazioni attive e storico</h3>'+
             (all.length?all.map(function(a){
-              return '<div class="card mb ru-approval-card"><strong>Procedura '+esc(a.id)+' · '+
+              var isHistorical=a.stato==="regredita";
+              return '<div class="card mb ru-approval-card'+(isHistorical?' ru-approval-card--historical':'')+'"'+
+                (isHistorical?' data-approval-history="true"':'')+'>'+
+                '<strong>Procedura '+esc(a.id)+' · '+
                 esc(a.stato==="approvata"?"Atti approvati":a.stato==="regredita"?
                     "Approvazione regredita · storico":"Bozza da approvare")+'</strong>'+
+                (isHistorical?'<span class="ru-approval-history-badge">REGREDITA · STORICO</span>':'')+
                 '<div class="caption">'+esc(a.ambiti.map(function(g){return g.cds+" / "+g.sede;}).join("; "))+'</div>'+
                 (a.estremi_atto?'<p>Estremi atto: '+esc(a.estremi_atto)+'</p>':'')+
                 (a.stato==="regredita"
-                  ? '<p class="caption">Precedente approvazione conservata a fini storici. Provvedimento di regressione: '+
+                  ? '<p class="caption ru-approval-history-note">Approvazione non più attiva, conservata esclusivamente per consultazione storica. Provvedimento di regressione: '+
                     esc(a.regressione_riferimento||"Non disponibile")+
                     '. Il PDF originale resta scaricabile come documento storico.</p>':'')+
                 '<div class="actions"><a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
-                '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
+                '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">'+(isHistorical?'Scarica PDF storico':'Scarica graduatoria generale PDF')+'</a>'+
                 '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
-                '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf?inline=true">Apri PDF nel browser</a>'+
+                '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf?inline=true">'+(isHistorical?'Apri PDF storico nel browser':'Apri PDF nel browser')+'</a>'+
                 (state.role==="admin"&&a.stato==="approvata"
                   ? '<a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                     '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+

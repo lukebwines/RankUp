@@ -1,5 +1,12 @@
 # RankUp
 
+## Aggiornamento 0.9.31 — Approvazioni regredite in grigio
+
+Nella pagina **Graduatorie → Approvazioni attive e storico**, le approvazioni regredite sono presentate in riquadri **grigi**, con etichetta «REGREDITA · STORICO», testo che ne segnala l'assenza di efficacia corrente e soli collegamenti a download/apertura del PDF storico. Le approvazioni attive e le bozze conservano le rispettive azioni. Il riepilogo distingue approvazioni attive, bozze e approvazioni regredite e indica i CdS definitivi in attesa di approvazione generale. Grafica compatibile con i temi chiaro e scuro.
+
+**Solo interfaccia:** nessuna modifica alle API, ai registri degli eventi, ai dati SQLite o ai PDF precedentemente approvati/regrediti. La consultazione dei documenti storici resta disponibile per gli utenti già autorizzati, secondo le regole preesistenti. Prima dell'aggiornamento eseguire un backup e verificare la lettura della pagina su Home Assistant.
+
+
 ## Aggiornamento 0.9.30 — Vincitori in grassetto nella graduatoria generale
 
 Nella graduatoria generale pubblica e nel prospetto nominativo interno si evidenzia **in grassetto l'intera riga del vincitore effettivamente indicato per l'incarico alla posizione 1** (posizione, candidato, punti, esito, note). Le altre candidature rimangono a carattere normale e i non vincitori nel PDF pubblico continuano a essere identificati tramite ID PICA. Nessuna variazione a punteggi, graduatorie, contenuti o PDF CdS. Gli atti e i PDF definitivi già conservati non vengono riscritti.
