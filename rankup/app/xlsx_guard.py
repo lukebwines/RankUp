@@ -106,9 +106,10 @@ def validate_xlsx(
             for info in items:
                 name = info.filename
                 normalized = PurePosixPath(name)
+                safe_parts = name.rstrip("/").split("/")
                 if (
                     not name or "\\" in name or name.startswith("/")
-                    or any(part in ("", ".", "..") for part in name.split("/"))
+                    or any(part in ("", ".", "..") for part in safe_parts)
                     or normalized.is_absolute() or "\x00" in name
                     or ((info.external_attr >> 16) & 0o170000) == 0o120000
                     or info.flag_bits & 1
