@@ -13,6 +13,7 @@ def test_date_italiane_iso_e_seriale_excel():
     assert parse_pica_title_date("01 dicembre 2023").isoformat() == "2023-12-01"
     assert parse_pica_title_date("2024-03-20 00:00:00").isoformat() == "2024-03-20"
     assert parse_pica_title_date("45261").isoformat() == "2023-12-01"
+    assert check_three_years("43033", "2026-10-29T13:00")["data_iso"] == parse_pica_title_date("43033").isoformat()
     assert parse_pica_title_date("31 febbraio 2023") is None
 
 
@@ -89,3 +90,8 @@ def test_ui_presents_ssd_and_no_ai_controls():
     assert 'data_scadenza' in page
     assert 'data-archive-ai' not in page
     assert "Verifica Ollama locale" not in page
+    assert "var displayDate=" in page
+    assert "isoDate.slice(8,10)" in page
+    assert "esc(displayDate)" in page
+    assert "esc(r.data_conseguimento" not in page
+    assert "years.motivo?" not in page
