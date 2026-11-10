@@ -788,6 +788,36 @@ def backfill_incarichi_metadata() -> None:
 
 
 initialize()
+
+
+def initialize_ai_work_items():
+    """Persistenza dei lavori IA. Dopo riavvio gli incompleti sono riavviabili."""
+    with connect() as db:
+        db.executescript("""
+          CREATE TABLE IF NOT EXISTS ai_occupazione_lavori(
+              id TEXT PRIMARY KEY,
+              bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+              valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id),
+              candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+              stato TEXT NOT NULL,
+              creato_il TEXT NOT NULL,
+              aggiornato_il TEXT NOT NULL,
+              autore TEXT NOT NULL,
+              risultato_json TEXT,
+              errore TEXT
+          );
+          CREATE INDEX IF NOT EXISTS ix_ai_lavori_bando
+            ON ai_occupazione_lavori(bando_id,valutazione_pdf_id,creato_il DESC);
+        """)
+        db.execute("""UPDATE ai_occupazione_lavori
+            SET stato='interrotto',errore='Elaborazione interrotta dal riavvio: ripetere il controllo',
+                aggiornato_il=?
+            WHERE stato IN ('in_coda','in_elaborazione')""",
+            (datetime.now(timezone.utc).isoformat(timespec="microseconds"),))
+        db.commit()
+
+
+initialize_ai_work_items()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
 app = FastAPI(title="RankUp", version="0.9.19", docs_url=None, redoc_url=None)
@@ -1683,77 +1713,142 @@ def list_candidature(code: str):
 
 
 
-@app.post("/api/bandi/{code}/valutazioni/{pdf_id}/ai/occupazione")
-def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Request):
-    """Controllo amministrativo soltanto DOPO la ricezione di una scheda.
+_AI_POOL=ThreadPoolExecutor(max_workers=1,thread_name_prefix="rankup-ai")
 
-    Solo Admin. Nessun PDF, nome, CF, ID PICA o esito della commissione
-    viene trasmesso a Ollama. La risposta non modifica valutazioni o graduatorie.
+
+def _esegui_controllo_occupazione(job_id: str, code: str, pdf_id: int,
+                                 candidatura_id: int, bando_id: int,
+                                 requirement: str, candidate: dict,
+                                 endpoint: str, autore: str) -> None:
+    now=lambda: datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    try:
+        with connect() as db:
+            db.execute("""UPDATE ai_occupazione_lavori SET stato='in_elaborazione',
+                          aggiornato_il=? WHERE id=? AND stato='in_coda'""",
+                       (now(),job_id))
+            db.commit()
+        # Fino a 300 s di esecuzione Ollama, senza collegamento HTTP aperto.
+        # Nessun identificativo del candidato viene inviato al modello.
+        result=review_occupation(
+            requirement,candidate.get("occupazione") or "",
+            candidate.get("azienda_ente") or "",
+            candidate.get("profilo_professionale") or "",endpoint)
+        finished=now()
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            _require_bando_aperto(db,code)
+            # Non salvare il controllo su una scheda sostituita o non più valida.
+            present=db.execute("""
+                SELECT 1 FROM valutazioni_pdf
+                WHERE id=? AND bando_id=? AND candidatura_id=?
+                  AND attiva=1
+            """,(pdf_id,bando_id,candidatura_id)).fetchone()
+            if not present:
+                fail("Scheda variata durante l'analisi; ripetere la verifica",409)
+            db.execute("""INSERT INTO valutazioni_occupazione_ai
+                (bando_id,valutazione_pdf_id,candidatura_id,requisito_analizzato,
+                 tipo_cds_pica,occupazione_pica,azienda_pica,profilo_pica,
+                 stato,motivo,evidenza,modello_locale,autore,quando)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,(bando_id,pdf_id,candidatura_id,requirement,
+                 str(candidate.get("tipo_cds") or ""),
+                 str(candidate.get("occupazione") or ""),
+                 str(candidate.get("azienda_ente") or ""),
+                 str(candidate.get("profilo_professionale") or ""),
+                 result["stato"],result["motivo"],result.get("evidenza") or "",
+                 1 if result.get("modello_locale") else 0,autore,finished))
+            db.execute("""UPDATE ai_occupazione_lavori
+                SET stato='completato',risultato_json=?,errore=NULL,aggiornato_il=?
+                WHERE id=?""",(json.dumps(result,ensure_ascii=False),finished,job_id))
+            db.commit()
+    except Exception as error:
+        detail=str(getattr(error,"detail",str(error)))[:500]
+        with connect() as db:
+            db.execute("""UPDATE ai_occupazione_lavori
+                SET stato='errore',errore=?,aggiornato_il=?
+                WHERE id=?""",(detail,now(),job_id))
+            db.commit()
+
+
+@app.post("/api/bandi/{code}/valutazioni/{pdf_id}/ai/occupazione",status_code=202)
+def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Request):
+    """Avvia controllo locale persistente, con risposta immediata e polling.
+
+    Nessun PDF, nome, CF o ID PICA viene trasmesso a Ollama. La verifica
+    istruttoria non modifica esito/punteggio e richiede sempre l'Admin.
     """
-    require_admin(request)
-    code = valid_code(code)
-    if pdf_id <= 0:
-        fail("Identificativo scheda non valido")
+    who=require_admin(request)
+    code=valid_code(code)
+    if pdf_id<=0:fail("Identificativo scheda non valido")
     with connect() as db:
-        archived = db.execute("""
-            SELECT c.id AS candidatura_id, c.id_pica, i.key AS incarico_key, v.bando_id
+        b=db.execute("SELECT id,stato FROM bandi WHERE codice=?",
+                     (code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        if b["stato"]=="Archiviato":
+            fail("Bando archiviato: controllo IA non consentito",409)
+        archived=db.execute("""
+            SELECT c.id AS candidatura_id,c.id_pica,
+                   i.key AS incarico_key,v.bando_id
             FROM valutazioni_pdf v
-            JOIN bandi b ON b.id=v.bando_id
             JOIN candidature c ON c.id=v.candidatura_id
             JOIN incarichi i ON i.id=c.incarico_id
-            WHERE b.codice=? AND v.id=? AND v.candidatura_id IS NOT NULL
-              AND v.stato IN ('Acquisita','Da verificare')
-        """, (code, pdf_id)).fetchone()
+            WHERE v.bando_id=? AND v.id=? AND v.candidatura_id IS NOT NULL
+              AND v.stato IN ('Acquisita','Da verificare') AND v.attiva=1
+        """,(b["id"],pdf_id)).fetchone()
     if not archived:
-        fail("Scheda restituita non trovata o candidatura non associata", 404)
-    records = list_candidature(code)["candidature"]
-    matches = [r for r in records
-               if str(r["id_pica"]) == str(archived["id_pica"])
-               and r["incarico_key"] == archived["incarico_key"]]
-    if len(matches) != 1:
-        fail("Dichiarazioni occupazionali non associabili univocamente", 409)
-    candidate = matches[0]
-    requirement = candidate.get("ente_richiesto") or ""
+        fail("Scheda restituita non trovata o candidatura non associata",404)
+    records=list_candidature(code)["candidature"]
+    matches=[r for r in records if str(r["id_pica"])==str(archived["id_pica"])
+             and r["incarico_key"]==archived["incarico_key"]]
+    if len(matches)!=1:
+        fail("Dichiarazioni occupazionali non associabili univocamente",409)
+    candidate=matches[0]
+    requirement=candidate.get("ente_richiesto") or ""
     if not requirement:
-        fail("Requisito ente non classificato: verificare il dizionario PICA", 409)
-    if requirement == "NESSUNA RISERVA":
-        fail("Nessuna riserva occupazionale da controllare", 400)
-    try:
-        result = review_occupation(
-            requirement, candidate.get("occupazione") or "",
-            candidate.get("azienda_ente") or "",
-            candidate.get("profilo_professionale") or "",
-            _ollama_settings())
-    except AIEmployerError as exc:
-        fail(str(exc), 503)
-    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        fail("Requisito ente non classificato: verificare il dizionario PICA",409)
+    if requirement=="NESSUNA RISERVA":
+        fail("Nessuna riserva occupazionale da controllare",400)
+    endpoint=_ollama_settings()
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    job_id=secrets.token_urlsafe(20)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
         _require_bando_aperto(db,code)
-        # Confermare il collegamento anche al momento della registrazione.
-        if not db.execute("""SELECT 1 FROM valutazioni_pdf
-            WHERE id=? AND bando_id=? AND candidatura_id=?
-        """, (pdf_id, archived["bando_id"], archived["candidatura_id"])).fetchone():
-            fail("Scheda variata: ripetere la verifica", 409)
-        db.execute("""INSERT INTO valutazioni_occupazione_ai
-            (bando_id,valutazione_pdf_id,candidatura_id,requisito_analizzato,
-             tipo_cds_pica,occupazione_pica,azienda_pica,profilo_pica,
-             stato,motivo,evidenza,modello_locale,autore,quando)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (archived["bando_id"], pdf_id, archived["candidatura_id"],
-              requirement, str(candidate.get("tipo_cds") or ""),
-              str(candidate.get("occupazione") or ""),
-              str(candidate.get("azienda_ente") or ""),
-              str(candidate.get("profilo_professionale") or ""),
-              result["stato"], result["motivo"], result.get("evidenza") or "",
-              1 if result.get("modello_locale") else 0,
-              request_actor(), now))
+        existing=db.execute("""
+            SELECT id,stato FROM ai_occupazione_lavori
+            WHERE bando_id=? AND valutazione_pdf_id=?
+              AND stato IN ('in_coda','in_elaborazione')
+            ORDER BY creato_il DESC LIMIT 1
+        """,(b["id"],pdf_id)).fetchone()
+        if existing:
+            return {"lavoro_id":existing["id"],"stato":existing["stato"]}
+        db.execute("""INSERT INTO ai_occupazione_lavori
+            (id,bando_id,valutazione_pdf_id,candidatura_id,stato,
+             creato_il,aggiornato_il,autore)
+            VALUES(?,?,?,?,'in_coda',?,?,?)""",
+            (job_id,b["id"],pdf_id,archived["candidatura_id"],
+             now,now,who["username"]))
         db.commit()
-    return {"risultato": result, "registrato_il": now,
-            "avviso": "Controllo riservato ad Admin, istruttorio e non vincolante. "
-                      "Storico conservato; nessun punteggio o esito della commissione modificato."}
+    _AI_POOL.submit(_esegui_controllo_occupazione,job_id,code,pdf_id,
+                    archived["candidatura_id"],b["id"],requirement,
+                    candidate,endpoint,who["username"])
+    return {"lavoro_id":job_id,"stato":"in_coda"}
 
 
+@app.get("/api/bandi/{code}/valutazioni/{pdf_id}/ai/occupazione/lavoro/{job_id}")
+def stato_controllo_occupazionale(code: str,pdf_id: int,job_id: str,request: Request):
+    require_admin(request)
+    code=valid_code(code)
+    with connect() as db:
+        row=db.execute("""
+            SELECT j.stato,j.errore,j.risultato_json,j.aggiornato_il
+            FROM ai_occupazione_lavori j JOIN bandi b ON b.id=j.bando_id
+            WHERE b.codice=? AND j.valutazione_pdf_id=? AND j.id=?
+        """,(code,pdf_id,job_id)).fetchone()
+    if not row:fail("Controllo IA non trovato",404)
+    return {"stato":row["stato"],"errore":row["errore"],
+            "risultato":json.loads(row["risultato_json"]) if row["risultato_json"] else None,
+            "aggiornato_il":row["aggiornato_il"]}
 
 
 @app.get("/api/bandi/{code}/valutazioni/ai/occupazione/storico")
