@@ -1,7 +1,7 @@
 name: Tests RankUp
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'feature/**', 'fix/**']
   pull_request:
 jobs:
   unit:

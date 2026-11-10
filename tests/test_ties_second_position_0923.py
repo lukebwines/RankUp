@@ -15,7 +15,8 @@ def _db():
         CREATE TABLE incarichi (
             id INTEGER PRIMARY KEY, bando_id INTEGER, key TEXT,
             cds TEXT, sede TEXT, insegnamento TEXT, modulo TEXT,
-            ssd TEXT, id_copertura TEXT
+            ssd TEXT, id_copertura TEXT,
+            ul TEXT, codice_partizione TEXT, partizione_studenti TEXT
         );
         CREATE TABLE candidature (
             id INTEGER PRIMARY KEY, incarico_id INTEGER, id_pica TEXT,
@@ -39,7 +40,8 @@ def _db():
             ordine_json TEXT,valutazioni_json TEXT,
             motivazione TEXT,riferimento TEXT
         );
-        INSERT INTO incarichi VALUES (1,1,'J1','CdS fittizio','Sede fittizia',
+        INSERT INTO incarichi (id,bando_id,key,cds,sede,insegnamento,modulo,ssd,id_copertura)
+          VALUES (1,1,'J1','CdS fittizio','Sede fittizia',
             'Insegnamento sintetico','Modulo sintetico','SSD TEST','C1');
         INSERT INTO commissioni VALUES (1,'CdS fittizio','Sede fittizia',
             'Presidente fittizio','Componente fittizio');
