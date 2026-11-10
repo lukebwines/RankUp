@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from db_lifecycle import AutoClosingConnection
 
 COOKIE_NAME = "rankup_session"
 SESSION_SECONDS = 8 * 60 * 60
@@ -67,7 +68,7 @@ class Authentication:
 
     def _load_user(self, username: str) -> dict | None:
         try:
-            with sqlite3.connect(self._db_path, timeout=10) as db:
+            with sqlite3.connect(self._db_path, timeout=10, factory=AutoClosingConnection) as db:
                 db.row_factory = sqlite3.Row
                 row = db.execute("""
                     SELECT id,username,password_salt,password_hash,attivo,credenziali_versione
@@ -163,7 +164,7 @@ class Authentication:
         # Rilegge stato/versione dal DB ad ogni richiesta: password cambiata,
         # account disabilitato o eliminato invalidano la sessione subito.
         try:
-            with sqlite3.connect(self._db_path, timeout=10) as db:
+            with sqlite3.connect(self._db_path, timeout=10, factory=AutoClosingConnection) as db:
                 db.row_factory = sqlite3.Row
                 row = db.execute("""
                     SELECT username,attivo,credenziali_versione

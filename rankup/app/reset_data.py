@@ -16,6 +16,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from zipfile import ZipFile, ZIP_DEFLATED
+from db_lifecycle import AutoClosingConnection
 
 RESET_LOCK = threading.Lock()
 BUSINESS_TABLES = (
@@ -115,9 +116,9 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
         temp_db=backups/("snapshot_"+secrets.token_hex(8)+".sqlite3")
         temp_zip=backups/(filename+".tmp")
         final_zip=backups/filename
-        with sqlite3.connect(db_path,timeout=20) as source:
+        with sqlite3.connect(db_path,timeout=20,factory=AutoClosingConnection) as source:
             counts_before=current_counts(source)
-            with sqlite3.connect(temp_db) as target:
+            with sqlite3.connect(temp_db,factory=AutoClosingConnection) as target:
                 source.backup(target)
                 integrity=target.execute("PRAGMA integrity_check").fetchone()[0]
                 if integrity!="ok":
@@ -142,7 +143,7 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
         os.replace(temp_zip,final_zip)
 
         # Non modificare il DB se il contenuto e' cambiato mentre si preparava lo snapshot.
-        with sqlite3.connect(db_path,timeout=20) as db:
+        with sqlite3.connect(db_path,timeout=20,factory=AutoClosingConnection) as db:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("BEGIN IMMEDIATE")
             try:

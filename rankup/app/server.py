@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from contextvars import ContextVar
 from contextlib import closing
+from db_lifecycle import AutoClosingConnection, SCHEMA_VERSION, prepare_schema_upgrade, record_schema_version
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
@@ -73,7 +74,7 @@ for folder in (BASE, PENDING, SOURCES):
 
 
 def connect() -> sqlite3.Connection:
-    db = sqlite3.connect(DB, timeout=20)
+    db = sqlite3.connect(DB, timeout=20, factory=AutoClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=20000")
@@ -100,6 +101,8 @@ def _conserva_commissione_catalogo(db, values: dict, fonte_bando: str):
 
 def initialize() -> None:
     with connect() as db:
+        if not prepare_schema_upgrade(db, DB):
+            return
         db.executescript("""
         PRAGMA journal_mode=WAL;
         CREATE TABLE IF NOT EXISTS bandi (
@@ -595,6 +598,8 @@ def initialize() -> None:
             if field not in columns:
                 db.execute("ALTER TABLE incarichi ADD COLUMN " + field +
                            " TEXT NOT NULL DEFAULT ''")
+        # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
+        record_schema_version(db, SCHEMA_VERSION)
 
 
 def backfill_ssd_from_saved_pica() -> None:
@@ -1233,7 +1238,17 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.21"}
+    """Il watchdog richiede anche una lettura effettiva del database."""
+    try:
+        with connect() as db:
+            available = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bandi'"
+            ).fetchone()
+        if not available:
+            raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
+    except (sqlite3.Error, OSError):
+        raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
+    return {"status": "ok", "version": "0.9.22", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
