@@ -2323,28 +2323,34 @@
               var problems=split.anomalie.filter(function(r){return Number(r.incarico_id)===assignmentId;});
               var assignmentTitle=job.insegnamento+
                 (job.modulo&&job.modulo!==job.insegnamento?' · '+job.modulo:'');
-              return '<details'+(filter.cds?' open':'')+' class="ru-verb-details" style="margin:8px 0 12px 14px">'+
-                '<summary style="cursor:pointer;padding:9px 0;font-weight:650">'+
-                esc(index+1)+'. '+esc(assignmentTitle)+' · SSD '+esc(job.ssd||"Non indicato")+
-                ' — '+esc(currentCount)+' schede valide / '+esc(job.candidature)+' candidature'+
-                (problems.length?' · '+esc(problems.length)+' da verificare':'')+'</summary>'+
-                '<p class="caption">Incarico PICA: '+esc(job.key)+
+              return '<details class="ru-val-job"><summary>'+
+                '<span class="ru-val-job-title">'+esc(index+1)+'. '+esc(assignmentTitle)+
+                '<span class="ru-val-course-extra">SSD '+esc(job.ssd||"Non indicato")+'</span></span>'+
+                '<span class="ru-val-job-metrics"><span class="ru-val-tag ru-val-tag--neutral">'+
+                esc(currentCount)+' schede correnti</span>'+
+                '<span class="ru-val-tag ru-val-tag--neutral">'+esc(job.candidature)+' candidature</span>'+
+                (problems.length?'<span class="ru-val-tag ru-val-tag--warning">'+
+                  esc(problems.length)+' da verificare</span>':'')+'</span></summary>'+
+                '<div class="ru-val-job-body"><p class="caption">Incarico PICA: '+esc(job.key)+
                 (job.id_copertura?' · ID copertura: '+esc(job.id_copertura):'')+'</p>'+
                 (selected.length?rowsTable(selected):
                   '<p class="caption">Nessuna scheda '+
-                  (historyView?'registrata':'attiva e validata')+
+                  (historyView?'registrata':'corrente e validata')+
                   ' per questo incarico.</p>')+
                 (!historyView&&problems.length?
-                  '<div class="notice"><strong>Schede da verificare — non incluse nel verbale</strong>'+
+                  '<div class="notice"><strong>Documenti da verificare — non inclusi nel verbale</strong>'+
                   rowsTable(problems)+'</div>':'')+
-                '</details>';
+                '</div></details>';
             }).join("");
-            return '<details'+(filter.cds?' open':'')+' style="margin:12px 0">'+
-              '<summary style="cursor:pointer;padding:11px 0;font-weight:700">'+
-              esc(area.cds)+' · '+esc(area.sede)+' — '+esc(areaJobs.length)+
-              ' incarichi · '+esc(activeCount)+' schede valide'+
-              (problemCount?' · '+esc(problemCount)+' anomalie':'')+'</summary>'+
-              jobHtml+'</details>';
+            return '<details class="ru-val-group"'+(filter.cds?' open':'')+'>'+
+              '<summary><span class="ru-val-group-label">'+esc(area.cds)+' · '+esc(area.sede)+
+              '<small>Consulta gli incarichi e le schede della Commissione</small></span>'+
+              '<span class="ru-val-group-counts"><span class="ru-val-tag ru-val-tag--neutral">'+
+              esc(areaJobs.length)+' incarichi</span>'+
+              '<span class="ru-val-tag ru-val-tag--good">'+esc(activeCount)+' schede correnti</span>'+
+              (problemCount?'<span class="ru-val-tag ru-val-tag--warning">'+
+                esc(problemCount)+' da verificare</span>':'')+
+              '</span></summary><div class="ru-val-group-body">'+jobHtml+'</div></details>';
           }).join("");
           // Un PDF senza associazione PICA non può mai essere usato nel verbale.
           var unassociated=(historyView?archive:split.anomalie).filter(function(r){
@@ -2355,19 +2361,30 @@
             'Schede non associate · '+esc(unassociated.length)+
             ' — escluse dal verbale</summary>'+
             rowsTable(unassociated)+'</details>':'';
-          content+=mode+'<div class="card mb"><h3 class="section-heading">'+
+          content+=mode+'<section class="card mb ru-val-groups" id="val-groups">'+
+            '<div class="ru-val-section-head"><div class="ru-val-section-title">'+
+            '<span class="ru-val-icon" aria-hidden="true">☷</span><div>'+
+            '<h3 class="section-heading">'+
             (historyView?'Archivio completo delle schede':'Schede correnti ai fini del verbale')+
             ' · '+esc(scope)+'</h3>'+
+            '<p class="caption">Apri un Corso di Studio, poi un incarico, per consultare le singole schede.</p>'+
+            '</div></div></div>'+
             (groupHtml||'<p class="muted">Nessun incarico PICA per questa selezione.</p>')+
             unassociatedHtml+
             (report.pdf_non_associati && !unassociated.length?
-              '<p class="caption">'+esc(report.pdf_non_associati)+
+              '<p class="ru-val-help">'+esc(report.pdf_non_associati)+
               ' PDF non associati nel bando: seleziona Tutti i CdS per consultarli.</p>':'')+
-            '<p class="caption">Le versioni sostituite non risultano come errori correnti: '+
-            'sono consultabili nella vista «Tutte le versioni». '+
-            'Le schede mancanti sono evidenziate dai conteggi per incarico.</p></div>';
+            '<p class="ru-val-help">Le versioni sostituite sono disponibili in «Tutte le versioni»; non vengono utilizzate nei verbali. Gli incarichi con schede mancanti sono contrassegnati dal rapporto fra schede correnti e candidature.</p>'+
+            '</section>';
           content+='<div id="manual-eval-panel"></div>';
-          html(content);
+          html('<div class="ru-val-page">'+content+'</div>');
+          if(state.valJumpToGroup){
+            state.valJumpToGroup=false;
+            requestAnimationFrame(function(){
+              var target=$("val-groups");
+              if(target)target.scrollIntoView({behavior:"smooth",block:"start"});
+            });
+          }
           $("val-view-current").onclick=function(){
             state.valSchedeView="current";renderValutazioni();
           };
