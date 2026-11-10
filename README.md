@@ -248,3 +248,13 @@ La relazione documentale **non richiede di alterare i PDF**: `valutazioni_pdf.ca
 L'Admin può scegliere **Ripristina utente**, impostare una **nuova password** (minimo 8 caratteri) e confermare. Il ripristino riutilizza l'ID originale, riattiva l'account, incrementa la versione delle credenziali e registra l'operazione nel log, **senza alterare gli eventi precedenti**. Le password precedenti non vengono recuperate o rese visibili; le sessioni precedenti sono revocate. Utenti non amministratori non possono ripristinare account.
 
 Non sono richieste modifiche manuali a SQLite né azzeramenti; l'errore di duplicazione indica ora esplicitamente il percorso di ripristino quando il nome appartiene a un account eliminato.
+
+### RankUP 0.9.18 — Selezione A.A. e Dashboard riepilogativa
+
+Nella barra laterale, prima si seleziona l'**Anno accademico (A.A.)**, poi il **Bando attivo**. Il menu dei bandi mostra esclusivamente quelli attribuiti all'A.A. corrente. La scelta **Tutti i bandi dell'A.A.** lascia senza bando operativo selezionato e presenta i conteggi complessivi relativi a quell'anno; scegliendo uno specifico bando, i conteggi di candidature, incarichi e valutazioni si riferiscono solo a esso. Il primo riquadro, **Bandi aperti nell'A.A.**, conta i bandi non archiviati dell'anno indipendentemente dalla scelta del bando specifico. La riga **CdS/sedi ancora in lavorazione** somma le coppie CdS/sede prive di un verbale definitivo; in modalità aggregata la stessa coppia viene contata per ciascun bando cui appartiene. **Restano identiche le quattro icone originali**.
+
+L'A.A. è già registrato in `bandi_riferimenti.anno_accademico` (formato `AAAA-AAAA`): non si crea una nuova anagrafica duplicata. I bandi precedenti senza A.A. compaiono in **Da associare (A.A. mancante)** e possono essere associati dall'Admin tramite **Riferimenti del bando**, senza associare arbitrariamente l'anno dal codice o dalla data di importazione.
+
+Per **Prepara bando** o **Importa esportazione PICA** dalla Dashboard l'operatore sceglie prima un A.A. verificato. Il nuovo bando conserva lo stesso valore nei riferimenti con evento di audit. Se un bando in preparazione ha già un A.A. diverso, l'importazione PICA viene respinta senza sostituire il dato preesistente. Le API accettano ancora importazioni senza A.A. per compatibilità retroattiva con i workflow esistenti, ma la UI ne richiede la selezione per i nuovi procedimenti.
+
+La selezione aggregata non abilita azioni del procedimento: per accedere a **Incarichi, Candidature, Commissioni, Schede, Valutazioni, Verbali o Graduatorie** bisogna scegliere un bando specifico. L'archivio storico resta trasversale e continua a includere tutti i bandi.

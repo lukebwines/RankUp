@@ -33,6 +33,15 @@
     .active-panel{background:#264463;border:1px solid #385875;padding:14px;border-radius:12px}
     .active-panel strong{font-size:23px;display:block;margin:4px 0 9px;color:white}
     .sidebar select{width:100%;background:#1e3854;color:white;border:1px solid #4c6984;border-radius:7px;padding:9px;font-size:13px}
+    .active-year{margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #456681}
+    .active-year .side-title{margin-bottom:7px}
+    .active-year strong{font-size:18px;margin-bottom:7px}
+    .add-year{width:100%;text-align:center;background:transparent;border:1px dashed #7392ae;color:#e5f0ff;margin-top:7px;border-radius:7px;padding:7px;font-size:12px;cursor:pointer}
+    .add-year:hover,.add-year:focus-visible{background:#325577;outline-color:#90c8f5}
+    .dashboard-work-status{margin-top:-12px;margin-bottom:25px;padding:15px 20px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+    .dashboard-work-status strong{font-size:16px}
+    .dashboard-work-status span{font-size:13px;color:#72869a}
+    html[data-theme="dark"] .dashboard-work-status span{color:#b9ccdb}
     nav{display:flex;flex-direction:column;gap:4px;margin-top:8px} nav button{background:transparent;color:#d3e0ef;text-align:left;padding:12px 13px;border-radius:9px;font-size:14px;display:flex;align-items:center;gap:10px}
     nav button:hover,nav button.active{background:#2a4f76;color:white}.navdot{width:8px;height:8px;border-radius:50%;background:#7a9fc1}
     nav button.active .navdot{background:#52b3fa}.sidebar-footer{margin-top:auto;color:#a3bbd5;font-size:11px;line-height:1.5}
@@ -185,9 +194,15 @@
         <div><h1>RankUp</h1><small>Teaching Selection Manager</small></div>
       </div>
       <div class="active-panel">
+        <div class="active-year">
+          <div class="side-title">ANNO ACCADEMICO</div>
+          <strong id="side-year">Da selezionare</strong>
+          <select id="academic-year-select" aria-label="Seleziona anno accademico"></select>
+          <button id="add-academic-year" class="add-year" type="button">+ Seleziona un nuovo A.A.</button>
+        </div>
         <div class="side-title">BANDO ATTIVO</div>
         <strong id="side-code">Nessuno</strong>
-        <select id="band-select" aria-label="Seleziona bando"></select>
+        <select id="band-select" aria-label="Seleziona bando dell'anno accademico"></select>
       </div>
       <nav id="nav">
         <div class="nav-separator">GESTIONE GENERALE</div>
@@ -208,7 +223,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.17 · Recupero utenti<br><span id="account-info">Accesso protetto</span></p></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p>Versione 0.9.18 · Anno accademico e Dashboard<br><span id="account-info">Accesso protetto</span></p></div>
     </aside>
     <main>
       <header class="topbar">
@@ -228,7 +243,7 @@
   <script>
     (function () {
       "use strict";
-      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",incarichiFilter:{cds:"",sede:""},role:null,username:""};
+      var state = {page:"dashboard",bandi:[],active:localStorage.getItem("rankup_active")||"",year:localStorage.getItem("rankup_academic_year")||"",preview:null,valFilter:{cds:"",sede:""},valSchedeView:"current",incarichiFilter:{cds:"",sede:""},role:null,username:""};
       var $ = function(id){return document.getElementById(id);};
       function setTheme(theme){
         document.documentElement.setAttribute("data-theme",theme);
@@ -369,26 +384,124 @@
       var html = function(content){$("content").innerHTML=content;};
       var note = function(message,error){$("notification").innerHTML='<div class="'+(error?"error":"success")+' mb">'+esc(message)+'</div>';};
       var clearNote = function(){$("notification").innerHTML="";};
-      var cur = function(){return state.bandi.find(function(b){return b.codice===state.active;});};
-      var setActive = function(code){state.active=code;state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};localStorage.setItem("rankup_active",code);updateHeader();render();};
+      var NO_AA="__non_associato__";
+      var AA_PATTERN=/^\d{4}-\d{4}$/;
+      function annoValido(anno){
+        if(!AA_PATTERN.test(anno||""))return false;
+        var years=anno.split("-").map(Number);
+        return years[1]===years[0]+1;
+      }
+      var cur=function(){return state.bandi.find(function(b){return b.codice===state.active;});};
+      function anniDisponibili(){
+        var all=state.bandi.map(function(b){return b.anno_accademico||"";}).filter(Boolean);
+        if(annoValido(state.year))all.push(state.year);
+        return [...new Set(all)].sort().reverse();
+      }
+      function bandiAnno(){
+        if(!state.year)return [];
+        return state.bandi.filter(function(b){
+          return state.year===NO_AA?!b.anno_accademico:b.anno_accademico===state.year;
+        });
+      }
+      function annoLabel(){return state.year===NO_AA?"Da associare":state.year||"Non selezionato";}
+      function persistSelection(){
+        if(state.year)localStorage.setItem("rankup_academic_year",state.year);
+        else localStorage.removeItem("rankup_academic_year");
+        if(state.active)localStorage.setItem("rankup_active",state.active);
+        else localStorage.removeItem("rankup_active");
+      }
+      function syncAcademicSelection(){
+        var current=cur(),years=anniDisponibili();
+        if(!state.year || (state.year!==NO_AA&&!annoValido(state.year))){
+          state.year=current?(current.anno_accademico||NO_AA):
+            years.length?years[0]:state.bandi.length?NO_AA:"";
+        }
+        // L'assenza di un bando è una selezione valida: la Dashboard mostra
+        // il riepilogo aggregato di tutte le procedure dell'A.A. scelto.
+        if(!bandiAnno().some(function(b){return b.codice===state.active;})){
+          state.active="";
+        }
+        persistSelection();
+      }
+      var setActive=function(code){
+        if(code&&!bandiAnno().some(function(b){return b.codice===code;})){
+          note("Il bando selezionato non appartiene all'anno accademico corrente.",true);
+          return;
+        }
+        state.active=code;
+        state.preview=null;
+        state.valFilter={cds:"",sede:""};
+        state.incarichiFilter={cds:"",sede:""};
+        persistSelection();updateHeader();render();
+      };
+      function setAcademicYear(year){
+        state.year=year;state.active="";state.preview=null;
+        state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};
+        syncAcademicSelection();updateHeader();render();
+      }
       function updateHeader(){
-        var selected=cur(), code=selected?selected.codice:"nessuno";
-        $("side-code").textContent=selected?code:"Nessuno";
-        $("top-code").textContent="Bando: "+code;
+        var selected=cur(),code=selected?selected.codice:"Tutti i bandi";
+        $("side-year").textContent=annoLabel();
+        $("side-code").textContent=code;
+        $("top-code").textContent="A.A. "+annoLabel()+" · "+(selected?"Bando: ":"")+code;
+        var aa=$("academic-year-select");aa.innerHTML="";
+        if(!state.year){var empty=document.createElement("option");
+          empty.value="";empty.textContent="Seleziona A.A.";aa.appendChild(empty);}
+        anniDisponibili().forEach(function(year){
+          var option=document.createElement("option");option.value=year;
+          option.textContent=year;option.selected=year===state.year;aa.appendChild(option);
+        });
+        if(state.bandi.some(function(b){return !b.anno_accademico;})||state.year===NO_AA){
+          var una=document.createElement("option");una.value=NO_AA;
+          una.textContent="Da associare (A.A. mancante)";
+          una.selected=state.year===NO_AA;aa.appendChild(una);
+        }
+        if(!aa.options.length){var item=document.createElement("option");
+          item.value="";item.textContent="Aggiungi il primo A.A.";aa.appendChild(item);}
+        aa.value=state.year||"";
         var sel=$("band-select");sel.innerHTML="";
-        if(!state.bandi.length){var op=document.createElement("option");op.textContent="Nessun bando";sel.appendChild(op);}
-        state.bandi.forEach(function(b){var op=document.createElement("option");op.value=b.codice;op.textContent=b.codice;op.selected=b.codice===state.active;sel.appendChild(op);});
+        var available=bandiAnno();sel.disabled=!state.year;
+        var all=document.createElement("option");
+        all.value="";
+        all.textContent=available.length?"Tutti i bandi dell’A.A.":"Nessun bando per questo A.A.";
+        sel.appendChild(all);
+        available.forEach(function(b){
+          var op=document.createElement("option");op.value=b.codice;
+          op.textContent=b.codice+(b.stato==="Archiviato"?" (archiviato)":"");
+          sel.appendChild(op);
+        });
+        sel.value=state.active||"";
+        $("add-academic-year").textContent="+ Seleziona un nuovo A.A.";
       }
       function panel(title,text){return '<div class="card"><h3 class="section-heading">'+esc(title)+'</h3><p class="muted">'+esc(text)+'</p></div>';}
       function cards(){
-        var candidates=state.bandi.reduce(function(n,b){return n+b.candidature;},0);
-        var jobs=state.bandi.reduce(function(n,b){return n+b.incarichi;},0);
-        var evaluations=state.bandi.reduce(function(n,b){return n+(b.valutazioni_acquisite||0);},0);
-        return '<div class="grid">'+
-          [[''+state.bandi.length,'Bandi importati'],[''+candidates,'Candidature PICA'],[''+jobs,'Incarichi individuati'],[''+evaluations,'Valutazioni acquisite']].map(function(c,i){
-            var icons=['ri-folders','ri-users','ri-book','ri-clipboard'];
-            return '<div class="card kpi"><svg class="navicon" aria-hidden="true" style="color:#397fb9;margin-bottom:10px"><use href="#'+icons[i]+'"></use></svg><strong>'+esc(c[0])+'</strong><span>'+esc(c[1])+'</span></div>';
-          }).join('')+'</div>';
+        var selected=cur(),scoped=bandiAnno();
+        var open=scoped.filter(function(b){return b.stato!=="Archiviato";}).length;
+        var shown=selected?[selected]:scoped;
+        function count(field){
+          return shown.reduce(function(total,b){return total+(Number(b[field])||0);},0);
+        }
+        var general=!selected;
+        var metrics=[
+          [open,"Bandi aperti nell'A.A."],
+          [count("candidature"),general?"Candidature PICA nell’A.A.":"Candidature PICA del bando"],
+          [count("incarichi"),general?"Incarichi nell’A.A.":"Incarichi nel bando"],
+          [count("valutazioni_acquisite"),general?"Candidature valutate nell’A.A.":"Candidature valutate"]
+        ];
+        // Conservare le 4 icone originali, nella stessa posizione.
+        var icons=['ri-folders','ri-users','ri-book','ri-clipboard'];
+        return '<div class="grid">'+metrics.map(function(m,i){
+          return '<div class="card kpi"><svg class="navicon" aria-hidden="true" '+
+            'style="color:#397fb9;margin-bottom:10px"><use href="#'+icons[i]+'"></use></svg>'+
+            '<strong>'+esc(m[0])+'</strong><span>'+esc(m[1])+'</span></div>';
+        }).join('')+'</div>'+
+          '<div class="card dashboard-work-status"><strong>CdS/sedi ancora in lavorazione: '+
+          esc(count("cds_in_lavorazione"))+'</strong>'+
+          '<span>'+(selected?'Riferito al bando '+esc(selected.codice)+
+          '; conteggio per CdS e sede senza verbale definitivo.':
+          'Totale dei CdS/sedi ancora aperti nei bandi dell’A.A.; '+
+          'lo stesso CdS in bandi diversi conta una volta per procedura.')+
+          '</span></div>';
       }
       function row(b){
         return '<div class="band-row"><div><strong>'+esc(b.codice)+'</strong><small>'+esc(b.candidature)+' candidature · '+esc(b.incarichi)+' incarichi · '+esc(b.cds)+' CdS</small></div>'+
@@ -396,10 +509,13 @@
       }
       function bindBandButtons(){document.querySelectorAll("[data-choose]").forEach(function(button){button.onclick=function(){state.page="incarichi";setActive(button.dataset.choose);};});}
       function dashboard(){
-        html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Panoramica dei bandi e delle procedure didattiche.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
-          (state.bandi.length?state.bandi.map(row).join(''):'<div class="empty"><strong>Non ci sono ancora bandi</strong>Importa un file PICA per creare la prima procedura.</div>')+
-          '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit">Prepara bando</button></form>'+
-          '<p class="caption">La preparazione consente di caricare il bando PDF prima delle candidature PICA.</p></div>'+
+        var scoped=bandiAnno(),validYear=annoValido(state.year);
+        html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Anno accademico: '+esc(annoLabel())+
+          (cur()?' · Bando '+esc(state.active):' · Totali di tutti i bandi dell’A.A.')+
+          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
+          (scoped.length?scoped.map(row).join(''):'<div class="empty"><strong>Nessun bando per questo anno accademico</strong>Seleziona o registra l’A.A. corretto; i bandi preesistenti senza anno sono consultabili in «Da associare».</div>')+
+          '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit"'+(validYear?'':' disabled')+'>Prepara bando</button></form>'+
+          '<p class="caption">Per creare o importare un bando occorre scegliere prima un A.A. verificato. L’anno sarà registrato nei Riferimenti del bando. La preparazione consente di caricare il PDF ufficiale prima delle candidature PICA.</p></div>'+
           '<div class="card"><h3 class="section-heading">Importa esportazione PICA</h3><div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div><p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file.</p></div>'+
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
           ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione','Archivio finale ZIP e chiusura del bando'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
@@ -411,8 +527,9 @@
           var btn=this.querySelector("button");btn.disabled=true;
           try{
             var code=this.elements.codice.value.trim();
+            if(!annoValido(state.year))throw new Error("Seleziona prima un anno accademico verificato.");
             var created=await api("bandi",{method:"POST",headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({codice:code})});
+              body:JSON.stringify({codice:code,anno_accademico:state.year})});
             await reload();
             state.active=created.codice;state.page="incarichi";
             localStorage.setItem("rankup_active",state.active);
@@ -425,9 +542,14 @@
       function render(){
         var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
-        $("crumb").textContent="RankUp / "+(state.active?state.active+" / ":"")+(titles[state.page]||state.page);
+        $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
+          (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
         document.querySelectorAll("#nav button").forEach(function(n){n.classList.toggle("active",n.dataset.page===state.page);});
         if(state.page==="dashboard")return dashboard();
+        if(!state.active && ["riferimenti","incarichi","candidature","commissioni",
+                            "schede","valutazioni","verbali","graduatorie"].includes(state.page)){
+          return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
+        }
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
           html(panel("Accesso riservato","La configurazione SSD è riservata all’Admin."));
         if(state.page==="commissioniarchivio")return state.role==="admin"?renderCommissioniGlobali():
@@ -1301,7 +1423,10 @@
                 body:JSON.stringify(payload)
               });
               note(result.modificato?"Riferimenti del bando salvati. Rigenera i PDF.":"Nessuna modifica ai riferimenti.",false);
-              renderBandoReferences();
+              if(state.year!==(payload.anno_accademico||NO_AA)){
+                state.year=payload.anno_accademico||NO_AA;
+              }
+              await reload();updateHeader();renderBandoReferences();
             }catch(error){note(error.message,true);button.disabled=false;}
           };
         }catch(error){note("Impossibile leggere i riferimenti del bando: "+error.message,true);}
@@ -1312,12 +1437,13 @@
         ["UNITN","UNITN"],["SSP","SSP"],["APSS","APSS"],["ASUIT O UNITN","ASUIT o UNITN"]
       ];
       async function preview(){
+        if(!annoValido(state.year)){note("Seleziona prima un anno accademico verificato.",true);return;}
         var file=$("pica-file").files[0];if(!file){note("Seleziona prima un file Excel.",true);return;}
         clearNote();var btn=$("preview-btn");btn.disabled=true;btn.textContent="Analisi...";
         try{
           var fd=new FormData();fd.append("file",file);
           var result=await api("pica/preview",{method:"POST",body:fd});
-          state.preview=result;var x=result.riepilogo;
+          state.preview=result;state.preview.anno_accademico=state.year;var x=result.riepilogo;
           var types=result.tipologie||[];
           var options=function(entry){
             return '<option value="">— Seleziona requisito —</option>'+
@@ -1360,7 +1486,8 @@
             mapped.push({chiave:t.chiave,requisito:requirement,motivo:reason.trim()});
           }
           var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({token:state.preview.token,tipologie:mapped})});
+            body:JSON.stringify({token:state.preview.token,tipologie:mapped,
+              anno_accademico:state.preview.anno_accademico})});
           await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
           updateHeader();render();note("Bando "+result.codice_bando+" importato con dizionario PICA.",false);
         }catch(error){note(error.message,true);btn.disabled=false;}
@@ -2346,9 +2473,19 @@
       }
       async function reload(){
         var result=await api("bandi");state.bandi=result.bandi;
-        if(!cur())state.active=state.bandi.length?state.bandi[0].codice:"";
-        updateHeader();
+        syncAcademicSelection();updateHeader();
       }
+      $("academic-year-select").onchange=function(){setAcademicYear(this.value);};
+      $("add-academic-year").onclick=function(){
+        var value=prompt("Indica l’anno accademico verificato (AAAA-AAAA):","");
+        if(value===null)return;
+        value=value.trim();
+        if(!annoValido(value)){
+          note("Anno accademico non valido. Utilizza AAAA-AAAA con due anni consecutivi.",true);
+          return;
+        }
+        clearNote();setAcademicYear(value);
+      };
       $("band-select").onchange=function(){setActive(this.value);};
       document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){go(b.dataset.page);};});
       checkAuthentication();
