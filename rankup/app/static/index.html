@@ -158,6 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
+  <link rel="stylesheet" href="static/workspace.css">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -382,7 +383,108 @@
         catch(error){/* La sessione potrebbe essere già scaduta. */}
         showLogin("");
       };
-      var html = function(content){$("content").innerHTML=content;};
+      const RU_PROCESS=[
+        ["riferimenti","Riferimenti"],["incarichi","Incarichi"],["candidature","Candidature"],
+        ["commissioni","Commissioni"],["schede","Schede PDF"],["valutazioni","Valutazioni"],
+        ["verbali","Verbali"],["graduatorie","Graduatorie"],["archivio","Archivio"]
+      ];
+      const RU_DESCRIPTIONS={
+        dashboard:"Quadro generale dei bandi e degli incarichi. Avvia o apri una procedura per proseguire.",
+        riferimenti:"Completa esclusivamente i riferimenti effettivi dell'avviso, prima di preparare gli atti.",
+        incarichi:"Controlla le coperture importate da PICA, i settori e i requisiti di ente.",
+        candidature:"Esamina le candidature per CdS e registra gli eventi amministrativi documentati.",
+        commissioni:"Associa e verifica le commissioni per CdS e sede prima delle schede di valutazione.",
+        schede:"Controlla i modelli SSD e genera i PDF editabili per le commissioni.",
+        verbali:"Verifica le schede, risolvi eventuali parità documentate e genera i verbali definitivi.",
+        graduatorie:"Predisponi la graduatoria generale e registra le approvazioni soltanto con i relativi atti.",
+        archivio:"Controlla le condizioni di chiusura, conserva gli ZIP e consulta i documenti storici.",
+        utenti:"Gestisci gli accessi e le credenziali degli operatori senza modificare le valutazioni.",
+        ssdconfig:"Configura l'associazione permanente tra SSD e modelli di valutazione.",
+        commissioniarchivio:"Consulta le commissioni conservate e riassociale solo dopo verifica documentale.",
+        azzeramento:"Operazione amministrativa distruttiva: verifica le conseguenze e il backup."
+      };
+      function rankupWorkspaceGuide(){
+        var page=state.page,desc=RU_DESCRIPTIONS[page]||"";
+        if(!desc)return "";
+        var i=RU_PROCESS.findIndex(function(p){return p[0]===page;});
+        var label=i>=0&&state.active
+          ?"FASE "+(i+1)+" DI "+RU_PROCESS.length
+          :page==="dashboard"?"PANORAMICA":"AMMINISTRAZIONE";
+        var nav="";
+        if(i>=0&&state.active){
+          var previous=i>0?RU_PROCESS[i-1]:null;
+          var next=i<RU_PROCESS.length-1?RU_PROCESS[i+1]:null;
+          if(next&&next[0]==="archivio"&&state.role!=="admin")next=null;
+          nav='<div class="ru-stage-navigation" aria-label="Passaggi del procedimento">'+
+            (previous?'<button type="button" data-ru-go="'+esc(previous[0])+'">← '+esc(previous[1])+'</button>':'')+
+            (next?'<button type="button" data-ru-go="'+esc(next[0])+'">'+esc(next[1])+' →</button>':'')+
+            '</div>';
+        }
+        return '<div class="ru-stage-banner"><div class="ru-stage-copy">'+
+          '<span class="ru-stage-index">'+esc(label)+'</span>'+
+          '<div><strong>'+esc(page==="dashboard"?"Panoramica generale":
+            page==="archivio"?"Archiviazione e consultazione":
+            "Obiettivo della sezione")+'</strong>'+
+          '<p>'+esc(desc)+'</p></div></div>'+nav+'</div>';
+      }
+      function enhanceWorkspaceTables(){
+        // Solo consultazione: mai filtrare tabelle con form, selezioni
+        // multiple o righe accoppiate a dettagli operativi.
+        if(["incarichi","candidature","valutazioni"].includes(state.page))return;
+        document.querySelectorAll(".ru-workspace .tablebox").forEach(function(box){
+          if(box.dataset.ruSearchReady)return;
+          var table=box.querySelector("table");
+          if(!table||!table.tBodies.length||table.tBodies[0].rows.length<8)return;
+          if(table.querySelector("tbody input, tbody select, tbody textarea, tbody details"))return;
+          var rows=[...table.tBodies[0].rows];
+          var outer=document.createElement("div");
+          outer.className="ru-table-tools";
+          var label=document.createElement("label");
+          label.textContent="Cerca nella tabella";
+          var input=document.createElement("input");
+          input.type="search";input.placeholder="Filtra le righe visualizzate...";
+          input.setAttribute("aria-label","Cerca tra le righe della tabella");
+          var counter=document.createElement("small");
+          counter.textContent=rows.length+" righe";
+          label.appendChild(input);
+          outer.appendChild(label);outer.appendChild(counter);
+          box.parentNode.insertBefore(outer,box);
+          var empty=document.createElement("div");
+          empty.className="ru-table-empty";empty.hidden=true;
+          empty.textContent="Nessuna riga corrisponde alla ricerca.";
+          box.parentNode.insertBefore(empty,box.nextSibling);
+          input.addEventListener("input",function(){
+            var q=input.value.trim().toLocaleLowerCase("it");
+            var n=0;
+            rows.forEach(function(row){
+              var visible=!q||row.textContent.toLocaleLowerCase("it").includes(q);
+              row.hidden=!visible;
+              if(visible)n++;
+            });
+            counter.textContent=n+" di "+rows.length+" righe";
+            empty.hidden=n>0;
+          });
+          box.dataset.ruSearchReady="1";
+        });
+      }
+      var html = function(content){
+        if(state.page==="valutazioni"||!content){
+          $("content").innerHTML=content;
+          return;
+        }
+        $("content").innerHTML='<div class="ru-workspace ru-page-'+
+          esc(state.page)+'">'+rankupWorkspaceGuide()+content+'</div>';
+        enhanceWorkspaceTables();
+      };
+      document.addEventListener("click",function(event){
+        var target=event.target.closest&&event.target.closest("[data-ru-go]");
+        if(!target)return;
+        var page=target.dataset.ruGo;
+        if(RU_PROCESS.some(function(x){return x[0]===page;})){
+          if(page==="archivio"&&state.role!=="admin")return;
+          go(page);
+        }
+      });
       var note = function(message,error){$("notification").innerHTML='<div class="'+(error?"error":"success")+' mb">'+esc(message)+'</div>';};
       var clearNote = function(){$("notification").innerHTML="";};
       var NO_AA="__non_associato__";
