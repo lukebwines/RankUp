@@ -12,26 +12,16 @@ from io import BytesIO
 import re
 import unicodedata
 from pypdf import PdfReader
+from score_rules import (
+    ORDINARY_MAX, ENGLISH_MAX, PROFESSIONAL_MAX,
+    AREA_LIMITS, TOTAL_LIMITS, fixed_value,
+    PRO_ACTIVITY_ALLOWED, PRO_PLUS_ALLOWED,
+)
 
 MAX_PDF_BYTES = 5 * 1024 * 1024
 MAX_BATCH_BYTES = 40 * 1024 * 1024
 MAX_BATCH_FILES = 120
 
-ORDINARY_MAX = {
-    **dict(zip((f"P{i:02d}" for i in range(1, 9)), (2, 2, 3, 2, 1, 1, 2, 2))),
-    "P09": 10, "P10": 10, "P11": 2, "P12": 3,
-    "P13": 10, "P14": 3, "P15": 7,
-}
-ENGLISH_MAX = {
-    **dict(zip((f"P{i:02d}" for i in range(1,8)),(2,3,2,1,1,2,2))),
-    "P08":10, "P09":5, "P10":2, "P11":3,
-    "P12":10, "P13":7,
-}
-PROFESSIONAL_MAX = {
-    **dict(zip((f"P{i:02d}" for i in range(1, 7)), (3, 1, 2, 2, 3, 4))),
-    "P14": 10, "P15": 2, "P16": 3, "P17": 7,
-    "P18": 3, "P19": 10,
-}
 # Voci effettive delle schede RankUp. Nessuna deduzione di idoneità
 # dal solo punteggio (nemmeno quando è superiore a zero).
 # Esiti correnti della Commissione: cinque voci comuni alle tre schede.
@@ -201,21 +191,22 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                 value = dec(field_value(fields, name))
                 if value < 0 or value > Decimal(maximum):
                     raise ValueError(f"{name} supera il massimale previsto ({maximum})")
-                if model == "inglese" and name in ("P02", "P05") and value not in (
+                if model == "inglese" and fixed_value(model, name) and value not in (
                     Decimal("0"), Decimal(maximum)
                 ):
                     raise ValueError(
                         f"{name}: punteggio fisso previsto dal modello ({maximum}); ammessi solo 0 o {maximum}"
                     )
-                if model != "inglese" and name in ("P14", "P18") and maximum == 3 and value not in (0, 3):
+                if model != "inglese" and fixed_value(model, name) and value not in (
+                    Decimal("0"), Decimal(maximum)
+                ):
                     raise ValueError(f"{name} ammette soltanto 0 o 3 punti")
                 scores[name] = value
             if candidate["modello"] == "professionalizzante":
                 for i in range(5):
                     activity = dec(field_value(fields, f"attivita{i}"))
                     extra = dec(field_value(fields, f"plus{i}"))
-                    if activity not in (Decimal("0"),Decimal("0.25"),Decimal("0.5"),
-                                        Decimal("1"),Decimal("1.5")) or extra not in (Decimal("0"),Decimal("0.5")):
+                    if activity not in PRO_ACTIVITY_ALLOWED or extra not in PRO_PLUS_ALLOWED:
                         raise ValueError("Punteggio attività professionale non ammesso")
                     subtotal = activity + extra
                     reported_subtotal = dec(field_value(fields, f"extraField{i}"))
@@ -230,14 +221,14 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                     sum(scores[f"P{i:02d}"] for i in range(14, 17)),
                     scores["P17"], scores["P18"], scores["P19"],
                 ]
-                limits = (15, 10, 15, 7, 3, 10)
+                limits = AREA_LIMITS[model]
             elif model=="inglese":
                 areas = [
                     sum(scores[f"P{i:02d}"] for i in range(1,8)),
                     sum(scores[f"P{i:02d}"] for i in range(8,12)),
                     scores["P12"], scores["P13"],
                 ]
-                limits = (13,20,10,7)
+                limits = AREA_LIMITS[model]
             else:
                 areas = [
                     sum(scores[f"P{i:02d}"] for i in range(1, 9)),
@@ -245,12 +236,12 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                     sum(scores[f"P{i:02d}"] for i in range(10, 13)),
                     scores["P13"], scores["P14"], scores["P15"],
                 ]
-                limits = (15, 10, 15, 10, 3, 7)
+                limits = AREA_LIMITS[model]
             for idx, (amount, limit) in enumerate(zip(areas, limits), 1):
                 if amount > limit:
                     raise ValueError(f"L'area {idx} supera il massimale di {limit} punti")
             total = sum(areas, Decimal("0"))
-            ceiling = 50 if model=="inglese" else 60
+            ceiling = TOTAL_LIMITS[model]
             if total > ceiling:
                 raise ValueError("Punteggio totale superiore a "+str(ceiling))
             result["punteggio"] = float(total)
