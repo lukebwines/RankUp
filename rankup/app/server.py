@@ -787,7 +787,7 @@ def backfill_incarichi_metadata() -> None:
 initialize()
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="0.9.18", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="0.9.19", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -809,9 +809,14 @@ async def require_rankup_login(request: Request, call_next):
     # formalmente. La barriera vale anche per gli operatori e le API.
     if request.method not in ("GET","HEAD","OPTIONS") and path.startswith("/api/bandi/"):
         parts=path.split("/")
-        if len(parts)>=4 and CODE_RE.fullmatch(parts[3]):
-            code=parts[3]
-            if path!="/api/bandi/"+code+"/archivio/riapri":
+        if len(parts)>=4:
+            # Anche gli handler convertono il codice in maiuscolo: applicare
+            # identica normalizzazione PRIMA di controllare lo stato. In caso
+            # contrario il percorso /abc-2026/ salterebbe il blocco di ABC-2026.
+            code=parts[3].upper()
+            is_formal_reopening=(len(parts)==6 and
+                                 parts[4:]==["archivio","riapri"])
+            if CODE_RE.fullmatch(code) and not is_formal_reopening:
                 with connect() as db:
                     existing=db.execute("SELECT stato FROM bandi WHERE codice=?",
                                         (code,)).fetchone()
@@ -1124,6 +1129,18 @@ def valid_code(code: str) -> str:
     return code
 
 
+def _require_bando_aperto(db: sqlite3.Connection, code: str) -> None:
+    """Controllo transazionale, da eseguire dopo BEGIN IMMEDIATE.
+
+    Evita che una richiesta ammessa dal middleware modifichi un bando
+    archiviato nel frattempo da un'altra connessione.
+    """
+    current=db.execute("SELECT stato FROM bandi WHERE codice=?",
+                       (code,)).fetchone()
+    if current and current["stato"]=="Archiviato":
+        fail("Bando archiviato e bloccato: richiedere la riapertura formale",409)
+
+
 def valid_anno_accademico(value: str) -> str:
     """A.A. dichiarato dall'operatore, mai presunto dall'anno corrente."""
     anno=str(value or "").strip()
@@ -1180,7 +1197,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.9.18"}
+    return {"status": "ok", "version": "0.9.19"}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1306,6 +1323,7 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
@@ -1440,6 +1458,7 @@ async def importa_bando_pdf_ente(code: str, request: Request, file: UploadFile =
     except Exception:
         fail("Impossibile estrarre il testo del PDF: verificare il documento",400)
     with connect() as db:
+        _require_bando_aperto(db,code)
         if not db.execute("SELECT 1 FROM bandi WHERE codice=?",(code,)).fetchone():
             fail("Bando non trovato",404)
     folder=SOURCES / code
@@ -1579,6 +1598,7 @@ def conferma_ente_incarico(code: str,key: str,body: RequisitoEnteInput,request: 
     now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         row=db.execute("""SELECT i.bando_id FROM incarichi i
                           JOIN bandi b ON b.id=i.bando_id
                           WHERE b.codice=? AND i.key=?""",(code,key)).fetchone()
@@ -1703,6 +1723,7 @@ def valuta_occupazione_scheda_restituita(code: str, pdf_id: int, request: Reques
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         # Confermare il collegamento anche al momento della registrazione.
         if not db.execute("""SELECT 1 FROM valutazioni_pdf
             WHERE id=? AND bando_id=? AND candidatura_id=?
@@ -2099,6 +2120,7 @@ def add_commissione(code: str, body: CommissioneInput):
     values = _commission_fields(body.model_dump())
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
@@ -2121,6 +2143,7 @@ def edit_commissione(code: str, commission_id: int, body: CommissioneInput):
     values = _commission_fields(body.model_dump())
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
@@ -2179,6 +2202,7 @@ def recupera_commissioni_globali(code: str,body: RecuperaCommissioniGlobali,
         fail("Commissioni duplicate nella selezione",400)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         refs=db.execute("""SELECT anno_accademico FROM bandi_riferimenti
@@ -2326,6 +2350,7 @@ async def import_commissioni(
     to_add = to_update = skipped = 0
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
@@ -2713,6 +2738,7 @@ async def preview_valutazioni(code: str, files: list[UploadFile] = File(...),
                              cds: str = "", sede: str = ""):
     code = valid_code(code)
     with connect() as db:
+        _require_bando_aperto(db,code)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if b is None:
             fail("Bando non trovato",404)
@@ -2823,6 +2849,7 @@ def confirm_valutazioni(code: str, body: ConfermaValutazioni):
         counts={"acquisite":0,"rettificate":0,"da_verificare":0,"duplicate":0}
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            _require_bando_aperto(db,code)
             b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
             if not b:
                 fail("Bando non trovato",404)
@@ -2947,6 +2974,7 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
         total=float(score)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         document=db.execute("""
@@ -3288,6 +3316,7 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
     code=valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         _assert_graduatoria_open(db,b["id"],body.cds,body.sede)
@@ -3395,6 +3424,7 @@ def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Req
     stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         row=db.execute("""
             SELECT id,stato,dati_json,hash_dati FROM graduatorie_cds
@@ -3467,6 +3497,7 @@ def vincitore_proposto_istruttorio(code: str,incarico_id: int,
     code=valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         job=db.execute("""SELECT cds,sede FROM incarichi WHERE id=? AND bando_id=?""",
@@ -3937,6 +3968,7 @@ def prepara_approvazione(code: str, body: PreparaApprovazione, request: Request)
         fail("Graduatorie duplicate non consentite")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         result=[]
@@ -3982,6 +4014,7 @@ def registra_approvazione(code: str, approval_id: int, body: ConfermaApprovazion
         fail("Indicare gli estremi verificati del provvedimento di approvazione")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         approval=db.execute("""SELECT id,stato,dati_json FROM graduatorie_approvazioni
@@ -4022,6 +4055,7 @@ def regredisci_approvazione_generale(code: str, approval_id: int,
     motivo,riferimento=_motivo_regressione(body,riferimento_obbligatorio=True)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         row=db.execute("""
@@ -4075,6 +4109,7 @@ def annulla_bozza_approvazione(code: str, approval_id: int, request: Request):
     code=valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         row=db.execute("""SELECT stato,dati_json FROM graduatorie_approvazioni
