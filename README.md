@@ -328,3 +328,26 @@ La pagina **Valutazioni** utilizza un foglio stile autonomo (`rankup/app/static/
 **Controllo dei numeri:** gli esiti conclusi e l'avanzamento derivano dalle candidature attive e dagli esiti acquisiti restituiti dal backend. Il conteggio «PDF da esaminare» riguarda i documenti segnalati nella vista corrente (non le schede ancora mancanti). La parità è segnalata separatamente dall'esito tecnico dei PDF. Le percentuali non rappresentano approvazioni formali dei verbali.
 
 Eseguire il collaudo della leggibilità e delle funzionalità interattive su Home Assistant Ingress e attraverso il tunnel remoto prima dell'uso operativo. La modifica visiva non sostituisce la verifica amministrativa dei documenti generati.
+
+
+## RankUP 0.9.25 — Usabilità delle altre sezioni (restyling globale)
+
+La Fase 1 della pagina **Valutazioni** introdotta in 0.9.24 è preservata; questa release migliora graficamente **tutte le altre sezioni** con un CSS dedicato (`rankup/app/static/workspace.css`) e poche interazioni locali, senza introdurre nuovi framework, API, dipendenze, migrazioni database o modifica ai punteggi.
+
+**Navigazione:** sidebar più leggibile e scorrevole; pagina attiva segnalata anche ad accessibilità (`aria-current`); ogni sezione presenta il proprio obiettivo, e le pagine del procedimento dispongono dei collegamenti alle fasi adiacenti. In area Admin non si inventano scadenze o riferimenti amministrativi.
+
+**Sezioni:**
+- Dashboard — maggiore evidenza delle metriche già disponibili, del bando selezionato e del flusso di lavoro.
+- Riferimenti — formulari e campi con spaziature e focus più accessibili.
+- Incarichi — ricerca testuale sul contenuto dell'incarico, compresi i dettagli PICA, senza cambiare o perdere gli originali; filtri CdS/sede invariati.
+- Candidature — ricerca per ID PICA, persona e incarico; filtro per stato amministrativo (Attiva, Rinunciata, Ritirata, Esclusa d'ufficio), con persistenza dei filtri durante la registrazione degli eventi e accesso allo storico.
+- Commissioni — riepilogo separato di composizioni associate, mancanti, incomplete e ambigue; editor e importazione mantenuti.
+- Schede PDF — riepilogo SSD ordinari, professionalizzanti, Inglese e da verificare; azioni e download inalterati.
+- Verbali — indicatori per documenti definitivi, approvati e ancora in lavorazione, preservando «Gestisci parità», storico e recupero del PDF.
+- Graduatorie — checkboxes per CdS definitivi in righe leggibili, conteggio approvazioni e bozze, procedimenti distinti per stato; PDF e prospetto interno invariati.
+- Archivio — condizionamenti alla chiusura più visibili, ricerca storica e lista ZIP più leggibili.
+- Amministrazione — gestione utenti, classificazioni SSD, anagrafica delle commissioni e azzeramento con tabelle e form coordinati, mentre le operazioni distruttive ricevono un trattamento di avvertimento separato.
+
+La ricerca aggiunta alle tabelle consultive è **locale**: non modifica i dati. È deliberatamente esclusa dalle tabelle con selezione multipla o operazioni che rischierebbero di agire su righe nascoste. Le autorizzazioni Admin/operatore restano quelle del server.
+
+**Collaudo:** suite GitHub Actions Python/JavaScript/ZIP e controlli statici UI. Per la qualità visiva e il flusso reale servono prove manuali su Home Assistant Ingress, con tema chiaro/scuro, desktop e mobile. Effettuare un backup dell'add-on prima dell'aggiornamento; non vi sono migrazioni dello schema database in questa release.
