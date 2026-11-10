@@ -1,5 +1,11 @@
 # RankUp
 
+## RankUP v1.0.2 — Archivio ZIP finale riservato all'Admin
+
+La voce **Archivio finale** del procedimento è ora visibile solo all'Admin. I controlli server già presenti vengono verificati con test di regressione: un operatore non può avviare la chiusura (né usare l'API sincrona), verificare lo stato del lavoro, consultare o scaricare gli ZIP finali, ricercare nell'archivio storico o riaprire un bando; tutte le API rispondono con HTTP 403. Lo **ZIP operativo delle schede** rimane disponibile anche agli operatori.
+
+La creazione dello ZIP definitivo e la chiusura formale rimangono un'unica operazione amministrativa, consentita solo dopo l'approvazione degli atti. Non sono modificati lo schema SQLite, i PDF, i contenuti degli archivi o le autorizzazioni dei flussi operativi. **L'archiviazione nell'add-on non equivale alla conservazione digitale a norma.**
+
 ## RankUP v1.0.1 — Allineamento badge dei verbali
 
 Correzione esclusivamente grafica: nella sezione Verbali, la dicitura di stato («In lavorazione», «Pronto», «Definitiva» e «Atti approvati») rimane allineata a destra anche quando la denominazione ufficiale del CdS occupa più righe. Il layout è adattivo sui dispositivi stretti. Nessuna variazione a database, atti, PDF, graduatorie, controlli o autorizzazioni.

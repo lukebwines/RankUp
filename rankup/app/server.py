@@ -851,7 +851,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.1", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.2", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1274,7 +1274,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.1", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.2", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
