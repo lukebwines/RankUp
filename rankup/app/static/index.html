@@ -610,7 +610,11 @@
                 ready?'Schede validate: la generazione del verbale ne registra automaticamente lo stato definitivo.':
                 esc(g.schede_da_risolvere)+' schede da completare o validare; risolvere anche eventuali parità e anomalie.')+'</p>'+
               '<div class="actions">'+
-              ((final||approved)
+              ((final||approved)&&!g.pdf_definitivo_presente
+                ? '<span class="caption">PDF storico definitivo non conservato; necessario recupero documentato.</span>'+
+                  (state.role==="admin"?'<button class="btn secondary" data-verb-recover="'+i+'">Recupera PDF storico</button>':'')
+                : '')+
+              ((final||approved)&&g.pdf_definitivo_presente
                 ? '<a class="btn" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
                   '&sede='+encodeURIComponent(g.sede)+'">Scarica verbale definitivo con schede</a>'+
@@ -722,6 +726,41 @@
               }catch(err){note(err.message,true);btn.disabled=false;}
             };
           });
+          document.querySelectorAll("[data-verb-recover]").forEach(function(btn){
+            btn.onclick=function(){
+              var g=shown[Number(btn.dataset.verbRecover)];
+              if(!g)return;
+              var picker=document.createElement("input");
+              picker.type="file";picker.accept=".pdf,application/pdf";
+              picker.onchange=async function(){
+                var file=picker.files&&picker.files[0];
+                if(!file)return;
+                var reason=prompt("Motivazione del recupero del PDF effettivamente adottato:");
+                if(reason===null)return;
+                var reference=prompt("Riferimento documentale verificato del verbale storico:");
+                if(reference===null)return;
+                if(reason.trim().length<10||reference.trim().length<5){
+                  note("Motivazione e riferimento obbligatori.",true);return;
+                }
+                if(!confirm("Hai verificato la corrispondenza del PDF con il verbale definitivo adottato per "+g.cds+" / "+g.sede+"?"))return;
+                var form=new FormData();
+                form.append("cds",g.cds);form.append("sede",g.sede);
+                form.append("motivazione",reason.trim());
+                form.append("riferimento",reference.trim());
+                form.append("conferma_corrispondenza","true");
+                form.append("file",file,file.name);
+                btn.disabled=true;
+                try{
+                  await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/recupera-pdf",{
+                    method:"POST",body:form
+                  });
+                  note("PDF storico conservato con impronta SHA-256.",false);
+                  renderVerbaliGraduatorie();
+                }catch(err){note(err.message,true);btn.disabled=false;}
+              };
+              picker.click();
+            };
+          });
           document.querySelectorAll("[data-verb-regress]").forEach(function(btn){
             btn.onclick=async function(){
               var g=shown[Number(btn.dataset.verbRegress)];
@@ -814,6 +853,10 @@
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">Scarica graduatoria generale PDF</a>'+
                 '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf?inline=true">Apri PDF nel browser</a>'+
+                (state.role==="admin"&&a.stato==="approvata"
+                  ? '<a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
+                    '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+
+                    '/prospetto-interno">Scarica prospetto nominativo · uso interno</a>' : '')+
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
@@ -2141,7 +2184,9 @@
             var scoring=r.decisione==="idoneo"?(r.totale_calcolato==null?"—":r.totale_calcolato):
               (r.decisione==="non_idoneo"||r.decisione==="escluso"?"Non attribuito":
                 provisional==null?"—":provisional+" (da convalidare)");
-            var status=valid?statusIcon(true)+" Scheda corrente":
+            var status=(valid&&r.verifica_parita)
+              ? '<span style="font-weight:700;color:#d77b3f">Da verificare per parità</span> · Scheda acquisita'
+              : valid?statusIcon(true)+" Scheda corrente":
               (r.stato==="Da verificare"||flagged)
                 ? '<span style="font-weight:700;color:#d77b3f">Da verificare</span>'+
                   (historyView&&!flagged?' · storico':'')
