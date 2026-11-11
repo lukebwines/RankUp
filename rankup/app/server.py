@@ -35,6 +35,7 @@ from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
 from ai_groq import (DEFAULT_GUIDANCE, GroqSecrets, GroqLimit, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
+from ai_ente_report import render_ente_report_pdf
 from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
                            DA_APPROFONDIRE, RULES_VERSION)
 from ai_ente_queue import (ensure_schema as ai_queue_schema, create_job as ai_create_job,
@@ -914,7 +915,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.10", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.11", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1338,7 +1339,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.10", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.11", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -3361,6 +3362,7 @@ def arresta_worker_ai():
 @app.get("/api/admin/ai/report.pdf")
 def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
                   esito: str=""):
+    """Report per CdS/sede: solo Admin, nessuna chiamata GroqCloud."""
     require_admin(request)
     if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
         fail("Filtro esito non valido",400)
@@ -3368,29 +3370,29 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
         results=ai_cases(db,bid,candidates,GROQ.model(),GROQ.guidance())
-    rows=[]
+    counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
     for item in results:
-        if esito and item["esito"]!=esito:
-            continue
-        findings=item.get("ai") or {}
-        details=item["verifiche"]
-        if findings.get("verifiche"):
-            details+=" Analisi AI orientativa: "+str(findings["verifiche"])
-        rows.append({"documento":{"id_pica":item["id_pica"],
-                     "insegnamento":item["insegnamento"]},
-                     "requisito":item["requisito"],
-                     "categoria_ente":item["categoria_ente"],
-                     "categoria_rapporto":item["categoria_rapporto"],
-                     "indizio":item["esito"],
-                     "motivo":item["motivo"],
-                     "verifiche":details})
-    # Elementi da approfondire prima: il PDF e' un elenco istruttorio,
-    # non un attestato dell'idoneita' di alcuna candidatura.
-    priority={DA_APPROFONDIRE:0,ENTE_COERENTE:1,NON_APPLICABILE:2}
-    rows.sort(key=lambda row:priority.get(row["indizio"],3))
-    payload=groq_report_pdf(code,cds or "Tutti",sede or "Tutte",rows)
+        counts[item["esito"]]+=1
+    included=[item for item in results if not esito or item["esito"]==esito]
+    payload=render_ente_report_pdf(
+        code,cds or "Tutti i CdS",sede or "Tutte le sedi",
+        included,counts,filter_text=esito)
+    # Nome leggibile anche quando si scaricano report di CdS differenti:
+    # sostituzione conservativa per sistemi Windows.
+    def part(value):
+        normal=re.sub(r"[^A-Za-z0-9]+","_",
+                      unicodedata.normalize("NFKD",str(value)).encode(
+                      "ascii","ignore").decode("ascii").upper()).strip("_")
+        return (normal or "TUTTI")[:24].rstrip("_")
+    label="_".join([part(code),part(cds),part(sede),
+                    part(esito or "TUTTI")])
+    # Digest del filtro originale per evitare collisioni fra CdS molto lunghi.
+    unique=hashlib.sha256(
+        json.dumps([code,cds,sede,esito],ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:6].upper()
+    filename="RANKUP_ENTE_"+label[:55].rstrip("_")+"_"+unique+".pdf"
     return Response(content=payload,media_type="application/pdf",headers={
-        "Content-Disposition":'attachment; filename="RankUP_ENTE_'+code+'.pdf"',
+        "Content-Disposition":'attachment; filename="'+filename+'"',
         "Cache-Control":"no-store"})
 
 # === Restituzione delle schede PDF: anteprima e conferma separata ===
