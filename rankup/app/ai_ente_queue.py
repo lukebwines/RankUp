@@ -137,8 +137,8 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
         if entry["richiede_ai"] and cached:
             entry["esito"]=esito_da_indizio(cached["indizio"])
             entry["motivo"]=cached["motivo"]
-            entry["verifiche"]=cached["verifiche"]+
-                " Il rapporto di lavoro personale resta da accertare."
+            entry["verifiche"]=(cached["verifiche"]+
+                " Il rapporto di lavoro personale resta da accertare.")
         entry.pop("payload",None)
         out.append(entry)
     return out
