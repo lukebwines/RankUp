@@ -36,6 +36,19 @@ _ALLOWED_RESULTS = {"INDIZI COERENTI", "POSSIBILE DISALLINEAMENTO", "DATI INSUFF
 _ALLOWED_REQUISITES = {"AOUI", "ASUIT", "SSN", "UNITN", "APSS", "SSP",
                        "ALTRO ATENEO", "ASUIT O UNITN", "NESSUNA RISERVA"}
 MAX_RESULT_LENGTH = 440
+MAX_GUIDANCE_LENGTH = 5000
+# Valori iniziali illustrativi: l'Admin puo' modificarli quando cambiano
+# assetti e denominazioni. Non sono dati di un singolo bando/candidato.
+DEFAULT_GUIDANCE = """INDICAZIONI GENERALI SUGLI ENTI — DA VALIDARE CON LE FONTI UFFICIALI
+- Il requisito SSN riguarda l'appartenenza al servizio sanitario nazionale o regionale.
+- AOUI Verona è un'azienda ospedaliera universitaria integrata del sistema sanitario pubblico veneto: SSN/AOUI è una corrispondenza istituzionale coerente.
+- ASUIT è un'azienda sanitaria pubblica del Trentino; APSS è la denominazione precedente nell'assetto provinciale. Per il requisito SSN, SSN/ASUIT e SSN/APSS sono coerenti a livello istituzionale.
+- L'Azienda sanitaria dell'Alto Adige è un ente sanitario pubblico provinciale; riconoscere la categoria SSP ove pertinente.
+- UNITN è un Ateneo, non prova di per sé la qualità di dipendente SSN.
+- Non confondere mai la natura pubblica o sanitaria di un'organizzazione con il rapporto personale di lavoro del candidato. Rapporto convenzionato, autonomo e dipendente non sono equivalenti senza specifica disposizione del bando.
+- Una categoria generica come STRUTTURA SANITARIA (SSN DA VERIFICARE) non dimostra l'appartenenza al SSN: usare DATI INSUFFICIENTI.
+- Se non è possibile stabilire la corrispondenza dall'informazione disponibile, usare DATI INSUFFICIENTI e suggerire una verifica manuale.
+Nessuna istruzione qui costituisce una fonte di fatto relativa al candidato né una decisione di idoneità."""
 MODEL_RE = re.compile(r"^[a-zA-Z0-9_.:/-]{2,125}$")
 SYSTEM_PROMPT = (
     "Sei un assistente amministrativo. Valuta esclusivamente l'eventuale "
@@ -232,6 +245,7 @@ class GroqSecrets:
         self.file=root/".groqcloud_key"
         self.model_file=root/"groqcloud_model.json"
         self.quota_file=root/"groqcloud_quota.json"
+        self.guidance_file=root/"groqcloud_guidance.txt"
     def key(self) -> str:
         try:
             return self.file.read_text("utf-8").strip()
@@ -243,6 +257,28 @@ class GroqSecrets:
             return data.get("model","") if MODEL_RE.fullmatch(data.get("model","")) else ""
         except (OSError,ValueError,TypeError):
             return ""
+    def guidance(self) -> str:
+        try:
+            value=self.guidance_file.read_text("utf-8")
+            return value if value.strip() and len(value)<=MAX_GUIDANCE_LENGTH else DEFAULT_GUIDANCE
+        except (OSError,UnicodeError):
+            return DEFAULT_GUIDANCE
+
+    def save_guidance(self,value: str) -> None:
+        if not isinstance(value,str):
+            raise ValueError("Istruzioni AI non valide")
+        value=value.strip()
+        if not value or len(value)>MAX_GUIDANCE_LENGTH:
+            raise ValueError("Inserire istruzioni generali (massimo 5000 caratteri)")
+        # Non inviare riferimenti identificativi del candidato nel prompt.
+        # Queste sono verifiche prudenziali, non controlli PII esaustivi.
+        if re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",value):
+            raise ValueError("Il prompt non deve contenere indirizzi email")
+        if re.search(r"\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b",value.upper()):
+            raise ValueError("Il prompt non deve contenere codici fiscali")
+        self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
+        _atomic_secret(self.guidance_file,value)
+
     def limits(self) -> dict:
         try:
             doc=json.loads(self.quota_file.read_text("utf-8"))
@@ -308,7 +344,7 @@ def models(key:str) -> list[str]:
                    and MODEL_RE.fullmatch(x["id"])})[:200]
 
 
-def analyze(key:str,model:str,payload:dict) -> dict:
+def analyze(key:str,model:str,payload:dict,guidance:str|None=None) -> dict:
     """Non accetta stringhe PICA complete; solo categorie whitelist."""
     expected={"requisito_ente","categoria_ente_dichiarato","categoria_rapporto_dichiarato"}
     if set(payload)!=expected:
@@ -323,10 +359,15 @@ def analyze(key:str,model:str,payload:dict) -> dict:
                 "motivo":"Non esistono categorie verificate sufficienti per l'analisi.",
                 "verifiche":"Verificare manualmente la dichiarazione e il requisito ufficiale.",
                 "origine":"locale","token_usati":0}
+    general=DEFAULT_GUIDANCE if guidance is None else guidance.strip()
+    if not general or len(general)>MAX_GUIDANCE_LENGTH:
+        raise ValueError("Istruzioni generali del modello non valide")
     params={
         "model":model,
         "messages":[
-            {"role":"system","content":SYSTEM_PROMPT},
+            {"role":"system","content":SYSTEM_PROMPT+
+             "\n\nRegole istituzionali generali configurate dall'Admin. "
+             "Applicarle solo alle categorie astratte e non alle persone:\n"+general},
             {"role":"user","content":json.dumps(payload,ensure_ascii=False)},
         ],
         "temperature":0.1,
