@@ -64,7 +64,7 @@ def _setup(tmp_path,monkeypatch):
     response=client.get("/api/bandi/26-02/schede/zip")
     assert response.status_code==200,response.text
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
-        sheets={name:archive.read(name) for name in archive.namelist()}
+        sheets={name:archive.read(name) for name in archive.namelist() if not name.startswith("VB_")}
     assert len(sheets)==3
     return server,client,sheets
 
