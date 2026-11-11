@@ -193,7 +193,12 @@ def test_candidate_identifiers_still_block_transmission():
         "id_pica":"SYNTH-0001",
         "occupazione":"Dipendente: +39 333 123 4567",
     })
-    assert set(business)=={"denominazione_ente_dichiarato","requisito_ente"}
+    assert set(business)=={
+        "denominazione_ente_dichiarato","requisito_ente",
+        "ateneo_dichiarato","occupazione_dichiarata",
+        "profilo_professionale_dichiarato","qualifica_dichiarata",
+    }
+    assert business["occupazione_dichiarata"]=="DENOMINAZIONE NON TRASMETTIBILE"
     assert business["denominazione_ente_dichiarato"]=="NATUS MEDICAL"
     assert "PersonaTest" not in str(business)
     assert "SYNTH-0001" not in str(business)
