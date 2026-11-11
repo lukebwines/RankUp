@@ -188,6 +188,9 @@ def _detail(item):
     title=identifier+"  |  "+candidate+"  |  "+course+" - "+seat
     result=[_p(title,DETAIL_HEAD),
             _p("Insegnamento: "+_safe(item.get("insegnamento")),SMALL)]
+    kind=str(item.get("tipo_approfondimento") or "").strip()
+    if kind:
+        result.append(_p("Tipo di approfondimento: "+kind,SMALL))
     # Queste voci sono presentate una sola volta per posizione, senza
     # sovrapporre il suggerimento AI alla verifica amministrativa.
     reason=str(item.get("motivo") or "").strip()
@@ -231,7 +234,7 @@ def render_ente_report_pdf(code:str,cds:str,sede:str,rows:list[dict],
         _p("Bando: "+_safe(code)+"   |   CdS: "+_safe(cds)+
            "   |   Sede: "+_safe(sede),NORMAL),
         _p("Filtro applicato: "+(filter_text or "Tutti gli esiti"),SMALL),
-        _p("Il prospetto confronta le categorie istituzionali delle "
+        _p("Il prospetto confronta le denominazioni istituzionali delle "
            "dichiarazioni PICA. Gli esiti sono indicativi: il rapporto "
            "di lavoro personale deve essere accertato separatamente.",SMALL),
         Spacer(1,8),
@@ -255,8 +258,19 @@ def render_ente_report_pdf(code:str,cds:str,sede:str,rows:list[dict],
           _p("Per ciascuna posizione sono riportati il motivo e il controllo "
              "suggerito una sola volta. Verificare sempre le dichiarazioni "
              "originali e le fonti ufficiali.",SMALL)])
+        by_issue=defaultdict(list)
         for item in flagged:
-            story.append(_detail(item))
+            by_issue[str(item.get("tipo_approfondimento") or "NON DEFINITO")].append(item)
+        priority=("ENTE NON DICHIARATO","FILTRO PRIVACY",
+                  "DATI INSUFFICIENTI","POSSIBILE DISALLINEAMENTO",
+                  "ERRORE TECNICO AI","IN ATTESA AI",
+                  "REQUISITO NON CLASSIFICATO")
+        for kind in sorted(by_issue, key=lambda v:(priority.index(v)
+                           if v in priority else len(priority),v)):
+            entries=by_issue[kind]
+            story.append(_p(kind+"  ("+str(len(entries))+" candidature)",GROUP))
+            for item in entries:
+                story.append(_detail(item))
     story.extend([Spacer(1,14),
         _p("Avvertenza",SECTION),
         _p(FOOTER_NOTICE,SMALL)])
