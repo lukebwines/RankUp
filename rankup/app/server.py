@@ -3333,24 +3333,38 @@ def arresta_worker_ai():
 
 
 @app.get("/api/admin/ai/report.pdf")
-def report_ai_pdf(request: Request,code: str,cds: str="",sede: str=""):
+def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
+                  esito: str=""):
     require_admin(request)
-    model=GROQ.model()
+    if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
+        fail("Filtro esito non valido",400)
+    code=valid_code(code)
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
-        results,_=_ai_result_rows(db,bid,candidates,model)
+        results=ai_cases(db,bid,candidates,GROQ.model())
     rows=[]
     for item in results:
+        if esito and item["esito"]!=esito:
+            continue
+        findings=item.get("ai") or {}
+        details=item["verifiche"]
+        if findings.get("verifiche"):
+            details+=" Analisi AI orientativa: "+str(findings["verifiche"])
         rows.append({"documento":{"id_pica":item["id_pica"],
                      "insegnamento":item["insegnamento"]},
                      "requisito":item["requisito"],
                      "categoria_ente":item["categoria_ente"],
-                     "indizio":item["indizio"],
+                     "categoria_rapporto":item["categoria_rapporto"],
+                     "indizio":item["esito"],
                      "motivo":item["motivo"],
-                     "verifiche":item["verifiche"]})
+                     "verifiche":details})
+    # Elementi da approfondire prima: il PDF e' un elenco istruttorio,
+    # non un attestato dell'idoneita' di alcuna candidatura.
+    priority={DA_APPROFONDIRE:0,ENTE_COERENTE:1,NON_APPLICABILE:2}
+    rows.sort(key=lambda row:priority.get(row["indizio"],3))
     payload=groq_report_pdf(code,cds or "Tutti",sede or "Tutte",rows)
     return Response(content=payload,media_type="application/pdf",headers={
-        "Content-Disposition":'attachment; filename="RankUP_AI_ENTE_'+code+'.pdf"',
+        "Content-Disposition":'attachment; filename="RankUP_ENTE_'+code+'.pdf"',
         "Cache-Control":"no-store"})
 
 # === Restituzione delle schede PDF: anteprima e conferma separata ===
