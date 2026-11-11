@@ -4,7 +4,7 @@ from io import BytesIO
 
 from pypdf import PdfReader
 from test_pdf_import import _setup, _post, _edit, _preview, _confirm
-from test_graduatorie import _complete_all
+from test_graduatorie import _complete_all, _prepare_narrative
 
 
 def _approve(client):
@@ -60,6 +60,7 @@ def test_tutte_ritirate_verbale_senza_schede_fittizie(tmp_path,monkeypatch):
         assert group["totale_candidature"]==0
         assert group["totale_annullate"]==3
         assert group["verbale_generabile"] is True
+        _prepare_narrative(client)
         final=_post(client,base+"/verbali/graduatorie/genera-definitivo",
                     json={"cds":group["cds"],"sede":group["sede"]})
         assert final.status_code==200,final.text
