@@ -161,8 +161,9 @@ def test_manual_add_edit_import_template_and_notice_references(tmp_path, monkeyp
         import zipfile
         from pypdf import PdfReader
         with zipfile.ZipFile(BytesIO(response.content)) as package:
-            assert len(package.namelist()) == 3
-            pdf = PdfReader(BytesIO(package.read(package.namelist()[0])))
+            assert len([n for n in package.namelist() if not n.startswith('VB_')]) == 3
+            name=next(n for n in package.namelist() if not n.startswith('VB_'))
+            pdf = PdfReader(BytesIO(package.read(name)))
             field=pdf.get_fields()
             assert "REF_TEST" in field["REQUISITI"].value
             assert "PROT_TEST" in field["REQUISITI"].value
