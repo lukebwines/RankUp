@@ -423,7 +423,8 @@ def report_pdf(code:str,cds:str,sede:str,rows:list[dict]) -> bytes:
             p("ID PICA: "+str(pair["id_pica"])+" | Incarico: "+pair["insegnamento"],base),
             p("Requisito: "+item["requisito"]+" | Ente dichiarato (categoria): "+
               item["categoria_ente"]),
-            p("Esito istruttorio: "+item["indizio"]),
+            p("Rapporto dichiarato (categoria): "+str(item.get("categoria_rapporto") or "NON DETERMINABILE")),
+            p("Esito istituzionale istruttorio: "+item["indizio"]),
             p("Motivo: "+item["motivo"]),
             p("Da verificare: "+item["verifiche"]),
             Spacer(1,9)]))
