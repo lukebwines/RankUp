@@ -5,7 +5,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 from test_pdf_import import _setup, _post
-from test_graduatorie import _complete_all
 from ai_groq import prepare_minimal_payload, GroqLimit
 
 HEADERS = {"X-RankUp-Request": "1"}
@@ -69,7 +68,7 @@ def test_admin_only_and_private_key(tmp_path,monkeypatch):
                 json={"code":"26-02"}).status_code==403
 
 
-def test_analysis_runs_after_sheets_and_stores_only_local_id(tmp_path,monkeypatch):
+def test_analysis_runs_on_current_PICA_occupations_without_evaluation_sheets(tmp_path,monkeypatch):
     server,admin,sheets=_setup(tmp_path,monkeypatch)
     with admin:
         config=admin.put("/api/admin/ai/config",headers=HEADERS,json={
@@ -88,17 +87,15 @@ def test_analysis_runs_after_sheets_and_stores_only_local_id(tmp_path,monkeypatc
                     "motivo":"Informazioni insufficienti per confermare il rapporto.",
                     "verifiche":"Verificare la posizione dichiarata presso l'ente."}
         monkeypatch.setattr(server,"groq_analyze",fake_analyze)
-        # Prima della restituzione delle schede non analizza candidature.
-        before=_post(admin,"/api/admin/ai/analizza-passo",json={"code":"26-02"})
-        assert before.status_code==200,before.text
-        assert before.json()["nuovi"]==0
-        assert not sent
-        _complete_all(admin,sheets)
+        # Le valutazioni non sono state importate, ma PICA è già presente:
+        # l'analisi dell'occupazione deve essere disponibile indipendentemente.
         with server.connect() as db:
             start=db.execute("SELECT COUNT(*) FROM valutazioni_pdf WHERE stato='Acquisita'").fetchone()[0]
+        assert start==0
         first=_post(admin,"/api/admin/ai/analizza-passo",json={"code":"26-02"})
         assert first.status_code==200,first.text
         assert first.json()["nuovi"]==3
+        assert len(sent)==3
         result=admin.get("/api/admin/ai/risultati?code=26-02")
         assert result.status_code==200,result.text
         body=result.json()
@@ -126,7 +123,6 @@ def test_analysis_runs_after_sheets_and_stores_only_local_id(tmp_path,monkeypatc
 def test_rate_limit_preserves_previous_results(tmp_path,monkeypatch):
     server,client,sheets=_setup(tmp_path,monkeypatch)
     with client:
-        _complete_all(client,sheets)
         response=client.put("/api/admin/ai/config",headers=HEADERS,json={
             "model":"llama-3.3-70b-versatile",
             "api_key":"groq_fake_key_1234567890"})
@@ -140,3 +136,80 @@ def test_rate_limit_preserves_previous_results(tmp_path,monkeypatch):
         assert result.json()["retry_after"]==70
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM ai_ente_verifiche").fetchone()[0]==0
+
+
+
+def test_models_endpoint_reports_groq_error_and_quota(tmp_path,monkeypatch):
+    server,client,_=_setup(tmp_path,monkeypatch)
+    with client:
+        assert client.put("/api/admin/ai/config",headers=HEADERS,
+            json={"model":"openai/gpt-oss-120b","api_key":"groq_fake_key_1234567890"}).status_code==200
+        def limit(*_):
+            raise GroqLimit(45)
+        monkeypatch.setattr(server,"groq_models",limit)
+        result=client.get("/api/admin/ai/modelli")
+        assert result.status_code==429,result.text
+        assert result.headers.get("retry-after")=="45"
+        assert "limite richieste" in result.json()["detail"]
+        def not_allowed(*_):
+            raise ValueError("GroqCloud HTTP 401: chiave API mancante, revocata o non valida")
+        monkeypatch.setattr(server,"groq_models",not_allowed)
+        result=client.get("/api/admin/ai/modelli")
+        assert result.status_code==502,result.text
+        assert "HTTP 401" in result.json()["detail"]
+        assert "groq_fake_key" not in result.text
+
+
+def test_live_model_probe_is_synthetic_and_does_not_touch_pica(tmp_path,monkeypatch):
+    server,client,_=_setup(tmp_path,monkeypatch)
+    with client:
+        assert client.put("/api/admin/ai/config",headers=HEADERS,
+            json={"model":"openai/gpt-oss-120b","api_key":"groq_fake_key_1234567890"}).status_code==200
+        observed=[]
+        def fake_analyze(key,model,payload):
+            assert key=="groq_fake_key_1234567890"
+            assert model=="openai/gpt-oss-120b"
+            observed.append(payload)
+            return {"indizio":"INDIZI COERENTI",
+                    "motivo":"Caso esclusivamente sintetico",
+                    "verifiche":"Verifica documentale",
+                    "origine":"groqcloud","token_usati":42}
+        monkeypatch.setattr(server,"groq_analyze",fake_analyze)
+        response=_post(client,"/api/admin/ai/test")
+        assert response.status_code==200,response.text
+        assert response.json()["token_usati"]==42
+        assert observed==[{
+            "requisito_ente":"AOUI",
+            "categoria_ente_dichiarato":"AOUI",
+            "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
+        }]
+        with server.connect() as db:
+            assert db.execute("SELECT COUNT(*) FROM ai_ente_verifiche").fetchone()[0]==0
+
+
+def test_prepares_json_mode_and_reads_usage_without_pica_identifiers(monkeypatch):
+    import ai_groq
+    payload={
+        "requisito_ente":"AOUI",
+        "categoria_ente_dichiarato":"AOUI",
+        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
+    }
+    outbound=[]
+    def fake_json(url,key,body):
+        outbound.append(body)
+        return {
+            "choices":[{"message":{"content":
+                '{"indizio":"INDIZI COERENTI","motivo":"Categoria compatibile",'
+                '"verifiche":"Verificare rapporto attivo"}'}}],
+            "usage":{"total_tokens":130},
+        }
+    monkeypatch.setattr(ai_groq,"_fetch_json",fake_json)
+    answer=ai_groq.analyze("groq_fake","openai/gpt-oss-120b",payload)
+    assert answer["origine"]=="groqcloud"
+    assert answer["token_usati"]==130
+    assert len(outbound)==1
+    assert outbound[0]["response_format"]=={"type":"json_object"}
+    assert outbound[0]["reasoning_effort"]=="low"
+    assert outbound[0]["include_reasoning"] is False
+    assert "id_pica" not in str(outbound)
+    assert "cognome" not in str(outbound)
