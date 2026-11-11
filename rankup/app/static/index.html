@@ -1829,7 +1829,9 @@
           '<button class="btn" type="submit">Salva istruzioni AI</button>'+
           '<button class="btn secondary" type="button" id="ai-guidance-reset">Ripristina suggerite</button>'+
           '</div></form>'+
-          '<p class="caption">Modificando il prompt, le nuove analisi useranno le nuove istruzioni '+
+          '<p class="caption">Per riesaminare pochi casi senza invalidare gli altri, usa Rianalizza casi selezionati. '+
+          'Le precisazioni istituzionali v1.0.14 sono già attive. Modificando il prompt generale, '+
+          'le nuove analisi useranno le nuove istruzioni '+
           'e i risultati precedenti non saranno riutilizzati automaticamente. '+
           'Le analisi già in coda mantengono le istruzioni originali.</p></div>');
         try{
@@ -2172,8 +2174,8 @@
             seats.map(function(v){return '<option value="'+esc(v)+'">'+esc(v)+'</option>';}).join("");
         }
         seatOptions();
-        $("ai-cds").onchange=function(){seatOptions();loadResults();poll();updateReport();};
-        $("ai-sede").onchange=function(){loadResults();poll();updateReport();};
+        $("ai-cds").onchange=function(){selectedIds.clear();updateSelectionButtons();seatOptions();loadResults();poll();updateReport();};
+        $("ai-sede").onchange=function(){selectedIds.clear();updateSelectionButtons();loadResults();poll();updateReport();};
         $("ai-esito").onchange=function(){updateReport();loadResults();};
         $("ai-tipo").onchange=function(){updateReport();loadResults();};
         document.querySelectorAll("[data-ai-filter]").forEach(function(btn){
