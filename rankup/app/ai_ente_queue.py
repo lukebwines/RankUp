@@ -16,7 +16,8 @@ import sqlite3
 import time
 
 from ai_ente_rules import RULES_VERSION, classifica_ente, esito_da_indizio
-from ai_groq import GroqLimit, GroqInvalidResponse, prepare_minimal_payload, DEFAULT_QUOTA
+from ai_groq import (GroqLimit, GroqInvalidResponse, prepare_minimal_payload,
+                     DEFAULT_QUOTA, ENT_E_MISSING, ENT_E_PRIVATE)
 
 ACTIVE = ("in_coda", "in_corso", "attesa_quota", "sospesa")
 TERMINAL = ("completata", "annullata", "errore")
@@ -115,9 +116,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _hash(payload:dict, model:str, guidance:str) -> str:
+LEGACY_RULES_VERSION = "ente-denominazione-originale-v4"
+
+
+def _hash(payload:dict, model:str, guidance:str,
+          version:str=RULES_VERSION) -> str:
     # Cambio regole = invalidazione della cache, senza perdere lo storico.
-    blob=json.dumps({"data":payload,"model":model,"rules":RULES_VERSION,
+    blob=json.dumps({"data":payload,"model":model,"rules":version,
                      "guidance":guidance},
                     sort_keys=True,ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
@@ -146,7 +151,8 @@ def _find_cached(db, bid:int, digest:str, model:str,
 
 
 def _find_cached_for_candidate(db,bid:int,digest:str,model:str,
-                               candidate_id:int,incarico_id:int):
+                               candidate_id:int,incarico_id:int,
+                               version:str=RULES_VERSION):
     """Esito attuale per candidato: priorita' alle revisioni mirate proprie.
 
     L'esito di una revisione mirata non altera i candidati estranei, anche
@@ -167,7 +173,7 @@ def _find_cached_for_candidate(db,bid:int,digest:str,model:str,
                      AND e.esito_id=a.id)
           )
         ORDER BY a.id DESC LIMIT 1
-    """,(bid,digest,model,RULES_VERSION,candidate_id,incarico_id,
+    """,(bid,digest,model,version,candidate_id,incarico_id,
          candidate_id,incarico_id)).fetchone()
 
 def classifications(candidates: list[dict]) -> list[dict]:
@@ -198,9 +204,24 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
         row=db.execute("""SELECT id FROM incarichi
             WHERE bando_id=? AND key=?""",(bid,entry["incarico_key"])).fetchone()
         if not row:continue
-        digest=_hash(entry["payload"],model,guidance)
+        payload=entry["payload"]
+        digest=_hash(payload,model,guidance)
         cached=_find_cached_for_candidate(db,bid,digest,model,entry["id"],row["id"])
+        historical=False
+        # Mostra lo storico v1.0.15 senza attribuirgli l'analisi dei campi
+        # BD/BM/BA/BO. I nuovi lavori utilizzano sempre il payload completo.
+        if not cached and entry["richiede_ai"]:
+            bb=payload["denominazione_ente_dichiarato"]
+            if bb not in (ENT_E_MISSING,ENT_E_PRIVATE):
+                original={"requisito_ente":payload["requisito_ente"],
+                          "denominazione_ente_dichiarato":bb}
+                previous=_hash(original,model,guidance,LEGACY_RULES_VERSION)
+                cached=_find_cached_for_candidate(db,bid,previous,model,
+                    entry["id"],row["id"],LEGACY_RULES_VERSION)
+                historical=cached is not None
         entry["ai"]=dict(cached) if cached else None
+        if historical:
+            entry["valutazione_storica"]=True
         technical=anomalies.get((entry["id"],row["id"]))
         if entry["richiede_ai"] and not cached and technical:
             entry["motivo"]="Errore tecnico AI: nessuna conclusione registrata."
@@ -209,10 +230,15 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
             entry["tipo_approfondimento"]="ERRORE TECNICO AI"
         if entry["richiede_ai"] and cached:
             entry["esito"]=esito_da_indizio(cached["indizio"])
-            entry["tipo_approfondimento"]=cached["indizio"]
+            entry["tipo_approfondimento"]=(
+                "VALUTAZIONE STORICA (SOLO AZIENDA/ENTE)"
+                if historical else cached["indizio"])
             entry["motivo"]=cached["motivo"]
             entry["verifiche"]=(cached["verifiche"]+
-                " Il rapporto di lavoro personale resta da accertare.")
+                (" Esito storico: Ateneo, Occupazione, Profilo e Qualifica "
+                 "NON esaminati; rianalisi completa consigliata."
+                 if historical else
+                 " Il rapporto di lavoro personale resta da accertare."))
         entry.pop("payload",None)
         out.append(entry)
     return out
