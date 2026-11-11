@@ -1779,8 +1779,8 @@
       }
 
 
-      // GroqCloud: invia denominazione ente minimizzata e requisito, senza informazioni sul rapporto personale.
-      // ID PICA, nomi, recapiti, CF, PDF e dichiarazioni PICA integrali restano locali.
+      // GroqCloud: invia cinque campi lavorativi minimizzati e il requisito del bando.
+      // ID PICA, nomi, contatti, CF e PDF restano locali.
       // Configurazione globale: non dipende da un bando selezionato.
       async function renderAISettings(){
         if(state.role!=="admin")return;
@@ -1789,8 +1789,8 @@
           'Il controllo delle dichiarazioni PICA si svolge invece in '+
           '<strong>Procedimento del bando → Verifica requisito ente</strong>.</p>'+
           '<div class="notice"><strong>Privacy:</strong> RankUP invia al provider soltanto '+
-          'denominazione istituzionale minimizzata e requisito; ID PICA, qualifica, nominativi, '+
-          'CF, documenti e dichiarazioni integrali rimangono locali. I campi sospetti non sono inviati.</div>'+
+          'Azienda/ente, Ateneo, Occupazione, Profilo e Qualifica minimizzati e requisito; ID PICA, nominativi, '+
+          'CF, documenti e dichiarazioni integrali rimangono locali. I singoli campi sospetti non sono inviati.</div>'+
           '<form id="ai-config" class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
           '<label>Modello GroqCloud<input id="ai-model" maxlength="125" list="ai-models" '+
           'placeholder="ID modello" required></label><datalist id="ai-models"></datalist>'+
@@ -1933,7 +1933,7 @@
         var ENTE_OK="ENTE COERENTE", DA_VEDERE="DA APPROFONDIRE", NA="NON APPLICABILE";
         html('<div class="card mb"><h3 class="section-heading">Verifica requisito ente · Bando '+esc(code)+'</h3>'+
           '<p class="caption">Classificazione istruttoria delle dichiarazioni di occupazione, '+
-          'azienda/ente e profilo professionale PICA. '+
+          'azienda/ente, ateneo, profilo professionale e qualifica PICA. '+
           'La coerenza istituzionale non prova il rapporto di dipendenza e non determina idoneità.</p>'+
           '<div class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
           '<label style="flex:3;min-width:210px">Corso di Studio<select id="ai-cds"><option value="">Tutti i CdS</option></select></label>'+
@@ -1956,11 +1956,12 @@
           '<div class="card"><h3 class="section-heading">Coda AI · Confronto istituzionale</h3>'+
           '<p class="caption">GroqCloud confronta la denominazione dichiarata dell’ente sulla base delle istruzioni '+
           'generali personalizzabili in Amministrazione. Localmente RankUP esclude '+
-          'i casi senza requisito, denominazione o con possibili dati personali. '+
-          'Gli esiti si riutilizzano se dati, modello e prompt coincidono.</p>'+
+          'i campi con possibili dati personali. Se BB manca, considera BD e BM. '+
+          'I precedenti esiti restano nello storico; i nuovi elaborano tutti i campi.</p>'+
           '<label style="display:flex;gap:9px;align-items:center;margin:12px 0">'+
           '<input id="ai-consent" type="checkbox">Confermo le condizioni per l’invio a GroqCloud '+
-          'della sola denominazione di ente minimizzata e del requisito. La qualifica rimane locale.</label>'+
+          'del requisito e dei campi Azienda/ente, Ateneo, Occupazione, Profilo professionale e '+
+          'Qualifica minimizzati. Non vengono inviati nominativi, contatti, CF o documenti.</label>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px">'+
           '<button class="btn" type="button" id="ai-run">Avvia o recupera analisi</button>'+
           '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza tutte (forzato)</button>'+
@@ -2053,7 +2054,7 @@
                   '<td>'+esc(candidato||'[DA VERIFICARE]')+'</td>'+
                   '<td>'+esc(row.cds+' · '+row.sede)+'</td>'+
                   '<td>'+esc(row.requisito)+'</td>'+
-                  '<td>'+esc(row.categoria_ente)+'</td>'+
+                  '<td>'+esc(row.categoria_ente)+(row.fonti_pica&&row.fonti_pica.length?'<div class="caption">Campi: '+esc(row.fonti_pica.join(', '))+'</div>':'')+'</td>'+
                   '<td>'+esc(row.categoria_rapporto)+'</td>'+
                   '<td><span class="ru-ai-pill '+klass+'">'+esc(label)+'</span></td>'+
                   '<td>'+esc(row.tipo_approfondimento||'—')+'</td>'+
