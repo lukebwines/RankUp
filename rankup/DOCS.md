@@ -212,3 +212,15 @@ La Commissione compila data, ora e discussione. Il campo discussione può scorre
 In **Riferimenti del bando** l'operatore inserisce il testo autentico delle disposizioni da citare. La schermata **Verbali** acquisisce il PDF compilato e conserva versione originale e copia statica; eventuali versioni precedenti rimangono archiviate. Non usare **Valutazioni** per il documento descrittivo.
 
 La generazione del verbale definitivo verifica che il PDF descrittivo sia acquisito e che la fonte non sia cambiata. Produce nell'ordine: descrittivo statico, graduatoria/verbale CdS, schede individuali non editabili. I riquadri dei campi data e ora non compaiono nel PDF finale. Le versioni già definitive non vengono riscritte. La migrazione dello schema da v4 a v5 esegue uno snapshot SQLite preventivo. L'archiviazione finale comprende tutte le versioni originali e statiche del verbale descrittivo.
+
+
+## RankUP v1.0.4 — Assistente AI GroqCloud
+
+L'Assistente AI è accessibile esclusivamente all'Admin. Il controllo è **solo sul requisito di ente** dopo l'acquisizione delle schede PICA. RankUP trasforma localmente denominazione dell'ente e rapporto dichiarato in categorie istituzionali non identificative: sono le sole informazioni inviate al modello GroqCloud insieme al codice del requisito. Non trasmette ID PICA, nominativi, codice fiscale, recapiti, PDF, dichiarazioni originali, punteggi o graduatorie. **ID PICA è conservato localmente** per associare correttamente l'analisi al candidato e compare nel report.
+
+La chiave API è configurata dall'Admin nell'applicazione e viene salvata solo in `/data/.groqcloud_key`, con permessi 0600: non viene inserita nel repository, nel database o nelle risposte del server. Il modello viene scelto nell'interfaccia usando la lista dei modelli effettivamente disponibili nel proprio account.
+
+Gli esiti del controllo sono istruttori (indizi coerenti, possibile disallineamento, dati insufficienti). **Non producono decisioni di idoneità, esclusioni o modifiche di punteggi, schede o graduatorie.** Gli esiti sono conservati localmente nel database per CdS/sede e possono essere esportati in PDF con ID PICA; le nuove analisi con modello o dati cambiati richiedono una nuova esecuzione. Lo stato della verifica è persistente e l'analisi può riprendere dopo un limite di quota del provider, senza ripetere gli esiti validi.
+
+Il flusso prevede una conferma esplicita prima dell'uso della rete. L'Admin deve verificare la conformità dell'uso del provider esterno alle regole dell'Ateneo, comprese le impostazioni di conservazione dati del provider. Per massima cautela può attivare Zero Data Retention (ZDR) dalle impostazioni GroqCloud, se disponibile.
+
