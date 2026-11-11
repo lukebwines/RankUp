@@ -228,7 +228,7 @@ def analyze(key:str,model:str,payload:dict) -> dict:
     try:
         txt=res["choices"][0]["message"]["content"].strip()
         txt=re.sub(r"^"+r"'''" +r"(?:json)?\s*|"+r"\s*'''" +r"$","",txt)
-        txt=re.sub(r"^"+r"&#96;{3}(?:json)?\s*|"+r"\s*&#96;{3}"+r"$","",txt)
+        txt=re.sub(r"^```(?:json)?\s*|\s*```$", "",txt)
         obj=json.loads(txt)
         if not isinstance(obj,dict) or obj.get("indizio") not in _ALLOWED_RESULTS:
             raise ValueError("Esito non valido")
