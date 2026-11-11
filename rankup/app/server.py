@@ -33,7 +33,7 @@ from pypdf import PdfReader, PdfWriter
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_groq import (DEFAULT_GUIDANCE, GroqSecrets, GroqLimit, prepare_minimal_payload, source_hash as groq_source_hash,
+from ai_groq import (DEFAULT_GUIDANCE, GroqSecrets, GroqLimit, role_category, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
 from ai_ente_report import render_ente_report_pdf
 from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
@@ -3011,7 +3011,6 @@ def prova_modello_groq(request: Request):
     synthetic={
         "requisito_ente":"AOUI",
         "denominazione_ente_dichiarato":"AOUI VERONA",
-        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
     }
     try:
         result=groq_analyze(key,model,synthetic)
@@ -3160,7 +3159,8 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,(bid,int(original["id"]),int(fresh["incarico_id"]),source,model,
                  minimal["requisito_ente"],minimal["denominazione_ente_dichiarato"],
-                 minimal["categoria_rapporto_dichiarato"],outcome["indizio"],
+                 role_category(str(original.get("occupazione") or ""),
+                               str(original.get("profilo_professionale") or "")),outcome["indizio"],
                  outcome["motivo"],outcome["verifiche"],who["username"],
                  datetime.now(timezone.utc).isoformat(timespec="seconds")))
             db.commit()
