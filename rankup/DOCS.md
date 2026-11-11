@@ -243,3 +243,10 @@ Il modello `openai/gpt-oss-120b` è compatibile con GroqCloud, ma un errore HTTP
 - **Test AI con dati sintetici** effettua una chiamata reale al modello per controllare generazione e token, senza comunicare i dati PICA.
 - Gli ID PICA rimangono nell'applicazione; l'analisi utilizza occupazione, azienda/ente e profilo professionale PICA, convertiti *in locale* in categorie. Nessuna modifica alle schede o alle graduatorie.
 
+
+
+## Verifica requisito ente v1.0.9
+
+Impostazioni AI (Admin): chiave, modello, limiti di quota e testo del prompt istituzionale personalizzabile. Non inserire dati PICA identificativi nelle istruzioni. Le equivalenze AOUI/ASUIT/APSS/SSN sono indicate all'AI nel prompt, non decise localmente. Il controllo locale si limita alle categorie PICA e ai casi senza requisito o senza dati sufficienti. La verifica del rapporto di lavoro resta separata.
+
+Nel procedimento del bando, Verifica requisito ente mostra i filtri Non applicabile, Ente coerente e Da approfondire, per CdS e sede, con report PDF. Il worker SQLite v7 conserva avanzamento, pause HTTP 429, controlli completati e stime delle quote; Sospendi/Riprendi/Annulla sono operazioni Admin. Cache per combinazioni di categorie, modello, regole e prompt, anche fra candidature diverse dello stesso bando, senza trasmettere ID PICA. Una modifica del prompt non altera gli esiti precedenti e si applica soltanto ai nuovi lavori.
