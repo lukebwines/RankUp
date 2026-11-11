@@ -3289,7 +3289,7 @@ def avvia_analisi_ente(body:AccodaAnalisiEnte,request:Request):
                 fail("Selezione non inviabile: ente assente, requisito non valido o dati protetti",400)
         job=ai_create_job(db,bid,valid_code(body.code),body.cds,body.sede,
                           model,candidates,who["username"],GROQ.guidance(),
-                          bool(body.forza or selected))
+                          bool(body.forza or selected),targeted=bool(selected))
         if selected and job.get("gia_esistente"):
             fail("Una coda e' gia' attiva per questo CdS/sede: attenderne il termine",409)
     AI_WORKER_STOP_WAKE.set()
