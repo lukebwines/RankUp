@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.9">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.10">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -172,6 +172,8 @@
     <symbol id="ri-archive" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="5" rx="1"/><path d="M5 8v13h14V8M10 12h4"/></symbol>
     <symbol id="ri-moon" viewBox="0 0 24 24"><path d="M20.9 13a9 9 0 1 1-9.9-9.9A7.5 7.5 0 0 0 20.9 13z"/></symbol>
     <symbol id="ri-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></symbol>
+    <symbol id="ri-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="ri-settings" viewBox="0 0 24 24"><path d="M3 6h8m4 0h6M3 12h2m4 0h12M3 18h8m4 0h6"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></symbol>
     <symbol id="ri-rosette" viewBox="0 0 24 24"><path d="m8 13-2 8 6-3 6 3-2-8"/><path d="m12 2 2 1 2.3-.4 1 2.1 2.1 1-.4 2.3 1 2-1 2 .4 2.3-2.1 1-1 2.1-2.3-.4-2 1-2-1-2.3.4-1-2.1-2.1-1 .4-2.3-1-2 1-2-.4-2.3 2.1-1 1-2.1 2.3.4z"/><circle cx="12" cy="10" r="3"/></symbol>
   </svg>
   <section class="auth-screen" id="auth-screen">
@@ -213,7 +215,7 @@
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
-        <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Impostazioni AI</button>
+        <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
@@ -227,7 +229,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.9<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.10<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -771,7 +773,7 @@
                 '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
                 encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
                 '/pdf?tipo=statico">Anteprima statica</a>')
-                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.9.':
+                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.10.':
                   'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.'))+
               ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
                 '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
@@ -1919,7 +1921,7 @@
               data.totale+" · Regole "+data.versione_regole+
               ". Nessun esito determina automaticamente l'idoneità.";
             $("ai-results").innerHTML=data.casi.length?
-              '<table><thead><tr><th>ID PICA</th><th>CdS / sede</th><th>Requisito</th>'+
+              '<table><thead><tr><th>ID PICA</th><th>Candidato</th><th>CdS / sede</th><th>Requisito</th>'+
               '<th>Ente dichiarato</th><th>Rapporto dichiarato</th><th>Esito</th>'+
               '<th>Verifiche</th><th>Nota AI, se presente</th></tr></thead><tbody>'+
               data.casi.map(function(row){
@@ -1928,7 +1930,9 @@
                 var label=row.esito===DA_VEDERE?"⚠ Da approfondire":
                   row.esito===ENTE_OK?"✓ Ente coerente":"Non applicabile";
                 var ai=row.ai||{};
+                var candidato=[row.cognome,row.nome].filter(Boolean).join(' ');
                 return '<tr><td>'+esc(row.id_pica)+'</td>'+
+                  '<td>'+esc(candidato||'[DA VERIFICARE]')+'</td>'+
                   '<td>'+esc(row.cds+' · '+row.sede)+'</td>'+
                   '<td>'+esc(row.requisito)+'</td>'+
                   '<td>'+esc(row.categoria_ente)+'</td>'+
