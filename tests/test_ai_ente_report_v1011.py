@@ -119,6 +119,9 @@ def test_report_endpoint_admin_only_and_includes_names_from_pica(tmp_path,monkey
         assert response.status_code==200,response.text
         assert response.headers["content-type"].startswith("application/pdf")
         assert "attachment" in response.headers["content-disposition"]
+        assert "RANKUP_ENTE_26_02" in response.headers["content-disposition"]
+        filename=response.headers["content-disposition"].split('filename="')[-1].strip('"')
+        assert len(filename)<85
         pdf=PdfReader(BytesIO(response.content))
         assert float(pdf.pages[0].mediabox.width)>float(pdf.pages[0].mediabox.height)
         text=_text(pdf)
