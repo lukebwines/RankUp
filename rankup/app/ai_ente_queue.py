@@ -249,6 +249,14 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
                targeted:bool=False) -> dict:
     now=_now()
     db.execute("BEGIN IMMEDIATE")
+    # Una coda della versione precedente contiene payload a soli due campi:
+    # non e' piu' eseguibile con la nuova richiesta AI a sei chiavi.
+    db.execute("""UPDATE ai_ente_lavori SET stato='errore',
+           ultimo_errore='Coda obsoleta: avviare una nuova analisi con i campi PICA aggiornati',
+           aggiornato_il=?
+           WHERE bando_id=? AND versione_regole<>?
+             AND stato IN ('in_coda','in_corso','attesa_quota','sospesa')
+    """,(now,bid,RULES_VERSION))
     prior=db.execute("""
         SELECT id,stato FROM ai_ente_lavori
         WHERE bando_id=? AND cds=? AND sede=? AND stato IN
@@ -439,6 +447,12 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
             db.commit()
             return False
         job=dict(job)
+        if job["versione_regole"]!=RULES_VERSION:
+            _set_status(db,job["id"],"errore",
+                        ultimo_errore="Coda creata con versione precedente: "
+                                     "avviare una nuova analisi PICA completa")
+            db.commit()
+            return True
         pending=db.execute("""SELECT * FROM ai_ente_lavori_elementi
             WHERE lavoro_id=? AND stato='in_attesa'
             ORDER BY candidatura_id,incarico_id LIMIT 1
