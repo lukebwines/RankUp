@@ -155,7 +155,8 @@ def test_models_endpoint_reports_groq_error_and_quota(tmp_path,monkeypatch):
             raise ValueError("GroqCloud HTTP 401: chiave API mancante, revocata o non valida")
         monkeypatch.setattr(server,"groq_models",not_allowed)
         result=client.get("/api/admin/ai/modelli")
-        assert result.status_code==502,result.text
+        assert result.status_code==424,result.text
+        assert result.headers.get("X-RankUp-Response-Origin")=="rankup"
         assert "HTTP 401" in result.json()["detail"]
         assert "groq_fake_key" not in result.text
 
@@ -213,3 +214,56 @@ def test_prepares_json_mode_and_reads_usage_without_pica_identifiers(monkeypatch
     assert outbound[0]["include_reasoning"] is False
     assert "id_pica" not in str(outbound)
     assert "cognome" not in str(outbound)
+
+
+
+def test_groq_temporary_502_is_retried_once_without_logging_key(monkeypatch):
+    import ai_groq
+    from urllib import error
+    from io import BytesIO
+    calls=[]
+    secret="groq_synthetic_secret_1234567890"
+    class Reply:
+        def __init__(self,body):
+            self.body=body
+        def __enter__(self):
+            return self
+        def __exit__(self,*args):
+            pass
+        def read(self,limit):
+            return self.body[:limit]
+    class MockOpener:
+        def open(self,req,timeout=None):
+            calls.append((req.full_url,timeout))
+            if len(calls)==1:
+                raise error.HTTPError(req.full_url,502,"Bad Gateway",{},BytesIO(b'{}'))
+            return Reply(b'{"data":[{"id":"openai/gpt-oss-120b"}]}')
+    monkeypatch.setattr(ai_groq.request,"build_opener",lambda *args:MockOpener())
+    monkeypatch.setattr(ai_groq.time,"sleep",lambda seconds:None)
+    assert ai_groq.models(secret)==["openai/gpt-oss-120b"]
+    assert len(calls)==2
+    assert all("api.groq.com" in url for url,timeout in calls)
+
+
+def test_provider_502_returns_424_with_rankup_header(tmp_path,monkeypatch):
+    server,client,_=_setup(tmp_path,monkeypatch)
+    with client:
+        res=client.put("/api/admin/ai/config",headers=HEADERS,
+            json={"model":"openai/gpt-oss-120b",
+                  "api_key":"groq_synthetic_secret_1234567890"})
+        assert res.status_code==200
+        def fail_models(*_):
+            raise ValueError("GroqCloud HTTP 502: servizio temporaneamente non disponibile")
+        monkeypatch.setattr(server,"groq_models",fail_models)
+        models=client.get("/api/admin/ai/modelli")
+        assert models.status_code==424,models.text
+        assert "GroqCloud HTTP 502" in models.json()["detail"]
+        assert models.headers.get("X-RankUp-Response-Origin")=="rankup"
+        def fail_probe(*_):
+            raise ValueError("GroqCloud HTTP 502: servizio temporaneamente non disponibile")
+        monkeypatch.setattr(server,"groq_analyze",fail_probe)
+        probe=_post(client,"/api/admin/ai/test")
+        assert probe.status_code==424,probe.text
+        assert "GroqCloud HTTP 502" in probe.json()["detail"]
+        assert probe.headers.get("X-RankUp-Response-Origin")=="rankup"
+        assert "groq_synthetic_secret_" not in (probe.text+models.text)

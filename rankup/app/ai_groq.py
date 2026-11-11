@@ -17,6 +17,7 @@ import json
 import os
 import re
 import secrets
+import time
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -122,9 +123,23 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
     class NoRedirect(request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):
             return None
+    def read_response():
+        # Timeout contenuto: un proxy Home Assistant può interrompere prima
+        # di restituire la risposta dell'add-on (502 senza JSON).
+        with request.build_opener(NoRedirect()).open(
+            req,timeout=12 if url==API_CHAT else 9
+        ) as resp:
+            return resp.read(400_001)
     try:
-        with request.build_opener(NoRedirect()).open(req,timeout=25) as resp:
-            data=resp.read(400_001)
+        try:
+            data=read_response()
+        except error.HTTPError as first:
+            if first.code not in (500,502,503,504):
+                raise
+            # Un unico retry esclusivamente sui guasti temporanei upstream.
+            # Non ripetere errori 400/401/403/429 e non ripetere timeout.
+            time.sleep(0.4)
+            data=read_response()
         if len(data)>400_000:
             raise ValueError("Risposta GroqCloud troppo grande")
         try:
@@ -151,13 +166,18 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
             if url==API_MODELS:
                 raise ValueError("GroqCloud HTTP 404: endpoint dei modelli non raggiungibile") from None
             raise ValueError("GroqCloud HTTP 404: modello non disponibile") from None
+        if exc.code in (400,422):
+            # Mostrare soltanto l'indicazione del problema; nessun contenuto
+            # delle richieste o chiave API viene riportato all'interfaccia.
+            raise ValueError("GroqCloud HTTP "+str(exc.code)+
+                ": parametri o formato della richiesta non accettati dal modello") from None
         if exc.code in (500,502,503,504):
             raise ValueError(
                 "GroqCloud HTTP "+str(exc.code)+": servizio temporaneamente non disponibile"
             ) from None
         raise ValueError("GroqCloud HTTP "+str(exc.code)+": richiesta rifiutata") from None
     except (socket.timeout,TimeoutError):
-        raise ValueError("Timeout di collegamento a GroqCloud (25 secondi)") from None
+        raise ValueError("Timeout di collegamento a GroqCloud (12 secondi per inferenza)") from None
     except (ssl.SSLError,ssl.CertificateError):
         raise ValueError("Errore HTTPS/TLS verso GroqCloud: verificare certificati o proxy") from None
     except (error.URLError,OSError,HTTPClientException):
