@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.7">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.8">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -226,7 +226,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.7<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.8<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -766,7 +766,7 @@
                 '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
                 encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
                 '/pdf?tipo=statico">Anteprima statica</a>')
-                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.7.':
+                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.8.':
                   'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.'))+
               ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
                 '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
