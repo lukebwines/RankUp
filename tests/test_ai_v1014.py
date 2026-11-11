@@ -128,3 +128,72 @@ def test_rejects_selective_analysis_of_non_transmittable_fields(tmp_path,monkeyp
             "code":"26-02","conferma_servizio":True,
             "ids_candidature":[999999999]})
         assert unknown.status_code==400,unknown.text
+
+
+def test_realistic_institution_names_with_punctuation_are_not_privacy_blocked():
+    """Solo denominazioni di fantasia o generiche: nessun dato candidato."""
+    names=[
+        "ASUIT: Azienda Sanitaria Universitaria Integrata del Trentino",
+        "ASUIT - Azienda Sanitaria Universitaria Integrata del Trentino",
+        "AULSS8 BERICA, DISTRETTO OVEST",
+        'Azienda U.L.S.S. 3 "Serenissima"',
+        "ULSS 3 Serenissima - Ospedale SS. Giovanni e Paolo, Venezia",
+        'IRCCS - Ospedale Sacro Cuore Don Calabria',
+        'Ospedale IRCCS "Sacro Cuore - Don Calabria"',
+        "AULSS 5 Polesana - Ospedale San Luca, Trecenta",
+        'M.I.M. - Liceo Statale "G. Cotta"',
+        "AOU Padova",
+        "Natus Medical",
+        "BCC ravennate, forlivese e imolese",
+    ]
+    from ai_groq import prepare_minimal_payload
+    from ai_ente_rules import classifica_ente
+    for name in names:
+        normalized=safe_institution_name(name)
+        assert normalized not in ("NON DICHIARATO",
+                "DENOMINAZIONE NON TRASMETTIBILE"), name
+        result=classifica_ente({
+            "ente_richiesto":"SSN","azienda_ente":name,
+            "occupazione":"Dipendente",
+        })
+        assert result["richiede_ai"],name
+        assert result["tipo_approfondimento"]=="IN ATTESA AI",name
+        assert prepare_minimal_payload({
+            "ente_richiesto":"SSN","azienda_ente":name
+        })["denominazione_ente_dichiarato"]==normalized
+
+
+def test_candidate_identifiers_still_block_transmission():
+    from ai_groq import prepare_minimal_payload
+    candidate={
+        "nome":"PersonaTest","cognome":"CognomeTest",
+        "ente_richiesto":"SSN",
+    }
+    protected=[
+        "AZIENDA SANITARIA, contatto: persona@example.test",
+        "AULSS 9; tel. +39 333 123 4567",
+        "AOUI - Sig. Mario Rossi",
+        "AULSS - Dott. Mario Rossi",
+        "AULSS 9 - REPARTO SIG. ROSSI",
+        "ASST\nNome personale",
+        "<script>alert(1)</script>",
+        "AOUI Verona, PersonaTest",
+        "AOU Padova - CognomeTest",
+        "AULSS 9 Codice Fiscale RSSMRA80A01H501U",
+        "AOU Padova, via Roma 2",
+        "MARIO ROSSI",
+    ]
+    for name in protected:
+        payload=prepare_minimal_payload({**candidate,"azienda_ente":name})
+        assert payload["denominazione_ente_dichiarato"]==(
+            "DENOMINAZIONE NON TRASMETTIBILE"),name
+    # L'invio all'AI non deve mai contenere nomi, PICA, qualifiche o recapiti.
+    business=prepare_minimal_payload({
+        **candidate,"azienda_ente":"Natus Medical",
+        "id_pica":"SYNTH-0001",
+        "occupazione":"Dipendente: +39 333 123 4567",
+    })
+    assert set(business)=={"denominazione_ente_dichiarato","requisito_ente"}
+    assert business["denominazione_ente_dichiarato"]=="NATUS MEDICAL"
+    assert "PersonaTest" not in str(business)
+    assert "SYNTH-0001" not in str(business)
