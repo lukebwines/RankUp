@@ -37,12 +37,18 @@ def test_only_name_and_requirement_leave_the_server():
     assert result=={
         "requisito_ente":"SSN",
         "denominazione_ente_dichiarato":"AULSS 9 SCALIGERA",
+        "ateneo_dichiarato":"NON DICHIARATO",
+        "occupazione_dichiarata":"DENOMINAZIONE NON TRASMETTIBILE",
+        "profilo_professionale_dichiarato":"DIRIGENTE",
+        "qualifica_dichiarata":"NON DICHIARATO",
     }
     assert "3331234567" not in json.dumps(result)
     assert "NomeFittizio" not in json.dumps(result)
     assert "CognomeFittizio" not in json.dumps(result)
     different={**raw,"occupazione":"Libero professionista","profilo_professionale":"Autonomo"}
-    assert prepare_minimal_payload(different)==result
+    assert prepare_minimal_payload(different)!=result
+    assert prepare_minimal_payload(different)["occupazione_dichiarata"]==(
+        "LIBERO PROFESSIONISTA")
     raw["azienda_ente"]="AOUI Verona NomeFittizio"
     assert prepare_minimal_payload(raw)["denominazione_ente_dichiarato"]==(
         "DENOMINAZIONE NON TRASMETTIBILE")
@@ -58,10 +64,11 @@ def test_diagnostic_invalid_groq_reply_has_no_raw_text(monkeypatch):
         }
     monkeypatch.setattr(ai_groq,"_fetch_json",fake)
     with pytest.raises(GroqInvalidResponse,match="troncato") as err:
-        analyze("chiave_sintetica","openai/gpt-oss-120b",{
-            "requisito_ente":"SSN",
-            "denominazione_ente_dichiarato":"AULSS 9 SCALIGERA",
-        })
+        analyze("chiave_sintetica","openai/gpt-oss-120b",
+                prepare_minimal_payload({
+                    "ente_richiesto":"SSN",
+                    "azienda_ente":"AULSS 9 SCALIGERA",
+                }))
     assert err.value.tokens==44
     assert "NOME PRIVATO" not in str(err.value)
 
