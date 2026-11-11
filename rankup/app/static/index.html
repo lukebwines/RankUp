@@ -1779,7 +1779,7 @@
       }
 
 
-      // GroqCloud: invia denominazione ente minimizzata, requisito e categoria rapporto.
+      // GroqCloud: invia denominazione ente minimizzata e requisito, senza informazioni sul rapporto personale.
       // ID PICA, nomi, recapiti, CF, PDF e dichiarazioni PICA integrali restano locali.
       // Configurazione globale: non dipende da un bando selezionato.
       async function renderAISettings(){
@@ -1789,7 +1789,7 @@
           'Il controllo delle dichiarazioni PICA si svolge invece in '+
           '<strong>Procedimento del bando → Verifica requisito ente</strong>.</p>'+
           '<div class="notice"><strong>Privacy:</strong> RankUP invia al provider soltanto '+
-          'denominazioni istituzionali minimizzate, requisito e categoria di rapporto; ID PICA, nominativi, '+
+          'denominazione istituzionale minimizzata e requisito; ID PICA, qualifica, nominativi, '+
           'CF, documenti e dichiarazioni integrali rimangono locali. I campi sospetti non sono inviati.</div>'+
           '<form id="ai-config" class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
           '<label>Modello GroqCloud<input id="ai-model" maxlength="125" list="ai-models" '+
@@ -1956,7 +1956,7 @@
           'Gli esiti si riutilizzano se dati, modello e prompt coincidono.</p>'+
           '<label style="display:flex;gap:9px;align-items:center;margin:12px 0">'+
           '<input id="ai-consent" type="checkbox">Confermo le condizioni per l’invio a GroqCloud '+
-          'della sola denominazione di ente minimizzata, del requisito e del tipo di rapporto astratto.</label>'+
+          'della sola denominazione di ente minimizzata e del requisito. La qualifica rimane locale.</label>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px">'+
           '<button class="btn" type="button" id="ai-run">Avvia o recupera analisi</button>'+
           '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza con nuovo prompt</button>'+
