@@ -209,7 +209,7 @@ def test_ai_menu_icons_resolve_and_names_only_appear_locally():
     assert "Cerca candidato o ID PICA" in page
     assert "<th>Candidato</th>" in page
     assert "esc(candidato||'[DA VERIFICARE]')" in page
-    assert "esc(row.cognome)" not in page or "row.cognome" in page
+    assert "var candidato=[row.cognome,row.nome].filter(Boolean).join(' ')" in page
     # Non esporre i dati personali al provider.
     source={"id_pica":"ID-SINTETICO","cognome":"COGNOME_DI_PROVA",
             "nome":"NOME_DI_PROVA","ente_richiesto":"SSN",
