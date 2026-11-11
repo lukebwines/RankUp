@@ -156,8 +156,11 @@ class _CampiSeduta(Flowable):
                 # Nel PDF statico non viene disegnata neppure questa riga.
                 c.setStrokeColor(colors.HexColor("#A7B3BF"))
                 c.line(x, 7, x+w, 7)
+                # Le annotazioni AcroForm ignorano la trasformazione locale
+                # dei Flowable ReportLab: serve la posizione ASSOLUTA.
+                px, py = c.absolutePosition(x, 8)
                 c.acroForm.textfield(
-                    name=name, tooltip=hint, x=x, y=8, width=w, height=22,
+                    name=name, tooltip=hint, x=px, y=py, width=w, height=22,
                     borderWidth=0, borderStyle="solid",
                     fillColor=colors.white, textColor=colors.black,
                     fontName="Helvetica", fontSize=10, maxlen=20,
@@ -168,15 +171,37 @@ class _CampiSeduta(Flowable):
 
 
 class _CampoDiscussione(Flowable):
+    """Campo ampio ma adattato alla pagina, con spazio per chiusura e firma.
+
+    L'altezza AcroForm e' fissa nel modello consegnato, non il testo
+    recuperato: nella versione definitiva viene ripaginato integralmente.
+    """
+
+    MAX_HEIGHT = 248
+    MIN_HEIGHT = 140
+    RESERVED_AFTER = 140  # formula conclusiva, spaziature e blocco firma
+
     def __init__(self):
         Flowable.__init__(self)
-        self.width, self.height = 485, 248
+        self.width, self.height = 485, self.MAX_HEIGHT
+
+    def wrap(self, availWidth, availHeight):
+        available = float(availHeight) - self.RESERVED_AFTER
+        if available < self.MIN_HEIGHT:
+            # Nessun campo troppo piccolo: sposta il modulo alla pagina
+            # successiva prima di staccare la sottoscrizione.
+            return self.width, float(availHeight) + 1
+        self.height = min(self.MAX_HEIGHT, available)
+        return self.width, self.height
 
     def draw(self):
+        # Il riquadro deve seguire il punto del testo dove il Flowable
+        # viene effettivamente impaginato, anche dopo un salto pagina.
+        px, py = self.canv.absolutePosition(0, 2)
         self.canv.acroForm.textfield(
             name="riassunto_discussione",
             tooltip="Riassunto integrale della discussione della Commissione",
-            x=0, y=2, width=480, height=238,
+            x=px, y=py, width=480, height=self.height - 10,
             borderWidth=0.7, borderStyle="solid",
             borderColor=colors.HexColor("#C5CFDA"),
             fillColor=colors.white, textColor=colors.black,
@@ -233,12 +258,10 @@ def _story(context: dict, *, editable: bool, values: dict | None = None) -> list
     story.append(Spacer(1, 15))
     story.append(Paragraph("<b>Riassunto della discussione della Commissione</b>", _BODY))
     if editable:
+        # Non inserire avvertenze tecniche nel verbale amministrativo.
+        # Il riassunto può scorrere nel lettore; in acquisizione viene
+        # reimpaginato integralmente nella versione statica.
         story.append(_CampoDiscussione())
-        story.append(Paragraph(
-            "Il campo può scorrere durante la compilazione; RankUP lo reimpagina "
-            "integralmente quando acquisisce il PDF e produce la copia statica.",
-            _SMALL,
-        ))
     else:
         story.extend(_paragraphs_from_source(_text(vals.get("riassunto_discussione"))))
     story.append(Spacer(1, 10))
