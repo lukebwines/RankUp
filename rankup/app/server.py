@@ -2988,6 +2988,35 @@ def elenco_modelli_groq(request: Request):
         fail(str(exc),502)
 
 
+@app.post("/api/admin/ai/test")
+def prova_modello_groq(request: Request):
+    """Una sola richiesta sintetica, priva di qualunque dato PICA."""
+    require_admin(request)
+    model=GROQ.model()
+    key=GROQ.key()
+    if not model or not key:
+        fail("Configurare prima modello e chiave GroqCloud",409)
+    synthetic={
+        "requisito_ente":"AOUI",
+        "categoria_ente_dichiarato":"AOUI",
+        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
+    }
+    try:
+        result=groq_analyze(key,model,synthetic)
+    except GroqLimit as exc:
+        raise HTTPException(status_code=429,detail=
+            "GroqCloud: limite richieste raggiunto. Riprovare dopo "+
+            str(exc.retry_after)+" secondi.",
+            headers={"Retry-After":str(exc.retry_after)}) from None
+    except ValueError as exc:
+        fail(str(exc),502)
+    if result.get("origine")=="locale":
+        fail("Il test non ha raggiunto GroqCloud",502)
+    return {"ok":True,"model":model,
+            "chiamata_groq":True,"token_usati":result.get("token_usati"),
+            "avviso":"Test effettuato con sole categorie sintetiche, senza dati PICA."}
+
+
 class ParametriAnalisiEnte(BaseModel):
     code: str
     cds: str = Field(default="", max_length=250)
@@ -3072,8 +3101,12 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
         bid,cands=_ai_scope(db,code,body.cds,body.sede)
         results,pending=_ai_result_rows(db,bid,cands,model)
     if not pending:
-        return {"completati":len(results),"da_analizzare":0,"nuovi":0}
+        return {"completati":len(results),"da_analizzare":0,"nuovi":0,
+                "chiamate_groq":0,"token_groq":0,"solo_locale":0}
     count=0
+    requests_sent=0
+    tokens_used=0
+    local_only=0
     for task in pending[:3]:
         original=task["documento"]
         minimal=task["payload"]
@@ -3083,9 +3116,16 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
             return {"completati":len(results)+count,
                     "da_analizzare":len(pending)-count,
                     "nuovi":count,"limite_raggiunto":True,
-                    "retry_after":exc.retry_after}
+                    "retry_after":exc.retry_after,
+                    "chiamate_groq":requests_sent,"token_groq":tokens_used,
+                    "solo_locale":local_only}
         except ValueError as exc:
             fail(str(exc),502)
+        if outcome.get("origine")=="groqcloud":
+            requests_sent+=1
+            tokens_used+=int(outcome.get("token_usati") or 0)
+        elif outcome.get("origine")=="locale":
+            local_only+=1
         source=groq_source_hash(minimal,model)
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -3112,7 +3152,9 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
         count+=1
     return {"completati":len(results)+count,
             "da_analizzare":len(pending)-count,"nuovi":count,
-            "limite_raggiunto":False}
+            "limite_raggiunto":False,
+            "chiamate_groq":requests_sent,"token_groq":tokens_used,
+            "solo_locale":local_only}
 
 
 @app.get("/api/admin/ai/report.pdf")
