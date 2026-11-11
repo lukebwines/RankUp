@@ -24,9 +24,13 @@ def test_only_institutional_categories_are_sent_to_groq():
     minimal=prepare_minimal_payload(raw)
     assert set(minimal)=={
         "requisito_ente","denominazione_ente_dichiarato",
+        "ateneo_dichiarato","occupazione_dichiarata",
+        "profilo_professionale_dichiarato","qualifica_dichiarata",
     }
     assert minimal["requisito_ente"]=="AOUI"
     assert minimal["denominazione_ente_dichiarato"]=="AOUI VERONA"
+    assert minimal["profilo_professionale_dichiarato"]=="DIRIGENTE"
+    assert minimal["occupazione_dichiarata"]=="DENOMINAZIONE NON TRASMETTIBILE"
     assert "12345" not in str(minimal)
     assert "RSSMRA" not in str(minimal)
     assert "fittizio@" not in str(minimal)
@@ -78,7 +82,9 @@ def test_analysis_runs_on_current_PICA_occupations_without_evaluation_sheets(tmp
             assert key=="groq_fake_key_1234567890"
             assert model=="llama-3.3-70b-versatile"
             assert set(payload)=={
-                "requisito_ente","denominazione_ente_dichiarato"}
+                "requisito_ente","denominazione_ente_dichiarato",
+                "ateneo_dichiarato","occupazione_dichiarata",
+                "profilo_professionale_dichiarato","qualifica_dichiarata"}
             assert "candidato" not in str(payload).lower()
             sent.append(dict(payload))
             return {"indizio":"DATI INSUFFICIENTI",
