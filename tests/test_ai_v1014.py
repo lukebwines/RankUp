@@ -45,7 +45,7 @@ def test_selected_reanalysis_does_not_spread_to_unselected_candidates(tmp_path,m
         assert first.status_code==200,first.text
         calls=[]
         def coherent(key,model,payload,guidance=None):
-            assert set(payload)=={"requisito_ente","denominazione_ente_dichiarato"}
+            assert set(payload)=={"requisito_ente","denominazione_ente_dichiarato","ateneo_dichiarato","occupazione_dichiarata","profilo_professionale_dichiarato","qualifica_dichiarata"}
             calls.append(dict(payload))
             return {"indizio":"INDIZI COERENTI","motivo":"Ente istituzionale noto",
                     "verifiche":"Verificare rapporto di lavoro", "origine":"groqcloud",
