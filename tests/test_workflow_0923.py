@@ -50,6 +50,8 @@ def test_rinuncia_admin_non_richiede_scheda_e_traccia_evento(tmp_path,monkeypatc
 def test_tutte_ritirate_verbale_senza_schede_fittizie(tmp_path,monkeypatch):
     _,client,_=_setup(tmp_path,monkeypatch)
     with client:
+        # Il modello viene consegnato quando le candidature sono ancora attive.
+        _prepare_narrative(client)
         base="/api/bandi/26-02"
         for cand in client.get(base+"/candidature").json()["candidature"]:
             response=_post(client,base+f"/candidature/{cand['id']}/stato",json={
@@ -60,7 +62,6 @@ def test_tutte_ritirate_verbale_senza_schede_fittizie(tmp_path,monkeypatch):
         assert group["totale_candidature"]==0
         assert group["totale_annullate"]==3
         assert group["verbale_generabile"] is True
-        _prepare_narrative(client)
         final=_post(client,base+"/verbali/graduatorie/genera-definitivo",
                     json={"cds":group["cds"],"sede":group["sede"]})
         assert final.status_code==200,final.text
