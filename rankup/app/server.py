@@ -33,6 +33,8 @@ from pypdf import PdfReader, PdfWriter
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
+from ai_groq import (GroqSecrets, GroqLimit, prepare_minimal_payload, source_hash as groq_source_hash,
+                     analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
 from title_date_check import check_three_years
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
@@ -54,6 +56,7 @@ PENDING = BASE / "pending"
 SOURCES = BASE / "sources"
 ARCHIVI = BASE / "archivi_bandi"
 DB = BASE / "rankup.sqlite3"
+GROQ = GroqSecrets(BASE)
 ASSETS = Path(__file__).resolve().parent / "static"
 CODE_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
 USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,49}$")
@@ -680,6 +683,29 @@ def initialize() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS uq_verbale_descrittivo_attivo
               ON verbali_descrittivi(bando_id,cds,sede) WHERE attivo=1;
         """)
+        # v6: risultati istruttori GroqCloud (mai punteggi o decisioni).
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS ai_ente_verifiche (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                candidatura_id INTEGER NOT NULL REFERENCES candidature(id) ON DELETE CASCADE,
+                incarico_id INTEGER NOT NULL REFERENCES incarichi(id) ON DELETE CASCADE,
+                sorgente_sha256 TEXT NOT NULL,
+                modello TEXT NOT NULL,
+                requisito TEXT NOT NULL,
+                categoria_ente TEXT NOT NULL,
+                categoria_rapporto TEXT NOT NULL,
+                indizio TEXT NOT NULL CHECK(indizio IN
+                    ('INDIZI COERENTI','POSSIBILE DISALLINEAMENTO','DATI INSUFFICIENTI')),
+                motivo TEXT NOT NULL,
+                verifiche TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                creato_il TEXT NOT NULL,
+                UNIQUE(bando_id,candidatura_id,incarico_id,sorgente_sha256)
+            );
+            CREATE INDEX IF NOT EXISTS ix_ai_ente_bando
+              ON ai_ente_verifiche(bando_id,candidatura_id,incarico_id,creato_il);
+        """)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -880,7 +906,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.3", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.4", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1303,7 +1329,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.3", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.4", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2918,6 +2944,191 @@ def _pdf_descrittivo_per_chiusura(db, bando_id: int, code: str,
         fail("I dati della Commissione o del bando sono cambiati: riacquisire il verbale",409)
     return bytes(row["pdf_statico"])
 
+
+
+# === Assistente AI: controllo dell'ente, esclusivamente Admin ===
+class ConfigGroqCloud(BaseModel):
+    model: str = Field(default="", max_length=125)
+    api_key: str | None = Field(default=None, max_length=256)
+    elimina_chiave: bool = False
+
+
+@app.get("/api/admin/ai/config")
+def config_ai(request: Request):
+    require_admin(request)
+    return {"model":GROQ.model(),"chiave_configurata":bool(GROQ.key()),
+            "provider":"GroqCloud","solo_categorie_ente":True}
+
+
+@app.put("/api/admin/ai/config")
+def salva_config_ai(body: ConfigGroqCloud,request: Request):
+    require_admin(request)
+    if body.elimina_chiave and body.api_key:
+        fail("Non è possibile aggiungere ed eliminare contemporaneamente la chiave")
+    try:
+        GROQ.save("" if body.elimina_chiave else body.api_key,body.model.strip())
+    except (ValueError,OSError) as exc:
+        fail(str(exc),400)
+    return config_ai(request)
+
+
+@app.get("/api/admin/ai/modelli")
+def elenco_modelli_groq(request: Request):
+    require_admin(request)
+    try:
+        return {"modelli":groq_models(GROQ.key())}
+    except ValueError as exc:
+        fail(str(exc),502)
+
+
+class ParametriAnalisiEnte(BaseModel):
+    code: str
+    cds: str = Field(default="", max_length=250)
+    sede: str = Field(default="", max_length=100)
+
+
+def _ai_scope(db,code: str,cds: str,sede: str) -> tuple[int,list[dict]]:
+    code=valid_code(code)
+    b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+    if not b:
+        fail("Bando non trovato",404)
+    # Solo candidature con scheda acquisita, attiva e validata:
+    # l'Assistente entra in gioco dopo la restituzione delle schede.
+    eligible={int(r[0]) for r in db.execute("""
+        SELECT DISTINCT candidatura_id FROM valutazioni_pdf
+        WHERE bando_id=? AND stato='Acquisita' AND attiva=1
+    """,(b["id"],)).fetchall() if r[0] is not None}
+    candidates=[r for r in list_candidature(code)["candidature"]
+                if int(r["id"]) in eligible and r["stato"]=="Attiva"
+                and (not cds or r["cds"]==cds)
+                and (not sede or r["sede"]==sede)]
+    if len(candidates)>2000:
+        fail("Ambito troppo grande: filtrare per CdS e sede",409)
+    return b["id"],candidates
+
+
+def _ai_result_rows(db,bando_id: int,candidates: list[dict], model: str) -> tuple[list[dict],list[dict]]:
+    candidates_by_key={(int(c["id"]),str(c["incarico_key"])):c for c in candidates}
+    records=db.execute("""
+        SELECT a.*,i.key AS incarico_key
+        FROM ai_ente_verifiche a JOIN incarichi i ON i.id=a.incarico_id
+        WHERE a.bando_id=? ORDER BY a.id DESC
+    """,(bando_id,)).fetchall()
+    valid={}
+    for r in records:
+        key=(int(r["candidatura_id"]),str(r["incarico_key"]))
+        source=candidates_by_key.get(key)
+        if source and key not in valid:
+            data=prepare_minimal_payload(source)
+            if r["sorgente_sha256"]==groq_source_hash(data,model) and r["modello"]==model:
+                valid[key]=dict(r)
+    results=[]
+    pending=[]
+    for c in candidates:
+        key=(int(c["id"]),str(c["incarico_key"]))
+        payload=prepare_minimal_payload(c)
+        info=valid.get(key)
+        if info:
+            results.append({
+                "id_pica":str(c["id_pica"]),"cds":c["cds"],"sede":c["sede"],
+                "insegnamento":c["insegnamento"],"requisito":info["requisito"],
+                "categoria_ente":info["categoria_ente"],
+                "categoria_rapporto":info["categoria_rapporto"],
+                "indizio":info["indizio"],"motivo":info["motivo"],
+                "verifiche":info["verifiche"],"creato_il":info["creato_il"],
+                "autore":info["autore"],"modello":info["modello"],
+            })
+        else:
+            pending.append({"documento":c,"payload":payload})
+    return results,pending
+
+
+@app.get("/api/admin/ai/risultati")
+def risultati_ai(request: Request,code: str,cds: str="",sede: str=""):
+    require_admin(request)
+    model=GROQ.model()
+    with connect() as db:
+        bid,cands=_ai_scope(db,code,cds,sede)
+        results,pending=_ai_result_rows(db,bid,cands,model)
+    return {"risultati":results,"totale":len(cands),"completati":len(results),
+            "da_analizzare":len(pending),"model":model}
+
+
+@app.post("/api/admin/ai/analizza-passo")
+def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
+    who=require_admin(request)
+    code=valid_code(body.code)
+    model=GROQ.model()
+    key=GROQ.key()
+    if not model or not key:
+        fail("Configurare prima modello e chiave GroqCloud",409)
+    with connect() as db:
+        bid,cands=_ai_scope(db,code,body.cds,body.sede)
+        results,pending=_ai_result_rows(db,bid,cands,model)
+    if not pending:
+        return {"completati":len(results),"da_analizzare":0,"nuovi":0}
+    count=0
+    for task in pending[:3]:
+        original=task["documento"]
+        minimal=task["payload"]
+        try:
+            outcome=groq_analyze(key,model,minimal)
+        except GroqLimit as exc:
+            return {"completati":len(results)+count,
+                    "da_analizzare":len(pending)-count,
+                    "nuovi":count,"limite_raggiunto":True,
+                    "retry_after":exc.retry_after}
+        except ValueError as exc:
+            fail(str(exc),502)
+        source=groq_source_hash(minimal,model)
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            fresh=db.execute("""
+                SELECT i.id AS incarico_id,c.bando_id,c.stato
+                FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+                WHERE c.id=? AND i.key=? AND c.bando_id=?
+            """,(original["id"],original["incarico_key"],bid)).fetchone()
+            if not fresh or fresh["stato"]!="Attiva":
+                fail("La candidatura è cambiata: ripetere il controllo",409)
+            # Una graduatoria definitiva non viene modificata neppure dal processo AI.
+            db.execute("""
+                INSERT OR IGNORE INTO ai_ente_verifiche
+                (bando_id,candidatura_id,incarico_id,sorgente_sha256,modello,
+                 requisito,categoria_ente,categoria_rapporto,indizio,motivo,
+                 verifiche,autore,creato_il)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,(bid,int(original["id"]),int(fresh["incarico_id"]),source,model,
+                 minimal["requisito_ente"],minimal["categoria_ente_dichiarato"],
+                 minimal["categoria_rapporto_dichiarato"],outcome["indizio"],
+                 outcome["motivo"],outcome["verifiche"],who["username"],
+                 datetime.now(timezone.utc).isoformat(timespec="seconds")))
+            db.commit()
+        count+=1
+    return {"completati":len(results)+count,
+            "da_analizzare":len(pending)-count,"nuovi":count,
+            "limite_raggiunto":False}
+
+
+@app.get("/api/admin/ai/report.pdf")
+def report_ai_pdf(request: Request,code: str,cds: str="",sede: str=""):
+    require_admin(request)
+    model=GROQ.model()
+    with connect() as db:
+        bid,candidates=_ai_scope(db,code,cds,sede)
+        results,_=_ai_result_rows(db,bid,candidates,model)
+    rows=[]
+    for item in results:
+        rows.append({"documento":{"id_pica":item["id_pica"],
+                     "insegnamento":item["insegnamento"]},
+                     "requisito":item["requisito"],
+                     "categoria_ente":item["categoria_ente"],
+                     "indizio":item["indizio"],
+                     "motivo":item["motivo"],
+                     "verifiche":item["verifiche"]})
+    payload=groq_report_pdf(code,cds or "Tutti",sede or "Tutte",rows)
+    return Response(content=payload,media_type="application/pdf",headers={
+        "Content-Disposition":'attachment; filename="RankUP_AI_ENTE_'+code+'.pdf"',
+        "Cache-Control":"no-store"})
 
 # === Restituzione delle schede PDF: anteprima e conferma separata ===
 class ConfermaValutazioni(BaseModel):

@@ -32,6 +32,7 @@ BUSINESS_TABLES = (
     "graduatorie_approvazioni_regressioni",
     "ai_occupazione_lavori",
     "valutazioni_occupazione_ai",
+    "ai_ente_verifiche",
     "verbali_descrittivi",
     "valutazioni_pdf_eventi",
     "graduatorie_vincitori_proposti",
