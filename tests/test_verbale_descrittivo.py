@@ -131,9 +131,21 @@ def test_long_discussion_is_read_entirely_and_static_fields_disappear(tmp_path,m
 def test_reject_description_for_other_course_or_unfilled(tmp_path,monkeypatch):
     _,client,_=_setup(tmp_path,monkeypatch)
     with client:
-        _,pdf=_form_from_zip(client)
         group=client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]
         base="/api/bandi/26-02/verbali/descrittivi"
+        _,pdf=_form_from_zip(client)
+        missing_source=_post(client,base,
+            data={"cds":group["cds"],"sede":group["sede"]},
+            files={"file":("vuoto.pdf",pdf,"application/pdf")})
+        assert missing_source.status_code==409
+        refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
+        payload={k:refs.get(k) or "" for k in
+            ("repertorio","protocollo","data_avviso","data_scadenza","anno_accademico")}
+        payload.update(testo_verbale_bando="Testo unicamente sintetico per il test",
+                       expected_updated_at=refs.get("aggiornato_il"))
+        assert client.put("/api/bandi/26-02/riferimenti",
+            headers={"X-RankUp-Request":"1"},json=payload).status_code==200
+        _,pdf=_form_from_zip(client)
         no_fields=_post(client,base,data={"cds":group["cds"],"sede":group["sede"]},
                         files={"file":("vuoto.pdf",pdf,"application/pdf")})
         assert no_fields.status_code==422,no_fields.text
