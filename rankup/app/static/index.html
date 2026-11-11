@@ -1962,6 +1962,7 @@
           '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza con nuovo prompt</button>'+
           '<button class="btn secondary" type="button" id="ai-pause" style="display:none">Sospendi</button>'+
           '<button class="btn secondary" type="button" id="ai-resume" style="display:none">Riprendi</button>'+
+          '<button class="btn secondary" type="button" id="ai-retry-errors" style="display:none">Riprova errori tecnici</button>'+
           '<button class="btn secondary" type="button" id="ai-cancel" style="display:none">Annulla</button>'+
           '<button class="btn secondary" type="button" id="ai-refresh">Aggiorna risultati</button></div>'+
           '<div id="ai-job-status" class="ru-ai-job-status" role="status" aria-live="polite">'+
@@ -2057,6 +2058,7 @@
             $("ai-pause").style.display=active?"inline-flex":"none";
             $("ai-cancel").style.display=job&&["in_coda","in_corso","attesa_quota","sospesa"].includes(job.stato)?"inline-flex":"none";
             $("ai-resume").style.display=job&&["sospesa","errore","attesa_quota"].includes(job.stato)?"inline-flex":"none";
+            $("ai-retry-errors").style.display=job&&(job.errori_tecnici||0)>0&&["completata","errore"].includes(job.stato)?"inline-flex":"none";
             $("ai-run").disabled=!!active;
             var progress=job&&job.totale?
               Math.round(100*job.completati/job.totale):0;
@@ -2065,7 +2067,8 @@
               var message="Stato: "+job.stato+" · "+job.completati+" di "+
                 job.totale+" completati · "+job.da_esaminare+" da elaborare · "+
                 job.chiamate+" chiamate API · "+job.token+" token registrati. "+
-                job.riutilizzati+" risultati riutilizzati · "+job.locali+" locali.";
+                job.riutilizzati+" risultati riutilizzati · "+job.locali+" locali · "+
+                (job.errori_tecnici||0)+" errori tecnici AI.";
               if(job.stato==="attesa_quota")
                 message+=" Pausa per quota: ripresa automatica fra circa "+
                   (job.riprende_tra||0)+" secondi.";
@@ -2157,6 +2160,7 @@
         }
         $("ai-pause").onclick=function(){action("sospendi");};
         $("ai-resume").onclick=function(){action("riprendi");};
+        $("ai-retry-errors").onclick=function(){action("riprova_errori");};
         $("ai-cancel").onclick=function(){action("annulla");};
         updateReport();
         await loadResults();
