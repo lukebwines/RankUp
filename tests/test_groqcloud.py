@@ -1,4 +1,4 @@
-"""Regressioni GroqCloud: minimizzazione, permessi, persistenza, senza rete."""
+"""Regressioni GroqCloud: denominazione ente minimizzata, privacy, senza rete."""
 from io import BytesIO
 from pathlib import Path
 
@@ -17,24 +17,24 @@ def test_only_institutional_categories_are_sent_to_groq():
         "codice_fiscale":"RSSMRA80A01H501U",
         "email":"fittizio@example.test",
         "occupazione":"Dipendente, nome sintetico, numero 3331234567",
-        "azienda_ente":"AOUI Verona, struttura reparto privato con nominativo",
+        "azienda_ente":"AOUI Verona",
         "profilo_professionale":"Dirigente",
         "ente_richiesto":"AOUI",
     }
     minimal=prepare_minimal_payload(raw)
     assert set(minimal)=={
-        "requisito_ente","categoria_ente_dichiarato",
+        "requisito_ente","denominazione_ente_dichiarato",
         "categoria_rapporto_dichiarato",
     }
     assert minimal["requisito_ente"]=="AOUI"
-    assert minimal["categoria_ente_dichiarato"]=="AOUI"
+    assert minimal["denominazione_ente_dichiarato"]=="AOUI VERONA"
     assert "12345" not in str(minimal)
     assert "RSSMRA" not in str(minimal)
     assert "fittizio@" not in str(minimal)
     assert "NOME SINTETICO" not in str(minimal)
-    # Nomi di aziende senza match esatto non devono essere inviati.
+    # Denominazioni con possibili dati personali restano nel server.
     unknown=prepare_minimal_payload({**raw,"azienda_ente":"Studio privato fittizio Rossi"})
-    assert unknown["categoria_ente_dichiarato"]=="ENTE NON CLASSIFICATO"
+    assert unknown["denominazione_ente_dichiarato"]=="DENOMINAZIONE NON TRASMETTIBILE"
     assert "Rossi" not in str(unknown)
 
 
@@ -79,7 +79,7 @@ def test_analysis_runs_on_current_PICA_occupations_without_evaluation_sheets(tmp
             assert key=="groq_fake_key_1234567890"
             assert model=="llama-3.3-70b-versatile"
             assert set(payload)=={
-                "requisito_ente","categoria_ente_dichiarato",
+                "requisito_ente","denominazione_ente_dichiarato",
                 "categoria_rapporto_dichiarato"}
             assert "candidato" not in str(payload).lower()
             sent.append(dict(payload))
@@ -102,7 +102,7 @@ def test_analysis_runs_on_current_PICA_occupations_without_evaluation_sheets(tmp
         assert body["completati"]==3
         assert body["da_analizzare"]==0
         assert all(row["id_pica"] for row in body["risultati"])
-        # Le categorie sono l'unico dato trasmesso; il rapporto con PICA è interno.
+        # Le denominazioni minimizzate sono trasmesse; il rapporto con PICA è interno.
         assert len(sent)<=3
         again=_post(admin,"/api/admin/ai/analizza-passo",json={"code":"26-02"})
         assert again.status_code==200 and again.json()["nuovi"]==0
@@ -181,7 +181,7 @@ def test_live_model_probe_is_synthetic_and_does_not_touch_pica(tmp_path,monkeypa
         assert response.json()["token_usati"]==42
         assert observed==[{
             "requisito_ente":"AOUI",
-            "categoria_ente_dichiarato":"AOUI",
+            "denominazione_ente_dichiarato":"AOUI VERONA",
             "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
         }]
         with server.connect() as db:
@@ -192,7 +192,7 @@ def test_prepares_json_mode_and_reads_usage_without_pica_identifiers(monkeypatch
     import ai_groq
     payload={
         "requisito_ente":"AOUI",
-        "categoria_ente_dichiarato":"AOUI",
+        "denominazione_ente_dichiarato":"AOUI",
         "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
     }
     outbound=[]
@@ -310,7 +310,7 @@ def test_groq_requests_use_rankup_user_agent_for_models_and_completions(monkeypa
     assert ai_groq.models(secret)==["openai/gpt-oss-120b"]
     answer=ai_groq.analyze(secret,"openai/gpt-oss-120b",{
         "requisito_ente":"AOUI",
-        "categoria_ente_dichiarato":"AOUI",
+        "denominazione_ente_dichiarato":"AOUI",
         "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
     })
     assert answer["origine"]=="groqcloud"
