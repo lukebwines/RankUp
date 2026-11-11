@@ -55,6 +55,13 @@ def test_prompt_editable_admin_and_ai_produces_institutional_coherence(tmp_path,
         assert rows.status_code==200,rows.text
         data=rows.json()
         assert data["totale"]==3
+        # Cognome e nome provengono dalle candidature PICA gia' importate.
+        source=client.get("/api/bandi/26-02/candidature").json()["candidature"]
+        expected={(str(c["id"]),str(c["incarico_key"])):
+                  (c["cognome"],c["nome"]) for c in source}
+        for row in data["casi"]:
+            assert (row["cognome"],row["nome"])==expected[
+                (str(row["id"]),str(row["incarico_key"]))]
         # Prima dell'AI RankUP non decide piu' SSN/AOUI localmente.
         assert data["conteggi"][DA_APPROFONDIRE]==3
         job=_post(client,"/api/admin/ai/lavori",json={
@@ -120,6 +127,10 @@ def test_unauthorized_prompt_and_queue_are_admin_only(tmp_path,monkeypatch):
         with TestClient(server.app) as user:
             assert _post(user,"/api/auth/login",json={
                 "username":"operatore-ai","password":"PasswordUtenteTest123!"}).status_code==200
+            assert user.get("/api/admin/ai/config").status_code==403
+            assert user.get("/api/admin/ai/limiti").status_code==403
+            assert user.get("/api/admin/ai/modelli").status_code==403
+            assert user.get("/api/admin/ai/report.pdf?code=26-02").status_code==403
             assert user.get("/api/admin/ai/istruzioni").status_code==403
             assert user.get("/api/admin/ai/verifiche?code=26-02").status_code==403
             assert user.get("/api/admin/ai/lavori?code=26-02").status_code==403
@@ -177,3 +188,34 @@ def test_interfaccia_ai_javascript_is_syntactically_valid(tmp_path):
     result=subprocess.run([node,"--check",str(script)],capture_output=True,
                           text=True,timeout=15)
     assert result.returncode==0,result.stderr
+
+
+
+def test_ai_menu_icons_resolve_and_names_only_appear_locally():
+    """Entrambi i nuovi menu hanno icone valide; nome protetto nell'UI Admin."""
+    import re
+    from pathlib import Path
+    from ai_groq import prepare_minimal_payload
+    page=(Path(__file__).resolve().parents[1]/
+          "rankup/app/static/index.html").read_text("utf-8")
+    icons=set(re.findall(r'<symbol\s+id="([^"]+)"',page))
+    for key in ("admin-ai-link","band-ai-link"):
+        match=re.search(r'<button[^>]*\bid="'+key+r'"[^>]*>(.*?)</button>',
+                        page,re.DOTALL)
+        assert match, key
+        used=re.findall(r'<use\s+href="#([^"]+)"',match.group(1))
+        assert len(used)==1,(key,used)
+        assert used[0] in icons,(key,used[0])
+    assert "Cerca candidato o ID PICA" in page
+    assert "<th>Candidato</th>" in page
+    assert "esc(candidato||'[DA VERIFICARE]')" in page
+    assert "var candidato=[row.cognome,row.nome].filter(Boolean).join(' ')" in page
+    # Non esporre i dati personali al provider.
+    source={"id_pica":"ID-SINTETICO","cognome":"COGNOME_DI_PROVA",
+            "nome":"NOME_DI_PROVA","ente_richiesto":"SSN",
+            "azienda_ente":"AOUI Verona","occupazione":"Dipendente",
+            "profilo_professionale":"Dirigente"}
+    payload=prepare_minimal_payload(source)
+    assert "COGNOME_DI_PROVA" not in str(payload)
+    assert "NOME_DI_PROVA" not in str(payload)
+    assert "ID-SINTETICO" not in str(payload)
