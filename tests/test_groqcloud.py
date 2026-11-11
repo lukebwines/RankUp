@@ -183,20 +183,24 @@ def test_live_model_probe_is_synthetic_and_does_not_touch_pica(tmp_path,monkeypa
         response=_post(client,"/api/admin/ai/test")
         assert response.status_code==200,response.text
         assert response.json()["token_usati"]==42
-        assert observed==[{
-            "requisito_ente":"AOUI",
-            "denominazione_ente_dichiarato":"AOUI VERONA",
-        }]
+        assert observed==[prepare_minimal_payload({
+            "ente_richiesto":"AOUI",
+            "azienda_ente":"AOUI VERONA",
+            "ateneo":"Universita' di esempio",
+            "occupazione":"Dirigente sanitario presso AOUI Verona",
+            "profilo_professionale":"Dirigente",
+            "qualifica":"Medico",
+        })]
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM ai_ente_verifiche").fetchone()[0]==0
 
 
 def test_prepares_json_mode_and_reads_usage_without_pica_identifiers(monkeypatch):
     import ai_groq
-    payload={
-        "requisito_ente":"AOUI",
-        "denominazione_ente_dichiarato":"AOUI",
-    }
+    payload=prepare_minimal_payload({
+        "ente_richiesto":"AOUI",
+        "azienda_ente":"AOUI",
+    })
     outbound=[]
     def fake_json(url,key,body):
         outbound.append(body)
@@ -310,10 +314,10 @@ def test_groq_requests_use_rankup_user_agent_for_models_and_completions(monkeypa
     monkeypatch.setattr(ai_groq.request,"build_opener",lambda *_:Opener())
     secret="groq_test_secret_123456789012345"
     assert ai_groq.models(secret)==["openai/gpt-oss-120b"]
-    answer=ai_groq.analyze(secret,"openai/gpt-oss-120b",{
-        "requisito_ente":"AOUI",
-        "denominazione_ente_dichiarato":"AOUI",
-    })
+    answer=ai_groq.analyze(secret,"openai/gpt-oss-120b",
+                           prepare_minimal_payload({
+                               "ente_richiesto":"AOUI","azienda_ente":"AOUI"
+                           }))
     assert answer["origine"]=="groqcloud"
     assert [r["method"] for r in sent]==["GET","POST"]
     assert all(r["agent"]==ai_groq.GROQ_USER_AGENT for r in sent)
