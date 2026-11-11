@@ -9,6 +9,9 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from urllib import error, request
+from http.client import HTTPException as HTTPClientException
+import socket
+import ssl
 import hashlib
 import json
 import os
@@ -107,6 +110,7 @@ def source_hash(payload: dict, model: str) -> str:
 
 
 def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
+    """Richiesta sicura all'endpoint fisso Groq, errori leggibili senza segreti."""
     headers={"Authorization":"Bearer "+key,"Accept":"application/json"}
     data=None
     if payload is not None:
@@ -114,7 +118,7 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
         headers["Content-Type"]="application/json"
     req=request.Request(url,data=data,headers=headers,
                         method="POST" if payload is not None else "GET")
-    # Destinazione fissa HTTPS: non seguire redirect verso altre origini.
+    # Non seguire redirect verso provider diversi; non loggare chiave o payload.
     class NoRedirect(request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):
             return None
@@ -122,23 +126,44 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
         with request.build_opener(NoRedirect()).open(req,timeout=25) as resp:
             data=resp.read(400_001)
         if len(data)>400_000:
-            raise ValueError("Risposta troppo grande")
-        doc=json.loads(data)
+            raise ValueError("Risposta GroqCloud troppo grande")
+        try:
+            doc=json.loads(data)
+        except (UnicodeError,json.JSONDecodeError):
+            raise ValueError(
+                "GroqCloud non ha restituito JSON: verificare rete e proxy di Home Assistant"
+            ) from None
         if not isinstance(doc,dict):
-            raise ValueError("Formato non valido")
+            raise ValueError("Formato di risposta GroqCloud non valido")
         return doc
     except error.HTTPError as exc:
         if exc.code==429:
             try: pause=int(float(exc.headers.get("Retry-After","60")))
-            except ValueError: pause=60
+            except (TypeError,ValueError): pause=60
             raise GroqLimit(max(10,min(pause,86400))) from None
-        if exc.code in (401,403):
-            raise ValueError("Chiave GroqCloud non autorizzata") from None
+        if exc.code==401:
+            raise ValueError("GroqCloud HTTP 401: chiave API mancante, revocata o non valida") from None
+        if exc.code==403:
+            raise ValueError(
+                "GroqCloud HTTP 403: accesso negato. Verificare permessi o progetto della chiave"
+            ) from None
         if exc.code==404:
-            raise ValueError("Modello GroqCloud non disponibile") from None
-        raise ValueError("GroqCloud non disponibile o richiesta non accettata") from None
-    except (error.URLError,OSError,TimeoutError):
-        raise ValueError("Connessione GroqCloud non disponibile") from None
+            if url==API_MODELS:
+                raise ValueError("GroqCloud HTTP 404: endpoint dei modelli non raggiungibile") from None
+            raise ValueError("GroqCloud HTTP 404: modello non disponibile") from None
+        if exc.code in (500,502,503,504):
+            raise ValueError(
+                "GroqCloud HTTP "+str(exc.code)+": servizio temporaneamente non disponibile"
+            ) from None
+        raise ValueError("GroqCloud HTTP "+str(exc.code)+": richiesta rifiutata") from None
+    except (socket.timeout,TimeoutError):
+        raise ValueError("Timeout di collegamento a GroqCloud (25 secondi)") from None
+    except (ssl.SSLError,ssl.CertificateError):
+        raise ValueError("Errore HTTPS/TLS verso GroqCloud: verificare certificati o proxy") from None
+    except (error.URLError,OSError,HTTPClientException):
+        raise ValueError(
+            "Collegamento a api.groq.com non riuscito: verificare DNS, Internet e proxy Home Assistant"
+        ) from None
 
 
 class GroqLimit(Exception):
