@@ -33,7 +33,7 @@ from pypdf import PdfReader, PdfWriter
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_groq import (GroqSecrets, GroqLimit, prepare_minimal_payload, source_hash as groq_source_hash,
+from ai_groq import (DEFAULT_GUIDANCE, GroqSecrets, GroqLimit, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
 from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
                            DA_APPROFONDIRE, RULES_VERSION)
@@ -3173,6 +3173,32 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
 
 
 
+
+# Istruzioni generali del modello, visibili e modificabili SOLO dall'Admin.
+# Il prompt di sicurezza/struttura JSON resta fisso e non modificabile.
+class AIIndicazioniInput(BaseModel):
+    testo: str = Field(min_length=10,max_length=5000)
+
+
+@app.get("/api/admin/ai/istruzioni")
+def leggi_istruzioni_ai(request:Request):
+    require_admin(request)
+    return {"testo":GROQ.guidance(),"predefinito":DEFAULT_GUIDANCE,
+            "avviso":"Inserire soltanto indicazioni istituzionali generali, "
+                     "mai dati di candidati. Le modifiche valgono per le "
+                     "nuove analisi e invalidano il riutilizzo dei vecchi esiti."}
+
+
+@app.put("/api/admin/ai/istruzioni")
+def salva_istruzioni_ai(body:AIIndicazioniInput,request:Request):
+    require_admin(request)
+    try:
+        GROQ.save_guidance(body.testo)
+    except (ValueError,OSError) as exc:
+        fail(str(exc),400)
+    return leggi_istruzioni_ai(request)
+
+
 # === Verifica requisito ente per bando: coda persistente v7 ===
 class AIQuotaConfig(BaseModel):
     rpm: int = Field(default=30,ge=1,le=1000)
@@ -3209,7 +3235,7 @@ def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str
         fail("Filtro esito non valido",400)
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
-        rows=ai_cases(db,bid,candidates,GROQ.model())
+        rows=ai_cases(db,bid,candidates,GROQ.model(),GROQ.guidance())
     counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
     for entry in rows:
         counts[entry["esito"]]+=1
@@ -3240,7 +3266,7 @@ def avvia_analisi_ente(body:AccodaAnalisiEnte,request:Request):
         if not b or b["stato"]=="Archiviato":
             fail("Bando archiviato: non si possono avviare nuove analisi",409)
         job=ai_create_job(db,bid,valid_code(body.code),body.cds,body.sede,
-                          model,candidates,who["username"],bool(body.forza))
+                          model,candidates,who["username"],GROQ.guidance(),bool(body.forza))
     AI_WORKER_STOP_WAKE.set()
     return {"lavoro":job,"totale_candidature":len(candidates),
             "avviso":"Gli esiti locali sono conservati e le chiamate GroqCloud "
@@ -3341,7 +3367,7 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
     code=valid_code(code)
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
-        results=ai_cases(db,bid,candidates,GROQ.model())
+        results=ai_cases(db,bid,candidates,GROQ.model(),GROQ.guidance())
     rows=[]
     for item in results:
         if esito and item["esito"]!=esito:
