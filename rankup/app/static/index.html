@@ -1443,15 +1443,26 @@
             return '<option value="'+m[0]+'"'+(selected===m[0]?' selected':'')+'>'+m[1]+'</option>';
           }).join("");};
           var rows=data.ssd||[];
+          var saved=rows.map(function(r){return {tipo:r.tipo||"",ref:r.riferimento||""};});
+          var busy=false;
+          var caution='<span aria-label="SSD senza modello configurato" title="SSD senza modello configurato" style="color:#b7791f;font-size:19px;vertical-align:middle;margin-left:6px" role="img">&#9888;</span>';
           var body='<div class="card mb"><h3 class="section-heading">Associazioni SSD permanenti</h3>'+
-            '<p class="caption">Valide per tutti i bandi, conservate dopo l’azzeramento. Non si modifica il contenuto delle schede già acquisite né delle graduatorie definitive.</p>'+
-            '<div class="tablebox"><table><thead><tr><th>SSD</th><th>Modello scheda</th><th>Riferimento documentale</th><th>Incarichi importati</th><th></th></tr></thead><tbody>'+
-            rows.map(function(r,i){return '<tr><td><strong>'+esc(r.ssd)+'</strong></td><td><select data-model="'+i+'">'+
+            '<p class="caption">Valide per tutti i bandi, conservate dopo l’azzeramento. Non si modifica il contenuto delle schede già acquisite né delle graduatorie definitive. Il triangolo segnala un SSD senza associazione esplicita.</p>'+
+            '<div class="actions" style="align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">'+
+            '<button class="btn" type="button" data-ssd-bulk disabled>Salva tutte le modifiche</button>'+
+            '<span class="caption" id="ssd-bulk-counter" role="status" aria-live="polite"></span></div>'+
+            '<div class="tablebox"><table><thead><tr><th>SSD</th><th>Modello scheda</th><th>Riferimento documentale</th><th>Incarichi importati</th><th>Stato</th><th></th></tr></thead><tbody>'+
+            rows.map(function(r,i){return '<tr data-ssd-row="'+i+'"><td><strong>'+esc(r.ssd)+'</strong><span data-ssd-alert="'+i+'">'+(!r.tipo?caution:'')+
+              '</span></td><td><select data-model="'+i+'">'+
               '<option value=""'+(!r.tipo?' selected':'')+' disabled>Non ancora configurato</option>'+
               options(r.tipo)+'</select></td><td><input data-ref="'+i+'" value="'+esc(r.riferimento||"")+
               '" maxlength="400" placeholder="Solo se verificato"></td><td>'+esc(r.incarichi||0)+
-              '</td><td><button class="btn secondary" data-save-ssd="'+i+'">Salva</button></td></tr>';}).join('')+
-            '</tbody></table></div></div>'+
+              '</td><td><span data-ssd-status="'+i+'" class="caption">'+(!r.tipo?'Da configurare':'Salvato')+
+              '</span></td><td><button class="btn secondary" type="button" data-save-ssd="'+i+'">Salva</button></td></tr>';}).join('')+
+            '</tbody></table></div>'+
+            '<div class="actions" style="margin-top:12px;align-items:center;flex-wrap:wrap;gap:12px">'+
+            '<button class="btn" type="button" data-ssd-bulk disabled>Salva tutte le modifiche</button>'+
+            '<span class="caption">Le scelte non vengono salvate finché non premi Salva.</span></div></div>'+
             '<div class="card"><h3 class="section-heading">Aggiungi SSD alla configurazione generale</h3>'+
             '<p class="caption">Non occorre importare un bando per preconfigurare un SSD. Inserire soltanto codici effettivamente verificati.</p>'+
             '<form id="global-ssd-form" class="actions" style="align-items:end;flex-wrap:wrap">'+
@@ -1460,31 +1471,104 @@
             '<label>Riferimento (facoltativo)<input id="global-ssd-ref" maxlength="400" placeholder="Fonte verificata"></label>'+
             '<button class="btn" type="submit">Salva associazione</button></form></div>';
           html(body);
+          var modelInputs=rows.map(function(_,i){return document.querySelector('[data-model="'+i+'"]');});
+          var refInputs=rows.map(function(_,i){return document.querySelector('[data-ref="'+i+'"]');});
+          var statusNodes=rows.map(function(_,i){return document.querySelector('[data-ssd-status="'+i+'"]');});
+          var buttons=rows.map(function(_,i){return document.querySelector('[data-save-ssd="'+i+'"]');});
+          var bulkButtons=Array.from(document.querySelectorAll("[data-ssd-bulk]"));
+          var countNode=$("ssd-bulk-counter");
+          function changed(i){
+            return modelInputs[i].value!==saved[i].tipo || refInputs[i].value!==saved[i].ref;
+          }
+          function refresh(){
+            var pending=0,unconfigured=0;
+            rows.forEach(function(row,i){
+              var modified=changed(i);
+              if(modified)pending++;
+              if(!saved[i].tipo)unconfigured++;
+              if(statusNodes[i].dataset.failed==="1" && !modified)delete statusNodes[i].dataset.failed;
+              if(statusNodes[i].dataset.failed!=="1"){
+                statusNodes[i].textContent=modified?"Da salvare":saved[i].tipo?"Salvato":"Da configurare";
+              }
+              document.querySelector('[data-ssd-row="'+i+'"]').style.fontWeight=modified?"600":"";
+              buttons[i].disabled=busy;
+            });
+            bulkButtons.forEach(function(btn){btn.disabled=busy || pending===0;btn.textContent=busy?"Salvataggio in corso…":"Salva tutte le modifiche ("+pending+")";});
+            countNode.textContent=pending+" modifiche da salvare · "+unconfigured+" SSD non configurati";
+          }
           async function persist(ssd,tipo,reference){
             return api("ssd/"+encodeURIComponent(ssd)+"/classificazione",{
               method:"PUT",headers:{"Content-Type":"application/json"},
               body:JSON.stringify({tipo:tipo,riferimento:reference})});
           }
-          document.querySelectorAll("[data-save-ssd]").forEach(function(btn){
-            btn.onclick=async function(){
-              var index=Number(btn.dataset.saveSsd),row=rows[index];
-              var tipo=document.querySelector('[data-model="'+index+'"]').value;
-              var ref=document.querySelector('[data-ref="'+index+'"]').value;
-              if(!tipo){note("Seleziona un modello per "+row.ssd,true);return;}
-              btn.disabled=true;
-              try{await persist(row.ssd,tipo,ref);note("SSD "+row.ssd+" aggiornato nella configurazione generale.",false);renderSSDGenerali();}
-              catch(err){note(err.message,true);btn.disabled=false;}
+          async function saveIndices(indices){
+            if(busy)return;
+            busy=true;refresh();
+            var ok=0,errors=[];
+            for(var j=0;j<indices.length;j++){
+              var i=indices[j],row=rows[i],tipo=modelInputs[i].value,ref=refInputs[i].value;
+              if(!changed(i))continue;
+              if(!tipo){
+                errors.push(row.ssd+": selezionare il modello");
+                statusNodes[i].textContent="Modello mancante";
+                statusNodes[i].dataset.failed="1";
+                continue;
+              }
+              try{
+                await persist(row.ssd,tipo,ref);
+                saved[i]={tipo:tipo,ref:ref};
+                delete statusNodes[i].dataset.failed;
+                document.querySelector('[data-ssd-alert="'+i+'"]').innerHTML="";
+                ok++;
+              }catch(err){
+                errors.push(row.ssd+": "+err.message);
+                statusNodes[i].textContent="Errore di salvataggio";
+                statusNodes[i].dataset.failed="1";
+              }
+              countNode.textContent="Salvati "+ok+" di "+indices.length+" SSD selezionati…";
+            }
+            busy=false;refresh();
+            if(errors.length){
+              note(ok+" SSD salvati; "+errors.length+" non salvati. "+errors.slice(0,4).join(" | ")+(errors.length>4?" (altri errori presenti)":"")+"; le modifiche non salvate restano selezionate.",true);
+            }else if(ok){
+              note(ok+" SSD aggiornati. Le altre righe e le selezioni sono rimaste invariate.",false);
+            }
+          }
+          rows.forEach(function(_,i){
+            modelInputs[i].addEventListener("change",function(){delete statusNodes[i].dataset.failed;refresh();});
+            refInputs[i].addEventListener("input",function(){delete statusNodes[i].dataset.failed;refresh();});
+            buttons[i].onclick=function(){saveIndices([i]);};
+          });
+          bulkButtons.forEach(function(btn){
+            btn.onclick=function(){
+              saveIndices(rows.map(function(_,i){return i;}).filter(changed));
             };
           });
+          refresh();
           $("global-ssd-form").onsubmit=async function(event){
             event.preventDefault();
+            if(busy)return;
             var button=this.querySelector("button");
             button.disabled=true;
             try{
               var code=$("global-ssd-code").value.trim().toUpperCase();
               await persist(code,$("global-ssd-type").value,$("global-ssd-ref").value);
-              note("Associazione globale SSD "+code+" salvata.",false);renderSSDGenerali();
-            }catch(err){note(err.message,true);button.disabled=false;}
+              note("Associazione globale SSD "+code+" salvata.",false);
+              // Il nuovo SSD richiede una lettura dell'elenco aggiornato.
+              if(rows.some(function(r){return r.ssd===code;})){
+                var index=rows.findIndex(function(r){return r.ssd===code;});
+                saved[index]={tipo:$("global-ssd-type").value,ref:$("global-ssd-ref").value};
+                modelInputs[index].value=saved[index].tipo;
+                refInputs[index].value=saved[index].ref;
+                document.querySelector('[data-ssd-alert="'+index+'"]').innerHTML="";
+                refresh();
+              }else if(!rows.some(function(_,i){return changed(i);})){
+                renderSSDGenerali();
+              }else{
+                note("SSD aggiunto. Sono presenti modifiche non salvate nella tabella: salvale prima di aggiornarla.",false);
+              }
+            }catch(err){note(err.message,true);}
+            finally{button.disabled=false;}
           };
         }catch(err){note(err.message,true);html(panel("Modelli schede per SSD",esc(err.message)));}
       }
