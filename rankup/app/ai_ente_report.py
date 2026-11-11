@@ -105,12 +105,14 @@ def _page_decoration(canvas,doc,code):
     canvas.restoreState()
 
 
-def _status_cell(value):
+def _status_cell(value,historical=False):
     status=str(value or "")
-    col=GREEN if status==ENTE_COERENTE else GOLD if status==DA_APPROFONDIRE else NEUTRAL
-    st=ParagraphStyle("RU-status-"+status,parent=TINY,fontName="Helvetica-Bold",
-                      textColor=col)
-    return _p(status,st)
+    col=(NEUTRAL if historical else
+         GREEN if status==ENTE_COERENTE else GOLD if status==DA_APPROFONDIRE
+         else NEUTRAL)
+    st=ParagraphStyle("RU-status-"+status+("-hist" if historical else ""),
+                      parent=TINY,fontName="Helvetica-Bold",textColor=col)
+    return _p(status+(" (STORICO)" if historical else ""),st)
 
 
 def _overview(totals,shown,filter_text):
@@ -154,7 +156,7 @@ def _table(rows):
           _p(str(item.get("requisito") or "[DA VERIFICARE]")+
              " / "+str(item.get("categoria_ente") or "[DA VERIFICARE]"),TINY),
           _p(item.get("categoria_rapporto"),TINY),
-          _status_cell(item.get("esito")),
+          _status_cell(item.get("esito"),bool(item.get("valutazione_storica"))),
         ])
     table=Table(data,colWidths=widths,repeatRows=1,hAlign="LEFT",
                 splitByRow=1)
@@ -191,6 +193,9 @@ def _detail(item):
     kind=str(item.get("tipo_approfondimento") or "").strip()
     if kind:
         result.append(_p("Tipo di approfondimento: "+kind,SMALL))
+    sources=item.get("fonti_pica") or []
+    if sources:
+        result.append(_p("Campi PICA disponibili: "+", ".join(sources),SMALL))
     # Queste voci sono presentate una sola volta per posizione, senza
     # sovrapporre il suggerimento AI alla verifica amministrativa.
     reason=str(item.get("motivo") or "").strip()
@@ -234,14 +239,21 @@ def render_ente_report_pdf(code:str,cds:str,sede:str,rows:list[dict],
         _p("Bando: "+_safe(code)+"   |   CdS: "+_safe(cds)+
            "   |   Sede: "+_safe(sede),NORMAL),
         _p("Filtro applicato: "+(filter_text or "Tutti gli esiti"),SMALL),
-        _p("Il prospetto confronta le denominazioni istituzionali delle "
-           "dichiarazioni PICA. Gli esiti sono indicativi: il rapporto "
-           "di lavoro personale deve essere accertato separatamente.",SMALL),
+        _p("Il prospetto confronta i cinque campi PICA (Azienda/ente, Ateneo, "
+           "Occupazione, Profilo professionale, Qualifica). Gli esiti "
+           "sono indicativi: il rapporto di lavoro deve essere accertato.",SMALL),
         Spacer(1,8),
         _overview(totals,len(rows),filter_text),
         Spacer(1,10),
         _p("1. Elenco candidature per CdS e sede",SECTION),
     ]
+    old_count=sum(1 for r in rows if r.get("valutazione_storica"))
+    if old_count:
+        story.insert(8,_p(
+            "ATTENZIONE: "+str(old_count)+" esiti presenti derivano dalla "
+            "versione precedente, che esaminava solo Azienda/ente. "
+            "Sono marcati STORICO e richiedono rianalisi con i cinque "
+            "campi PICA prima di considerarli aggiornati.",NOTE))
     grouped=defaultdict(list)
     for row in rows:
         grouped[_group(row)].append(row)
