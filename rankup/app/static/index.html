@@ -1943,11 +1943,13 @@
           '<button type="button" class="ru-ai-stat ru-ai-review" data-ai-filter="'+DA_VEDERE+'"><span>⚠ Da approfondire</span><strong>—</strong></button></div>'+
           '<label class="ru-ai-filter-label">Filtro esito<select id="ai-esito"><option value="">Tutti</option>'+
           '<option>'+NA+'</option><option>'+ENTE_OK+'</option><option>'+DA_VEDERE+'</option></select></label>'+
+          '<label class="ru-ai-filter-label">Motivo approfondimento<select id="ai-tipo">'+'<option value="">Tutti i motivi</option></select></label>'+
           '<label style="display:block;max-width:350px;margin:0 0 12px">Cerca candidato o ID PICA'+
           '<input id="ai-ricerca" type="search" placeholder="Cognome, nome o ID PICA" '+
           'autocomplete="off" style="width:100%"></label>'+
           '<div class="tablebox" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
           '<p class="caption" id="ai-counts" aria-live="polite"></p>'+
+          '<div class="actions" style="flex-wrap:wrap;gap:8px;margin:12px 0">'+'<button class="btn secondary" type="button" id="ai-select-visible">Seleziona righe visualizzate</button>'+'<button class="btn secondary" type="button" id="ai-clear-selection">Deseleziona tutte</button>'+'<span id="ai-selected-count" class="caption">0 candidature selezionate</span></div>'+
           '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
           '<div class="card"><h3 class="section-heading">Coda AI · Confronto istituzionale</h3>'+
           '<p class="caption">GroqCloud confronta la denominazione dichiarata dell’ente sulla base delle istruzioni '+
@@ -1959,7 +1961,8 @@
           'della sola denominazione di ente minimizzata e del requisito. La qualifica rimane locale.</label>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px">'+
           '<button class="btn" type="button" id="ai-run">Avvia o recupera analisi</button>'+
-          '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza con nuovo prompt</button>'+
+          '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza tutte (forzato)</button>'+
+          '<button class="btn secondary" type="button" id="ai-review-selected">Rianalizza casi selezionati</button>'+
           '<button class="btn secondary" type="button" id="ai-pause" style="display:none">Sospendi</button>'+
           '<button class="btn secondary" type="button" id="ai-resume" style="display:none">Riprendi</button>'+
           '<button class="btn secondary" type="button" id="ai-retry-errors" style="display:none">Riprova errori tecnici</button>'+
@@ -1971,11 +1974,21 @@
           '<p id="ai-quota-live" class="caption">Le quote mostrate distinguono '+
           'stime locali e valori restituiti dal provider.</p></div>');
         var selectedEsito="";
+        var selectedIds=new Set();
+        var queueActive=false;
+        function updateSelectionButtons(){
+          $("ai-selected-count").textContent=selectedIds.size+" candidature selezionate";
+          $("ai-review-selected").disabled=queueActive||selectedIds.size===0;
+          document.querySelectorAll("#ai-results input[data-ai-select]").forEach(function(input){
+            input.checked=selectedIds.has(Number(input.dataset.aiSelect));
+          });
+        }
         function query(includeFilter){
           var p=new URLSearchParams({code:code});
           if($("ai-cds").value)p.set("cds",$("ai-cds").value);
           if($("ai-sede").value)p.set("sede",$("ai-sede").value);
           if(includeFilter && $("ai-esito").value)p.set("esito",$("ai-esito").value);
+          if(includeFilter && $("ai-tipo").value)p.set("tipo",$("ai-tipo").value);
           return p;
         }
         function updateReport(){
@@ -1983,6 +1996,7 @@
         }
         function setEsito(next){
           $("ai-esito").value=next||"";
+          $("ai-tipo").value="";
           updateReport();loadResults();
         }
         function markFilter(){
@@ -2005,12 +2019,21 @@
               btn.querySelector("strong").textContent=total;
             });
             markFilter();
+            var tipi=data.conteggi_tipo||{};
+            var currentTipo=$("ai-tipo").value;
+            var allTypes=Object.keys(tipi).sort();
+            $("ai-tipo").innerHTML='<option value="">Tutti i motivi</option>'+
+              allTypes.map(function(t){
+                return '<option value="'+esc(t)+'">'+esc(t)+' ('+tipi[t]+')</option>';
+              }).join("");
+            if(allTypes.includes(currentTipo))$("ai-tipo").value=currentTipo;
+            else if(currentTipo){$("ai-tipo").value="";updateReport();}
             $("ai-counts").textContent=data.visualizzati+" candidature visualizzate su "+
               data.totale+" · Regole "+data.versione_regole+
               ". Nessun esito determina automaticamente l'idoneità.";
             $("ai-results").innerHTML=data.casi.length?
-              '<table><thead><tr><th>ID PICA</th><th>Candidato</th><th>CdS / sede</th><th>Requisito</th>'+
-              '<th>Ente dichiarato</th><th>Rapporto dichiarato</th><th>Esito</th>'+
+              '<table><thead><tr><th>Selez.</th><th>ID PICA</th><th>Candidato</th><th>CdS / sede</th><th>Requisito</th>'+
+              '<th>Ente dichiarato</th><th>Rapporto dichiarato</th><th>Esito</th><th>Motivo</th>'+
               '<th>Verifiche</th><th>Nota AI, se presente</th></tr></thead><tbody>'+
               data.casi.map(function(row){
                 var klass=row.esito===ENTE_OK?"ru-ai-pill--ok":
@@ -2019,18 +2042,25 @@
                   row.esito===ENTE_OK?"✓ Ente coerente":"Non applicabile";
                 var ai=row.ai||{};
                 var candidato=[row.cognome,row.nome].filter(Boolean).join(' ');
-                return '<tr><td>'+esc(row.id_pica)+'</td>'+
+                var canSelect=!!row.richiede_ai;
+                var check='<input type="checkbox" aria-label="Seleziona candidatura '+
+                  esc(row.id_pica)+'" data-ai-select="'+Number(row.id)+'" '+
+                  (canSelect?'':'disabled title="Dati non inviabili all’AI"')+
+                  (selectedIds.has(Number(row.id))?' checked':'')+'>';
+                return '<tr><td>'+check+'</td><td>'+esc(row.id_pica)+'</td>'+
                   '<td>'+esc(candidato||'[DA VERIFICARE]')+'</td>'+
                   '<td>'+esc(row.cds+' · '+row.sede)+'</td>'+
                   '<td>'+esc(row.requisito)+'</td>'+
                   '<td>'+esc(row.categoria_ente)+'</td>'+
                   '<td>'+esc(row.categoria_rapporto)+'</td>'+
                   '<td><span class="ru-ai-pill '+klass+'">'+esc(label)+'</span></td>'+
+                  '<td>'+esc(row.tipo_approfondimento||'—')+'</td>'+
                   '<td>'+esc(row.verifiche)+'</td>'+
                   '<td>'+esc(ai.motivo||"—")+'</td></tr>';
               }).join("")+'</tbody></table>':
               '<p class="caption">Nessuna candidatura per il filtro selezionato.</p>';
             filtraCandidati();
+            updateSelectionButtons();
           }catch(err){note(err.message,true);}
         }
         function filtraCandidati(){
@@ -2040,11 +2070,30 @@
             // Ricerca esclusivamente nel nome e nell'ID PICA: nessun dato
             // identificativo e' trasmesso al server durante la digitazione.
             var cells=tr.querySelectorAll("td");
-            var searchText=(cells[0]?.textContent||"")+" "+(cells[1]?.textContent||"");
+            var searchText=(cells[1]?.textContent||"")+" "+(cells[2]?.textContent||"");
             tr.hidden=!!term&&!searchText.toLocaleLowerCase("it").includes(term);
           });
         }
         $("ai-ricerca").oninput=filtraCandidati;
+        $("ai-results").onchange=function(ev){
+          var el=ev.target;
+          if(!el||!el.matches("input[data-ai-select]"))return;
+          var id=Number(el.dataset.aiSelect);
+          if(!Number.isSafeInteger(id)||id<=0)return;
+          if(el.checked)selectedIds.add(id);else selectedIds.delete(id);
+          updateSelectionButtons();
+        };
+        $("ai-select-visible").onclick=function(){
+          document.querySelectorAll("#ai-results tbody tr").forEach(function(tr){
+            if(tr.hidden)return;
+            var el=tr.querySelector("input[data-ai-select]:not([disabled])");
+            if(el)selectedIds.add(Number(el.dataset.aiSelect));
+          });
+          updateSelectionButtons();
+        };
+        $("ai-clear-selection").onclick=function(){
+          selectedIds.clear();updateSelectionButtons();
+        };
         var currentJob=null;
         var aiPollTimer=null;
         async function loadStatus(){
@@ -2055,6 +2104,8 @@
             currentJob=status.lavoro||null;
             var job=currentJob;
             var active=job&&["in_coda","in_corso","attesa_quota"].includes(job.stato);
+            queueActive=!!active;
+            updateSelectionButtons();
             $("ai-pause").style.display=active?"inline-flex":"none";
             $("ai-cancel").style.display=job&&["in_coda","in_corso","attesa_quota","sospesa"].includes(job.stato)?"inline-flex":"none";
             $("ai-resume").style.display=job&&["sospesa","errore","attesa_quota"].includes(job.stato)?"inline-flex":"none";
@@ -2124,6 +2175,7 @@
         $("ai-cds").onchange=function(){seatOptions();loadResults();poll();updateReport();};
         $("ai-sede").onchange=function(){loadResults();poll();updateReport();};
         $("ai-esito").onchange=function(){updateReport();loadResults();};
+        $("ai-tipo").onchange=function(){updateReport();loadResults();};
         document.querySelectorAll("[data-ai-filter]").forEach(function(btn){
           btn.onclick=function(){setEsito(this.dataset.aiFilter);};
         });
@@ -2147,6 +2199,26 @@
         }
         $("ai-run").onclick=function(){queue(false);};
         $("ai-reanalyze").onclick=function(){queue(true);};
+        $("ai-review-selected").onclick=async function(){
+          if(!selectedIds.size){
+            note("Seleziona almeno una candidatura con dati inviabili.",true);return;
+          }
+          if(!$("ai-consent").checked){
+            note("Conferma prima le condizioni per l'uso di GroqCloud.",true);return;
+          }
+          if(!confirm("Rianalizzare soltanto "+selectedIds.size+
+                " candidature selezionate? I risultati precedenti resteranno nello storico."))return;
+          var body={code:code,cds:$("ai-cds").value,sede:$("ai-sede").value,
+                    ids_candidature:Array.from(selectedIds),forza:true,
+                    conferma_servizio:true};
+          try{
+            var result=await api("admin/ai/lavori",{method:"POST",
+              headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+            selectedIds.clear();updateSelectionButtons();
+            note("Avviata coda mirata di "+result.totale_candidature+" candidature.",false);
+            poll();
+          }catch(err){note(err.message,true);}
+        };
         $("ai-refresh").onclick=function(){loadResults();loadStatus();};
         async function action(name){
           if(!currentJob)return;
@@ -2163,6 +2235,7 @@
         $("ai-retry-errors").onclick=function(){action("riprova_errori");};
         $("ai-cancel").onclick=function(){action("annulla");};
         updateReport();
+        updateSelectionButtons();
         await loadResults();
         poll();
       }
