@@ -27,6 +27,9 @@ from xml.sax.saxutils import escape
 
 API_CHAT = "https://api.groq.com/openai/v1/chat/completions"
 API_MODELS = "https://api.groq.com/openai/v1/models"
+# Identificazione esplicita del client: Python-urllib/3.12 provoca un
+# blocco Cloudflare 1010 nell'ambiente Home Assistant testato.
+GROQ_USER_AGENT = "RankUP/1.0.8"
 _ALLOWED_RESULTS = {"INDIZI COERENTI", "POSSIBILE DISALLINEAMENTO", "DATI INSUFFICIENTI"}
 _ALLOWED_REQUISITES = {"AOUI", "ASUIT", "SSN", "UNITN", "APSS", "SSP",
                        "ALTRO ATENEO", "ASUIT O UNITN", "NESSUNA RISERVA"}
@@ -112,7 +115,11 @@ def source_hash(payload: dict, model: str) -> str:
 
 def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
     """Richiesta sicura all'endpoint fisso Groq, errori leggibili senza segreti."""
-    headers={"Authorization":"Bearer "+key,"Accept":"application/json"}
+    headers={
+        "Authorization":"Bearer "+key,
+        "Accept":"application/json",
+        "User-Agent":GROQ_USER_AGENT,
+    }
     data=None
     if payload is not None:
         data=json.dumps(payload,ensure_ascii=False).encode("utf-8")
@@ -159,8 +166,26 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
         if exc.code==401:
             raise ValueError("GroqCloud HTTP 401: chiave API mancante, revocata o non valida") from None
         if exc.code==403:
+            # Cloudflare può restituire HTTP 403 con codice 1010 quando blocca
+            # la firma/User-Agent del client, *prima* dell'autenticazione API.
+            # Esaminiamo solo una piccola parte della risposta: niente chiavi
+            # o contenuti remoti nei messaggi e nessun log del corpo.
+            try:
+                page=(exc.read(8192) or b"").decode("utf-8","replace").lower()
+            except (OSError,ValueError,UnicodeError):
+                page=""
+            if "1010" in page and ("cloudflare" in page or
+                                   "error code" in page or
+                                   "browser signature" in page):
+                raise ValueError(
+                    "Cloudflare 1010: il client HTTP è stato bloccato per la "
+                    "firma/User-Agent della richiesta, non per la chiave API. "
+                    "Verificare che RankUP utilizzi il proprio User-Agent."
+                ) from None
             raise ValueError(
-                "GroqCloud HTTP 403: accesso negato. Verificare permessi o progetto della chiave"
+                "GroqCloud HTTP 403: accesso negato. "
+                "Se non compare Cloudflare 1010, verificare permessi/progetto "
+                "e le restrizioni della chiave API."
             ) from None
         if exc.code==404:
             if url==API_MODELS:
