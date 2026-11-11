@@ -138,24 +138,36 @@ def _normal(value: object) -> str:
 # personali: nessun testo viene inviato in caso di dubbio.
 ENT_E_MISSING = "NON DICHIARATO"
 ENT_E_PRIVATE = "DENOMINAZIONE NON TRASMETTIBILE"
-MAX_ENTE_NAME = 140
+# La lunghezza e' un limite di minimizzazione, non un riconoscitore di enti.
+MAX_ENTE_NAME = 220
 _PERSONAL_CONTENT = re.compile(
     r"@|https?://|www\.|\b(?:PEC|EMAIL|E-MAIL|TEL(?:EFONO)?|CELL(?:ULARE)?|"
     r"FAX|CODICE FISCALE|C\.F\.|P\.IVA|PARTITA IVA|VIA|VIALE|PIAZZA|"
-    r"RESIDENTE|NATO|NATA|DOTT(?:ORE|ORES SA|SSA|\.|RICE)?|SIG(?:\.|NOR|NORA)|"
-    r"STUDIO PRIVATO|STUDIO PROFESSIONALE|LIBERO PROFESSIONISTA)\b",
+    r"RESIDENTE|NATO|NATA|REFERENTE|RESPONSABILE|CONTATTO|"
+    r"NOME\s+COGNOME|C/O|DOTT(?:ORE|ORESSA|\.|SSA)?|"
+    r"SIG(?:\.|NOR|NORA)|STUDIO PRIVATO|STUDIO PROFESSIONALE|"
+    r"LIBERO PROFESSIONISTA)\b",
     re.IGNORECASE,
 )
-_TAX_ID = re.compile(r"\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b",re.I)
-_PERSON_HONORIFIC = re.compile(r"(?<!\w)(?:SIG\.?|SIGNOR(?:A)?|DOTT\.?|DOTTORE|DOTTORESSA|DR\.?)\s+[A-ZÀ-ÖØ-Ý]",re.I)
+_TAX_ID = re.compile(r"\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b", re.I)
+_PERSON_HONORIFIC = re.compile(
+    r"(?<!\w)(?:SIG\.?|SIGNOR(?:A)?|DOTT\.?|DOTTORE|DOTTORESSA|DR\.?)\s+"
+    r"[A-ZÀ-ÖØ-Ý]", re.I,
+)
 _LONG_DIGITS = re.compile(r"(?<!\w)\+?\d(?:[\s./-]?\d){7,}(?!\w)")
-
-
 _ORG_LEAD = re.compile(
     r"^(?:(?:REGIONE\s+[A-ZÀ-ÖØ-Ý]+\s*[-–]\s*)?"
-    r"(?:AZIENDA|AOUI|ASUIT|APSS|AULSS\d*|ULSS\d*|ASL\d*|AUSL\d*|"
-    r"ASST|ATS|IRCCS|OSPEDALE|OSPEDALI|ISTITUTO|FONDAZIONE|"
-    r"POLICLINICO|UNIVERSITA|UNIVERSITÀ|ENTE)\b)",
+    r"(?:AZIENDA|AOUI|AOU|ASUIT|APSS|AULSS\d*|ULSS\d*|"
+    r"ASL\d*|AUSL\d*|ASST|ATS|IRCCS|OSPEDALE|OSPEDALI|"
+    r"ISTITUTO|FONDAZIONE|POLICLINICO|UNIVERSITA|UNIVERSITÀ|"
+    r"ENTE|BCC|BANCA|LICEO|SOCIETÀ|SOCIETA|CENTRO|CLINICA|"
+    r"COOPERATIVA|MINISTERO|(?:[A-Z]\.){2,}))\b",
+    re.IGNORECASE,
+)
+_ORG_SUFFIX = re.compile(
+    r"(?:MEDICAL|HEALTH|HEALTHCARE|TECHNOLOGIES|TECHNOLOGY|"
+    r"CLINICA|OSPEDALE|SANITARIA|SERVIZI|COOPERATIVA|"
+    r"S\.?R\.?L\.?|S\.?P\.?A\.?)$",
     re.IGNORECASE,
 )
 _ORGANISATION_SUFFIX = re.compile(
@@ -164,43 +176,49 @@ _ORGANISATION_SUFFIX = re.compile(
     r"STRUTTURA(?:\s+COMPLESSA)?)\b)",
     re.IGNORECASE,
 )
+# Ammessi i caratteri realmente usati nelle denominazioni aziendali:
+# i segni di punteggiatura non indicano di per se' dati personali.
+_ORG_TEXT = re.compile(
+    r"[\wÀ-ÖØ-Ý\s&.,:;\"'’“”«»/()\-–—‑+]+", re.UNICODE
+)
 
 
 def safe_institution_name(value: object, candidate: dict | None = None) -> str:
-    """Invia unicamente il nome istituzionale; non cerca di decidere se e' SSN.
+    """Conserva le denominazioni normali, blocca solo rischi di dati personali.
 
-    Se il campo contiene indicatori personali lo blocca integralmente.
-    Solo per denominazioni istituzionali evidenti elimina i dettagli delle
-    unita' operative separate da un delimitatore esplicito.
+    Non valuta la natura pubblica/privata o l'appartenenza al SSN.
+    La punteggiatura e i due termini non sono, da soli, motivi di esclusione.
     """
     raw=str(value or "").strip()
     if not raw:
         return ENT_E_MISSING
-    # Nessun tentativo di trasmettere nomi, recapiti o testi strutturati.
+    # Controlli prima di qualsiasi taglio: il nome della persona non deve
+    # venire ignorato solo perche' collocato dopo il reparto o la sede.
     if (any(c in raw for c in "\n\r\t<>{}[]")
-        or _PERSONAL_CONTENT.search(raw) or _PERSON_HONORIFIC.search(raw)
+        or _PERSONAL_CONTENT.search(raw)
+        or _PERSON_HONORIFIC.search(raw)
         or _TAX_ID.search(raw)
         or _LONG_DIGITS.search(raw)):
         return ENT_E_PRIVATE
     text=" ".join(raw.upper().split())
     if candidate:
         for field in ("nome","cognome"):
-            value=str(candidate.get(field) or "").strip()
-            if len(value)>=4 and re.search(
-                r"(?<!\w)"+re.escape(value.upper())+r"(?!\w)",text):
+            personal=str(candidate.get(field) or "").strip().upper()
+            if (len(personal)>=4
+                and re.search(r"(?<!\w)"+re.escape(personal)+r"(?!\w)", text)):
                 return ENT_E_PRIVATE
     if _ORG_LEAD.match(text):
         cut=_ORGANISATION_SUFFIX.search(text)
         if cut:
-            text=text[:cut.start()].rstrip(" -,;")
-    if len(text)>MAX_ENTE_NAME:
+            text=text[:cut.start()].rstrip(" -,;:")
+    if not text or len(text)>MAX_ENTE_NAME or not _ORG_TEXT.fullmatch(text):
         return ENT_E_PRIVATE
-    if not re.fullmatch(r"[\wÀ-ÖØ-Ý\s&.'’/()\-]+",text,re.UNICODE):
-        return ENT_E_PRIVATE
-    # Due parole senza prefisso di organizzazione possono essere un nominativo.
-    if (len(text.split())==2 and not _ORG_LEAD.match(text) and
-        all(re.fullmatch(r"[A-ZÀ-ÖØ-Ý]{3,}",part)
-            for part in text.split())):
+    words=text.split()
+    # Conserva la prudenza verso nomi propri non riconoscibili come aziende;
+    # consenti invece comuni sigle, ragioni sociali e settori (es. MEDICAL).
+    if (len(words)==2 and not _ORG_LEAD.match(text)
+        and not _ORG_SUFFIX.search(words[-1])
+        and all(re.fullmatch(r"[A-ZÀ-ÖØ-Ý]{3,}",part) for part in words)):
         return ENT_E_PRIVATE
     return text
 
