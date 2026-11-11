@@ -276,6 +276,14 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
         ) from None
 
 
+class GroqInvalidResponse(ValueError):
+    """Risposta JSON o semantica non valida, priva di dettagli sensibili."""
+    def __init__(self, reason: str, tokens: int = 0, rate: dict | None = None):
+        self.tokens=max(0,int(tokens))
+        self.rate=rate if isinstance(rate,dict) else {}
+        super().__init__("Risposta AI non utilizzabile: "+reason)
+
+
 class GroqLimit(Exception):
     def __init__(self, retry_after: int):
         self.retry_after=retry_after
@@ -421,27 +429,43 @@ def analyze(key:str,model:str,payload:dict,guidance:str|None=None) -> dict:
         params["reasoning_effort"]="low"
         params["include_reasoning"]=False
     res=_fetch_json(API_CHAT,key,params)
+    usage=res.get("usage") or {}
+    tokens=0
+    if isinstance(usage,dict):
+        try:
+            tokens=max(0,int(usage.get("total_tokens") or 0))
+        except (ValueError,TypeError):
+            tokens=0
+    rate=res.get("_rankup_rate") or {}
     try:
-        txt=res["choices"][0]["message"]["content"].strip()
-        txt=re.sub(r"^"+r"'''" +r"(?:json)?\s*|"+r"\s*'''" +r"$","",txt)
-        txt=re.sub(r"^```(?:json)?\s*|\s*```$", "",txt)
-        obj=json.loads(txt)
-        if not isinstance(obj,dict) or obj.get("indizio") not in _ALLOWED_RESULTS:
-            raise ValueError("Esito non valido")
+        choice=res["choices"][0]
+        message=choice["message"]
+        txt=message.get("content")
+        if choice.get("finish_reason")=="length":
+            raise GroqInvalidResponse("output troncato per limite di token",tokens,rate)
+        if not isinstance(txt,str) or not txt.strip():
+            raise GroqInvalidResponse("contenuto vuoto o assente",tokens,rate)
+        txt=re.sub(r"^'''(?:json)?\s*|\s*'''$", "",txt.strip())
+        txt=re.sub(r"^\x60{3}(?:json)?\s*|\s*\x60{3}$","",txt)
+        try:
+            obj=json.loads(txt)
+        except json.JSONDecodeError:
+            raise GroqInvalidResponse("JSON malformato o incompleto",tokens,rate) from None
+        if not isinstance(obj,dict):
+            raise GroqInvalidResponse("JSON non e' un oggetto",tokens,rate)
+        if obj.get("indizio") not in _ALLOWED_RESULTS:
+            raise GroqInvalidResponse("campo indizio assente o non consentito",tokens,rate)
         if not isinstance(obj.get("motivo"),str) or not obj["motivo"].strip():
-            raise ValueError("Motivazione mancante")
+            raise GroqInvalidResponse("motivazione mancante",tokens,rate)
         if not isinstance(obj.get("verifiche"),str) or not obj["verifiche"].strip():
-            raise ValueError("Verifiche mancanti")
-        usage=res.get("usage") or {}
-        token=int(usage.get("total_tokens") or 0) if isinstance(usage,dict) else 0
+            raise GroqInvalidResponse("verifiche mancanti",tokens,rate)
         return {"indizio":obj["indizio"],
                 "motivo":obj["motivo"][:MAX_RESULT_LENGTH].strip(),
                 "verifiche":obj["verifiche"][:MAX_RESULT_LENGTH].strip(),
-                "origine":"groqcloud","token_usati":max(0,token),
-                "quota_provider":res.get("_rankup_rate") or {}}
-    except (KeyError,IndexError,TypeError,ValueError):
-        raise ValueError("Risposta AI non utilizzabile, nessuna conclusione registrata") from None
-
+                "origine":"groqcloud","token_usati":tokens,
+                "quota_provider":rate}
+    except (KeyError,IndexError,TypeError):
+        raise GroqInvalidResponse("struttura della risposta incompleta",tokens,rate) from None
 
 def report_pdf(code:str,cds:str,sede:str,rows:list[dict]) -> bytes:
     """Il PDF contiene ID PICA locali, non nomi né CF né testi grezzi PICA."""
