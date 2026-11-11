@@ -3248,8 +3248,6 @@ def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str
         counts[entry["esito"]]+=1
         label=entry.get("tipo_approfondimento") or "NON DEFINITO"
         tipi[label]=tipi.get(label,0)+1
-    if tipo and tipo not in tipi:
-        fail("Tipo di approfondimento non valido",400)
     if esito:
         rows=[r for r in rows if r["esito"]==esito]
     if tipo:
@@ -3401,9 +3399,8 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
     counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
     for item in results:
         counts[item["esito"]]+=1
-    if tipo and (len(tipo)>90 or tipo not in
-                 {r.get("tipo_approfondimento") for r in results}):
-        fail("Tipo di approfondimento non valido",400)
+    if len(tipo)>90:
+        fail("Filtro tipo troppo lungo",400)
     included=[item for item in results
               if (not esito or item["esito"]==esito)
               and (not tipo or item.get("tipo_approfondimento")==tipo)]
