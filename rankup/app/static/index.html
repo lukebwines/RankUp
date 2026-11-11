@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.8">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.9">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -213,12 +213,13 @@
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
-        <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Assistente AI</button>
+        <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
         <button data-page="candidature"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Candidature</button>
+        <button data-page="verificaenteai" id="band-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Verifica requisito ente</button>
         <button data-page="commissioni"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Commissioni</button>
         <button data-page="schede"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Schede PDF</button>
         <button data-page="valutazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Valutazioni</button>
@@ -226,7 +227,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.8<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.9<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -346,6 +347,7 @@
         $("admin-ssd-link").style.display="none";
         $("admin-commissioni-link").style.display="none";
         $("admin-ai-link").style.display="none";
+        $("band-ai-link").style.display="none";
         $("admin-reset-link").style.display="none";
         $("admin-archive-link").style.display="none";
         $("admin-menu-heading").style.display="none";
@@ -362,10 +364,11 @@
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-commissioni-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
+        $("band-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","commissioniarchivio","azzeramento","archivio","assistenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","commissioniarchivio","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -404,7 +407,7 @@
       };
       const RU_PROCESS=[
         ["riferimenti","Riferimenti"],["incarichi","Incarichi"],["candidature","Candidature"],
-        ["commissioni","Commissioni"],["schede","Schede PDF"],["valutazioni","Valutazioni"],
+        ["verificaenteai","Verifica ente"],["commissioni","Commissioni"],["schede","Schede PDF"],["valutazioni","Valutazioni"],
         ["verbali","Verbali"],["graduatorie","Graduatorie"],["archivio","Archivio"]
       ];
       const RU_DESCRIPTIONS={
@@ -420,7 +423,8 @@
         utenti:"Gestisci gli accessi e le credenziali degli operatori senza modificare le valutazioni.",
         ssdconfig:"Configura l'associazione permanente tra SSD e modelli di valutazione.",
         commissioniarchivio:"Consulta le commissioni conservate e riassociale solo dopo verifica documentale.",
-        assistenteai:"Controllo orientativo dell\u0027ente dichiarato, senza invio di dati identificativi a GroqCloud.",
+        assistenteai:"Gestisci modello, chiave API e limiti GroqCloud in un'unica sezione di amministrazione.",
+        verificaenteai:"Verifica preliminare dell'ente dichiarato nel PICA, con coda e filtri per il bando.",
         azzeramento:"Operazione amministrativa distruttiva: verifica le conseguenze e il backup."
       };
       function rankupWorkspaceGuide(){
@@ -671,7 +675,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Assistente AI",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -683,7 +687,7 @@
         });
         if(state.page==="dashboard")return dashboard();
         if(!state.active && ["riferimenti","incarichi","candidature","commissioni",
-                            "schede","valutazioni","verbali","graduatorie"].includes(state.page)){
+                            "schede","valutazioni","verbali","graduatorie","verificaenteai"].includes(state.page)){
           return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
         }
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
@@ -693,7 +697,8 @@
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="azzeramento")return state.role==="admin"?renderAzzeramento():html(panel("Accesso riservato","Azzeramento dati riservato all\u0027Admin."));
-        if(state.page==="assistenteai")return state.role==="admin"?renderAssistenteAI():html(panel("Accesso riservato","Assistente AI riservato all\u0027Admin."));
+        if(state.page==="assistenteai")return state.role==="admin"?renderAISettings():html(panel("Accesso riservato","Impostazioni AI riservate all'Admin."));
+        if(state.page==="verificaenteai")return state.role==="admin"?renderAIBando():html(panel("Accesso riservato","Verifica requisito ente riservata all'Admin."));
         if(state.page==="riferimenti")return renderBandoReferences();
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="schede")return renderSchede();
@@ -766,7 +771,7 @@
                 '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
                 encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
                 '/pdf?tipo=statico">Anteprima statica</a>')
-                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.8.':
+                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.9.':
                   'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.'))+
               ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
                 '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
