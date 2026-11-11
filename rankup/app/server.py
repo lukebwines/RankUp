@@ -3386,9 +3386,11 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
         return (normal or "TUTTI")[:24].rstrip("_")
     label="_".join([part(code),part(cds),part(sede),
                     part(esito or "TUTTI")])
-    filename=("RANKUP_ENTE_"+label+".pdf")[:92]
-    if not filename.endswith(".pdf"):
-        filename=filename[:-4]+".pdf"
+    # Digest del filtro originale per evitare collisioni fra CdS molto lunghi.
+    unique=hashlib.sha256(
+        json.dumps([code,cds,sede,esito],ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:6].upper()
+    filename="RANKUP_ENTE_"+label[:55].rstrip("_")+"_"+unique+".pdf"
     return Response(content=payload,media_type="application/pdf",headers={
         "Content-Disposition":'attachment; filename="'+filename+'"',
         "Cache-Control":"no-store"})
