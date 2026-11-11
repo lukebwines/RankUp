@@ -3289,7 +3289,7 @@ def stato_analisi_ente(request:Request,code:str,cds:str="",sede:str=""):
 @app.post("/api/admin/ai/lavori/{job_id}/{azione}")
 def aggiorna_analisi_ente(job_id:int,azione:str,request:Request):
     require_admin(request)
-    if azione not in ("sospendi","annulla","riprendi"):
+    if azione not in ("sospendi","annulla","riprendi","riprova_errori"):
         fail("Azione non valida",400)
     with connect() as db:
         try:
