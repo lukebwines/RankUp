@@ -173,8 +173,10 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
             entry["motivo"]="Errore tecnico AI: nessuna conclusione registrata."
             entry["verifiche"]="Ritentare soltanto questo caso dalla coda AI. "+technical
             entry["errore_tecnico"]=True
+            entry["tipo_approfondimento"]="ERRORE TECNICO AI"
         if entry["richiede_ai"] and cached:
             entry["esito"]=esito_da_indizio(cached["indizio"])
+            entry["tipo_approfondimento"]=cached["indizio"]
             entry["motivo"]=cached["motivo"]
             entry["verifiche"]=(cached["verifiche"]+
                 " Il rapporto di lavoro personale resta da accertare.")
