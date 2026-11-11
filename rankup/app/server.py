@@ -44,6 +44,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
 from pdf_definitivo import verbale_definitivo
+from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf as acquisisci_verbale_seduta, source_digest as impronta_verbale_seduta, nome_verbale
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
@@ -650,6 +651,34 @@ def initialize() -> None:
             );
             CREATE INDEX IF NOT EXISTS ix_incarichi_modelli_eventi
                 ON incarichi_modelli_scheda_eventi(bando_id,incarico_id,id);
+        """)
+        # v5: fonte testuale ufficiale e versioni PDF della Commissione.
+        columns={r["name"] for r in db.execute("PRAGMA table_info(bandi_riferimenti)")}
+        if "testo_verbale_bando" not in columns:
+            db.execute("ALTER TABLE bandi_riferimenti ADD COLUMN testo_verbale_bando TEXT NOT NULL DEFAULT ''")
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS verbali_descrittivi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                cds TEXT NOT NULL,
+                sede TEXT NOT NULL,
+                versione INTEGER NOT NULL,
+                attivo INTEGER NOT NULL CHECK(attivo IN (0,1)),
+                nome_originale TEXT NOT NULL,
+                pdf_originale BLOB NOT NULL,
+                sha256_originale TEXT NOT NULL,
+                pdf_statico BLOB NOT NULL,
+                sha256_statico TEXT NOT NULL,
+                impronta_sorgente TEXT NOT NULL,
+                data_seduta TEXT NOT NULL,
+                ora_seduta TEXT NOT NULL,
+                discussione TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                creato_il TEXT NOT NULL,
+                UNIQUE(bando_id,cds,sede,versione)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_verbale_descrittivo_attivo
+              ON verbali_descrittivi(bando_id,cds,sede) WHERE attivo=1;
         """)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
@@ -1359,6 +1388,7 @@ class RiferimentiBando(BaseModel):
     data_avviso: str = Field(default="", max_length=20)
     data_scadenza: str = Field(default="", max_length=16)
     anno_accademico: str = Field(default="", max_length=20)
+    testo_verbale_bando: str | None = Field(default=None, max_length=40000)
     expected_updated_at: str | None = None
 
 
@@ -1369,11 +1399,11 @@ def get_riferimenti_bando(code: str):
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
-        row = db.execute("SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,aggiornato_il "
+        row = db.execute("SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,testo_verbale_bando,aggiornato_il "
                          "FROM bandi_riferimenti WHERE bando_id=?", (b["id"],)).fetchone()
     return {"riferimenti": dict(row) if row else {
         "repertorio": "", "protocollo": "", "data_avviso": "", "data_scadenza": "",
-        "anno_accademico": "", "aggiornato_il": None,
+        "anno_accademico": "", "testo_verbale_bando": "", "aggiornato_il": None,
     }}
 
 
@@ -1382,7 +1412,7 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
     """Solo dati comunicati dall'operatore, non estratti dagli esempi PDF."""
     code = valid_code(code)
     values = {k: str(v or "").strip() for k, v in body.model_dump().items()
-              if k != "expected_updated_at"}
+              if k != "expected_updated_at" and v is not None}
     data = values["data_avviso"]
     if data:
         try:
@@ -1414,10 +1444,11 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
         if not b:
             fail("Bando non trovato", 404)
         current = db.execute("""
-          SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico
+          SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,testo_verbale_bando
           FROM bandi_riferimenti WHERE bando_id=?
         """, (b["id"],)).fetchone()
-        previous = dict(current) if current else {key: "" for key in values}
+        previous = dict(current) if current else {key: "" for key in ("repertorio","protocollo","data_avviso","data_scadenza","anno_accademico","testo_verbale_bando")}
+        values["testo_verbale_bando"] = values.get("testo_verbale_bando", previous["testo_verbale_bando"])
         version = db.execute("SELECT aggiornato_il FROM bandi_riferimenti WHERE bando_id=?",
                              (b["id"],)).fetchone()
         current_time = version["aggiornato_il"] if version else None
@@ -1426,17 +1457,19 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
         if previous != values:
             db.execute("""
               INSERT INTO bandi_riferimenti(bando_id,repertorio,protocollo,data_avviso,
-                  data_scadenza,anno_accademico,aggiornato_il)
-              VALUES(?,?,?,?,?,?,?)
+                  data_scadenza,anno_accademico,testo_verbale_bando,aggiornato_il)
+              VALUES(?,?,?,?,?,?,?,?)
               ON CONFLICT(bando_id) DO UPDATE SET
                 repertorio=excluded.repertorio,
                 protocollo=excluded.protocollo,
                 data_avviso=excluded.data_avviso,
                 data_scadenza=excluded.data_scadenza,
                 anno_accademico=excluded.anno_accademico,
+                testo_verbale_bando=excluded.testo_verbale_bando,
                 aggiornato_il=excluded.aggiornato_il
             """, (b["id"], values["repertorio"], values["protocollo"],
-                  values["data_avviso"], values["data_scadenza"], values["anno_accademico"], now))
+                  values["data_avviso"], values["data_scadenza"], values["anno_accademico"],
+                 values["testo_verbale_bando"], now))
             db.execute("""
               INSERT INTO bandi_riferimenti_eventi
               (bando_id,prima_json,dopo_json,autore,quando)
