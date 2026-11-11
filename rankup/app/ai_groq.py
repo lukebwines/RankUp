@@ -158,8 +158,24 @@ _PERSONAL_CONTENT = re.compile(
 )
 _TAX_ID = re.compile(r"\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b", re.I)
 _PERSON_HONORIFIC = re.compile(
-    r"(?<!\w)(?:SIG\.?|SIGNOR(?:A)?|DOTT\.?|DOTTORE|DOTTORESSA|DR\.?)\s+"
-    r"[A-ZÀ-ÖØ-Ý]", re.I,
+    r"(?<!\w)(?:SIG\.?|SIGNOR(?:A)?|DOTT\.?|DOTTORE|DOTTORESSA|"
+    r"DR\.?|PROF\.?)\s+[A-ZÀ-ÖØ-Ý]", re.I,
+)
+# L'occupazione puo' dichiarare legittimamente 'libero professionista':
+# non e' un dato personale o un recapito. Restano gli indicatori PII.
+_CONTEXT_PERSONAL_CONTENT = re.compile(
+    r"@|https?://|www\.|\b(?:PEC|EMAIL|E-MAIL|TEL(?:EFONO)?|"
+    r"CELL(?:ULARE)?|FAX|CODICE FISCALE|C\.F\.|P\.IVA|PARTITA IVA|"
+    r"VIA|VIALE|PIAZZA|RESIDENTE|NATO|NATA|REFERENTE|CONTATTO|"
+    r"NOME\s+COGNOME|C/O|DOTT(?:ORE|ORESSA|\.|SSA)?|SIG(?:\.|NOR|NORA))\b",
+    re.I,
+)
+_MENTIONS_NAMED_ORGANIZATION = re.compile(
+    r"\b(?:AOUI|AOU|ASUIT|APSS|ASST|ATS|IRCCS|"
+    r"AULSS\s*\d*|ULSS\s*\d*|AUSL\s*\d*|ASL\s*\d*|"
+    r"UNIVERSITÀ|UNIVERSITA|POLICLINICO|ATENEO|OSPEDALE|"
+    r"AZIENDA\s+(?:ZERO|SANITARIA|OSPEDALIERA))\b",
+    re.I,
 )
 _LONG_DIGITS = re.compile(r"(?<!\w)\+?\d(?:[\s./-]?\d){7,}(?!\w)")
 _ORG_LEAD = re.compile(
@@ -263,7 +279,7 @@ def safe_context_text(value: object, candidate: dict | None = None,
         return ENT_E_MISSING
     if (len(raw)>max_length
         or any(c in raw for c in "\n\r\t<>{}[]")
-        or _PERSONAL_CONTENT.search(raw)
+        or _CONTEXT_PERSONAL_CONTENT.search(raw)
         or _PERSON_HONORIFIC.search(raw)
         or _TAX_ID.search(raw)
         or _LONG_DIGITS.search(raw)):
@@ -317,10 +333,17 @@ def prepare_minimal_payload(entry: dict) -> dict:
 
 
 def has_institutional_context(payload: dict) -> bool:
-    """BA e BO da soli non identificano un ente; BB, BD, BM possono aiutare."""
-    return any(payload.get(k) not in (None,"",ENT_E_MISSING,ENT_E_PRIVATE)
-               for k in ("denominazione_ente_dichiarato",
-                         "ateneo_dichiarato","occupazione_dichiarata"))
+    """Occorre un riferimento istituzionale nei campi BB, BD o BM.
+
+    Una mansione generica, anche se dichiarata in Occupazione, non prova
+    l'identita' del datore di lavoro e non giustifica la chiamata AI.
+    """
+    for key in ("denominazione_ente_dichiarato","ateneo_dichiarato"):
+        if payload.get(key) not in (None,"",ENT_E_MISSING,ENT_E_PRIVATE):
+            return True
+    occupation=payload.get("occupazione_dichiarata") or ""
+    return (occupation not in (ENT_E_MISSING,ENT_E_PRIVATE)
+            and bool(_MENTIONS_NAMED_ORGANIZATION.search(occupation)))
 
 def source_hash(payload: dict, model: str) -> str:
     return hashlib.sha256(json.dumps(
