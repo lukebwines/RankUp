@@ -3171,6 +3171,167 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
             "solo_locale":local_only}
 
 
+
+
+# === Verifica requisito ente per bando: coda persistente v7 ===
+class AIQuotaConfig(BaseModel):
+    rpm: int = Field(default=30,ge=1,le=1000)
+    tpm: int = Field(default=8000,ge=100,le=1000000)
+    rpd: int = Field(default=1000,ge=1,le=1000000)
+    tpd: int = Field(default=200000,ge=100,le=100000000)
+    margine: int = Field(default=80,ge=50,le=95)
+    stima_token: int = Field(default=950,ge=50,le=50000)
+
+
+@app.get("/api/admin/ai/limiti")
+def leggi_limiti_ai(request:Request):
+    require_admin(request)
+    return {"limiti":GROQ.limits(),
+            "avviso":"Valori configurati per la coda RankUP; le quote reali "
+                     "dipendono dall'organizzazione e dal progetto GroqCloud."}
+
+
+@app.put("/api/admin/ai/limiti")
+def salva_limiti_ai(body:AIQuotaConfig,request:Request):
+    require_admin(request)
+    try:
+        GROQ.save_limits(body.model_dump())
+    except (ValueError,OSError) as exc:
+        fail(str(exc),400)
+    return leggi_limiti_ai(request)
+
+
+@app.get("/api/admin/ai/verifiche")
+def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str=""):
+    """Tutte le candidature PICA, anche quelle mai inviate all'AI."""
+    require_admin(request)
+    if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
+        fail("Filtro esito non valido",400)
+    with connect() as db:
+        bid,candidates=_ai_scope(db,code,cds,sede)
+        rows=ai_cases(db,bid,candidates,GROQ.model())
+    counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
+    for entry in rows:
+        counts[entry["esito"]]+=1
+    if esito:
+        rows=[r for r in rows if r["esito"]==esito]
+    return {"casi":rows,"totale":len(candidates),"visualizzati":len(rows),
+            "conteggi":counts,"versione_regole":RULES_VERSION,
+            "avvertenza":"La coerenza istituzionale dell'ente non prova il "
+                         "rapporto di dipendenza e non determina idoneita'."}
+
+
+class AccodaAnalisiEnte(ParametriAnalisiEnte):
+    conferma_servizio: bool = False
+    forza: bool = False
+
+
+@app.post("/api/admin/ai/lavori")
+def avvia_analisi_ente(body:AccodaAnalisiEnte,request:Request):
+    who=require_admin(request)
+    if not body.conferma_servizio:
+        fail("Confermare l'uso del servizio esterno",400)
+    model=GROQ.model()
+    if not model or not GROQ.key():
+        fail("Configurare prima modello e chiave GroqCloud",409)
+    with connect() as db:
+        bid,candidates=_ai_scope(db,body.code,body.cds,body.sede)
+        b=db.execute("SELECT stato FROM bandi WHERE id=?",(bid,)).fetchone()
+        if not b or b["stato"]=="Archiviato":
+            fail("Bando archiviato: non si possono avviare nuove analisi",409)
+        job=ai_create_job(db,bid,valid_code(body.code),body.cds,body.sede,
+                          model,candidates,who["username"],bool(body.forza))
+    AI_WORKER_STOP_WAKE.set()
+    return {"lavoro":job,"totale_candidature":len(candidates),
+            "avviso":"Gli esiti locali sono conservati e le chiamate GroqCloud "
+                     "avvengono esclusivamente per categorie ambigue."}
+
+
+@app.get("/api/admin/ai/lavori")
+def stato_analisi_ente(request:Request,code:str,cds:str="",sede:str=""):
+    require_admin(request)
+    with connect() as db:
+        bid,_=_ai_scope(db,code,cds,sede)
+        result=ai_last_job(db,bid,cds,sede)
+        quota=ai_quota_info(db,GROQ.model(),GROQ.limits())
+    return {"lavoro":result,"quota_locale":quota,
+            "avviso_quota":"Il conteggio locale comprende soltanto le chiamate "
+                           "della coda RankUP, non altri client o progetti GroqCloud."}
+
+
+@app.post("/api/admin/ai/lavori/{job_id}/{azione}")
+def aggiorna_analisi_ente(job_id:int,azione:str,request:Request):
+    require_admin(request)
+    if azione not in ("sospendi","annulla","riprendi"):
+        fail("Azione non valida",400)
+    with connect() as db:
+        try:
+            job=ai_job_action(db,job_id,azione)
+        except ValueError as exc:
+            fail(str(exc),409)
+    AI_WORKER_STOP_WAKE.set()
+    return {"lavoro":job}
+
+
+AI_WORKER_STOP = threading.Event()
+AI_WORKER_STOP_WAKE = threading.Event()
+AI_WORKER_THREAD = None
+AI_WORKER_LOCK = threading.Lock()
+
+
+def _ai_worker_candidates(code:str,cds:str,sede:str) -> list[dict]:
+    with connect() as db:
+        _,candidates=_ai_scope(db,code,cds,sede)
+    return candidates
+
+
+def _ai_worker_main():
+    while not AI_WORKER_STOP.is_set():
+        try:
+            # Una richiesta per iterazione, solo categorie preclassificate.
+            did_work=ai_process_one(connect,_ai_worker_candidates,groq_analyze,
+                                    GROQ.key,GROQ.limits())
+        except Exception as exc:
+            # Nessuna dichiarazione PICA, chiave o testo remoto nei log.
+            import logging
+            logging.getLogger("rankup.ai").error(
+                "Worker AI: errore interno di classe %s",type(exc).__name__)
+            did_work=False
+        AI_WORKER_STOP_WAKE.wait(0.8 if did_work else 2.0)
+        AI_WORKER_STOP_WAKE.clear()
+
+
+@app.on_event("startup")
+def avvia_worker_ai():
+    global AI_WORKER_THREAD
+    if os.getenv("RANKUP_DISABLE_AI_WORKER")=="1":
+        return
+    with AI_WORKER_LOCK:
+        if AI_WORKER_THREAD is not None and AI_WORKER_THREAD.is_alive():
+            return
+        # Stato in_corso interrotto da riavvio: torna in coda; una richiesta
+        # sospesa prima del salvataggio e' ritentata in modo idempotente.
+        with connect() as db:
+            db.execute("""UPDATE ai_ente_lavori SET stato='in_coda'
+                          WHERE stato='in_corso'""")
+            db.commit()
+        AI_WORKER_STOP.clear()
+        AI_WORKER_STOP_WAKE.clear()
+        AI_WORKER_THREAD=threading.Thread(target=_ai_worker_main,
+                        name="rankup-ai-ente-worker",daemon=True)
+        AI_WORKER_THREAD.start()
+
+
+@app.on_event("shutdown")
+def arresta_worker_ai():
+    global AI_WORKER_THREAD
+    AI_WORKER_STOP.set()
+    AI_WORKER_STOP_WAKE.set()
+    if AI_WORKER_THREAD is not None:
+        AI_WORKER_THREAD.join(timeout=2.5)
+        AI_WORKER_THREAD=None
+
+
 @app.get("/api/admin/ai/report.pdf")
 def report_ai_pdf(request: Request,code: str,cds: str="",sede: str=""):
     require_admin(request)
