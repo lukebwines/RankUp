@@ -13,7 +13,7 @@ CSS=(ROOT/"rankup/app/static/workspace.css").read_text(encoding="utf-8")
 PAGES=[
     "dashboard","riferimenti","incarichi","candidature","commissioni","schede",
     "verbali","graduatorie","archivio","utenti","ssdconfig",
-    "commissioniarchivio","azzeramento",
+    "commissioniarchivio","azzeramento","assistenteai","verificaenteai",
 ]
 
 
