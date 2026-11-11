@@ -44,6 +44,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
 from pdf_definitivo import verbale_definitivo
+from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf as acquisisci_verbale_seduta, source_digest as impronta_verbale_seduta, nome_verbale
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
@@ -651,6 +652,34 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS ix_incarichi_modelli_eventi
                 ON incarichi_modelli_scheda_eventi(bando_id,incarico_id,id);
         """)
+        # v5: fonte testuale ufficiale e versioni PDF della Commissione.
+        columns={r["name"] for r in db.execute("PRAGMA table_info(bandi_riferimenti)")}
+        if "testo_verbale_bando" not in columns:
+            db.execute("ALTER TABLE bandi_riferimenti ADD COLUMN testo_verbale_bando TEXT NOT NULL DEFAULT ''")
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS verbali_descrittivi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+                cds TEXT NOT NULL,
+                sede TEXT NOT NULL,
+                versione INTEGER NOT NULL,
+                attivo INTEGER NOT NULL CHECK(attivo IN (0,1)),
+                nome_originale TEXT NOT NULL,
+                pdf_originale BLOB NOT NULL,
+                sha256_originale TEXT NOT NULL,
+                pdf_statico BLOB NOT NULL,
+                sha256_statico TEXT NOT NULL,
+                impronta_sorgente TEXT NOT NULL,
+                data_seduta TEXT NOT NULL,
+                ora_seduta TEXT NOT NULL,
+                discussione TEXT NOT NULL,
+                autore TEXT NOT NULL,
+                creato_il TEXT NOT NULL,
+                UNIQUE(bando_id,cds,sede,versione)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_verbale_descrittivo_attivo
+              ON verbali_descrittivi(bando_id,cds,sede) WHERE attivo=1;
+        """)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -851,7 +880,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.2", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.3", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1274,7 +1303,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.2", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.3", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1359,6 +1388,7 @@ class RiferimentiBando(BaseModel):
     data_avviso: str = Field(default="", max_length=20)
     data_scadenza: str = Field(default="", max_length=16)
     anno_accademico: str = Field(default="", max_length=20)
+    testo_verbale_bando: str | None = Field(default=None, max_length=40000)
     expected_updated_at: str | None = None
 
 
@@ -1369,11 +1399,11 @@ def get_riferimenti_bando(code: str):
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
-        row = db.execute("SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,aggiornato_il "
+        row = db.execute("SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,testo_verbale_bando,aggiornato_il "
                          "FROM bandi_riferimenti WHERE bando_id=?", (b["id"],)).fetchone()
     return {"riferimenti": dict(row) if row else {
         "repertorio": "", "protocollo": "", "data_avviso": "", "data_scadenza": "",
-        "anno_accademico": "", "aggiornato_il": None,
+        "anno_accademico": "", "testo_verbale_bando": "", "aggiornato_il": None,
     }}
 
 
@@ -1382,7 +1412,7 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
     """Solo dati comunicati dall'operatore, non estratti dagli esempi PDF."""
     code = valid_code(code)
     values = {k: str(v or "").strip() for k, v in body.model_dump().items()
-              if k != "expected_updated_at"}
+              if k != "expected_updated_at" and v is not None}
     data = values["data_avviso"]
     if data:
         try:
@@ -1414,10 +1444,11 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
         if not b:
             fail("Bando non trovato", 404)
         current = db.execute("""
-          SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico
+          SELECT repertorio,protocollo,data_avviso,data_scadenza,anno_accademico,testo_verbale_bando
           FROM bandi_riferimenti WHERE bando_id=?
         """, (b["id"],)).fetchone()
-        previous = dict(current) if current else {key: "" for key in values}
+        previous = dict(current) if current else {key: "" for key in ("repertorio","protocollo","data_avviso","data_scadenza","anno_accademico","testo_verbale_bando")}
+        values["testo_verbale_bando"] = values.get("testo_verbale_bando", previous["testo_verbale_bando"])
         version = db.execute("SELECT aggiornato_il FROM bandi_riferimenti WHERE bando_id=?",
                              (b["id"],)).fetchone()
         current_time = version["aggiornato_il"] if version else None
@@ -1426,17 +1457,19 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
         if previous != values:
             db.execute("""
               INSERT INTO bandi_riferimenti(bando_id,repertorio,protocollo,data_avviso,
-                  data_scadenza,anno_accademico,aggiornato_il)
-              VALUES(?,?,?,?,?,?,?)
+                  data_scadenza,anno_accademico,testo_verbale_bando,aggiornato_il)
+              VALUES(?,?,?,?,?,?,?,?)
               ON CONFLICT(bando_id) DO UPDATE SET
                 repertorio=excluded.repertorio,
                 protocollo=excluded.protocollo,
                 data_avviso=excluded.data_avviso,
                 data_scadenza=excluded.data_scadenza,
                 anno_accademico=excluded.anno_accademico,
+                testo_verbale_bando=excluded.testo_verbale_bando,
                 aggiornato_il=excluded.aggiornato_il
             """, (b["id"], values["repertorio"], values["protocollo"],
-                  values["data_avviso"], values["data_scadenza"], values["anno_accademico"], now))
+                  values["data_avviso"], values["data_scadenza"], values["anno_accademico"],
+                 values["testo_verbale_bando"], now))
             db.execute("""
               INSERT INTO bandi_riferimenti_eventi
               (bando_id,prima_json,dopo_json,autore,quando)
@@ -2703,8 +2736,19 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
                             "; ".join(sorted(ambiguous)[:15]))
         fail(" | ".join(messages))
     buffer=BytesIO()
+    gruppi=sorted({(r["cds"],r["sede"]) for r in associated})
     with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,
                          compresslevel=6) as archive:
+        # Un modello descrittivo per Commissione, insieme alle schede.
+        filenames=set()
+        for course,location in gruppi:
+            with connect() as db:
+                context=_contesto_verbale_seduta(db,bando["id"],code,course,location)
+            nome=nome_verbale(code,course,location)
+            if nome.casefold() in filenames:
+                fail("Collisione dei nomi dei verbali: verificare i CdS",409)
+            filenames.add(nome.casefold())
+            archive.writestr(nome,genera_verbale_seduta(context,editable=True))
         for row in associated:
             record=dict(row)
             record["bando"]=code
@@ -2724,6 +2768,155 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
         "Content-Disposition":'attachment; filename="'+filename+'.zip"',
         "Cache-Control":"no-store",
     })
+
+
+
+def _contesto_verbale_seduta(db, bando_id: int, code: str,
+                            cds: str, sede: str) -> dict:
+    """Associa la Commissione alla sede esatta, senza inventare dati d'atto."""
+    commissions=db.execute("""
+        SELECT cds,sede,presidente,componenti,anno,requisiti
+        FROM commissioni WHERE bando_id=?
+    """,(bando_id,)).fetchall()
+    status,commission=resolve_commission(commission_index(commissions),cds,sede)
+    if status!="associata" or not commission:
+        fail("Commissione non associata univocamente a CdS e sede",409)
+    if not commission.get("presidente") or not commission.get("componenti"):
+        fail("Composizione della Commissione incompleta",409)
+    ref=db.execute("""
+        SELECT repertorio,protocollo,data_avviso,anno_accademico,testo_verbale_bando
+        FROM bandi_riferimenti WHERE bando_id=?
+    """,(bando_id,)).fetchone()
+    values=dict(ref) if ref else {}
+    return {
+        "codice":code,"cds":cds,"sede":sede,
+        "anno_accademico":values.get("anno_accademico") or commission.get("anno") or "",
+        "repertorio":values.get("repertorio") or "",
+        "protocollo":values.get("protocollo") or "",
+        "data_avviso":values.get("data_avviso") or "",
+        "presidente":commission["presidente"],
+        "componenti":commission["componenti"],
+        "testo_bando":values.get("testo_verbale_bando") or "",
+    }
+
+
+@app.get("/api/bandi/{code}/verbali/descrittivi")
+def elenco_verbali_descrittivi(code: str):
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b: fail("Bando non trovato",404)
+        rows=db.execute("""
+            SELECT id,cds,sede,versione,nome_originale,sha256_originale,
+                   data_seduta,ora_seduta,autore,creato_il,impronta_sorgente
+            FROM verbali_descrittivi WHERE bando_id=? AND attivo=1
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE
+        """,(b["id"],)).fetchall()
+        result=[]
+        for row in rows:
+            entry=dict(row)
+            try:
+                context=_contesto_verbale_seduta(db,b["id"],code,row["cds"],row["sede"])
+                entry["sorgente_attuale"]=(
+                    impronta_verbale_seduta(context)==row["impronta_sorgente"])
+            except HTTPException:
+                entry["sorgente_attuale"]=False
+            result.append(entry)
+    return {"verbali":result}
+
+
+@app.post("/api/bandi/{code}/verbali/descrittivi")
+async def importa_verbale_descrittivo(code: str, request: Request,
+                                     cds: str = Form(...), sede: str = Form(...),
+                                     file: UploadFile = File(...)):
+    """Caricamento nella sezione Verbali, non nelle valutazioni candidate."""
+    code=valid_code(code)
+    raw=await file.read(8*1024*1024+1)
+    if not raw or len(raw)>8*1024*1024:
+        fail("Il verbale PDF deve avere dimensione massima di 8 MB",400)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        context=_contesto_verbale_seduta(db,b["id"],code,cds,sede)
+    if not context["testo_bando"].strip() or "[DA VERIFICARE]" in context["testo_bando"].upper():
+        fail("Inserire e verificare prima il testo ufficiale in Riferimenti del bando",409)
+    try:
+        data,pdf_statico=acquisisci_verbale_seduta(raw,context)
+    except ValueError as exc:
+        fail(str(exc),422)
+    digest=hashlib.sha256(raw).hexdigest()
+    static_digest=hashlib.sha256(pdf_statico).hexdigest()
+    source_sha=impronta_verbale_seduta(context)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        _assert_graduatoria_open(db,b["id"],cds,sede)
+        current=_contesto_verbale_seduta(db,b["id"],code,cds,sede)
+        if impronta_verbale_seduta(current)!=source_sha:
+            fail("Dati del bando modificati durante l'acquisizione; riprovare",409)
+        previous=db.execute("""
+            SELECT id,versione,sha256_originale FROM verbali_descrittivi
+            WHERE bando_id=? AND cds=? AND sede=? AND attivo=1
+        """,(b["id"],cds,sede)).fetchone()
+        if previous and previous["sha256_originale"]==digest:
+            return {"ok":True,"duplicato":True,"versione":previous["versione"]}
+        version=int(previous["versione"])+1 if previous else 1
+        if previous:
+            db.execute("UPDATE verbali_descrittivi SET attivo=0 WHERE id=?",
+                       (previous["id"],))
+        db.execute("""
+            INSERT INTO verbali_descrittivi (
+                bando_id,cds,sede,versione,attivo,nome_originale,
+                pdf_originale,sha256_originale,pdf_statico,sha256_statico,
+                impronta_sorgente,data_seduta,ora_seduta,discussione,autore,creato_il
+            ) VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)
+        """,(b["id"],cds,sede,version,(file.filename or "verbale.pdf")[:180],
+             raw,digest,pdf_statico,static_digest,source_sha,
+             data["data_seduta"],data["ora_seduta"],data["riassunto_discussione"],
+             request_actor(),datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+        db.commit()
+    return {"ok":True,"versione":version,"sha256":digest,
+            "pagine":len(PdfReader(BytesIO(pdf_statico)).pages)}
+
+
+@app.get("/api/bandi/{code}/verbali/descrittivi/{document_id}/pdf")
+def scarica_verbale_descrittivo(code: str, document_id: int,
+                               tipo: str = "statico"):
+    code=valid_code(code)
+    if tipo not in ("statico","originale"):
+        fail("Tipo di documento non valido",400)
+    with connect() as db:
+        row=db.execute("""
+            SELECT v.cds,v.sede,v.pdf_originale,v.sha256_originale,
+                   v.pdf_statico,v.sha256_statico
+            FROM verbali_descrittivi v JOIN bandi b ON b.id=v.bando_id
+            WHERE b.codice=? AND v.id=?
+        """,(code,document_id)).fetchone()
+    if not row:fail("Verbale descrittivo non trovato",404)
+    payload=bytes(row["pdf_"+tipo])
+    if hashlib.sha256(payload).hexdigest()!=row["sha256_"+tipo]:
+        fail("Integrità del documento non verificata",409)
+    name=nome_verbale(code,row["cds"],row["sede"])
+    return Response(content=payload,media_type="application/pdf",
+        headers={"Content-Disposition":'attachment; filename="'+name+'"',
+                 "Cache-Control":"no-store"})
+
+
+def _pdf_descrittivo_per_chiusura(db, bando_id: int, code: str,
+                                 cds: str, sede: str) -> bytes:
+    row=db.execute("""
+        SELECT pdf_statico,sha256_statico,impronta_sorgente
+        FROM verbali_descrittivi
+        WHERE bando_id=? AND cds=? AND sede=? AND attivo=1
+    """,(bando_id,cds,sede)).fetchone()
+    if not row:
+        fail("Verbale descrittivo della Commissione obbligatorio: acquisirlo in Verbali",409)
+    if hashlib.sha256(bytes(row["pdf_statico"])).hexdigest()!=row["sha256_statico"]:
+        fail("Integrità del verbale descrittivo non verificata",409)
+    context=_contesto_verbale_seduta(db,bando_id,code,cds,sede)
+    if impronta_verbale_seduta(context)!=row["impronta_sorgente"]:
+        fail("I dati della Commissione o del bando sono cambiati: riacquisire il verbale",409)
+    return bytes(row["pdf_statico"])
 
 
 # === Restituzione delle schede PDF: anteprima e conferma separata ===
@@ -3795,7 +3988,17 @@ def _costruisci_verbale_completo(db, bando_id: int, code: str, snapshot: dict) -
         attachments.append(payload)
     if not attachments and snapshot.get("totale_candidature",0)>0:
         fail("Nessuna scheda compilata e acquisita da allegare per questo CdS",409)
-    front=render_graduatoria_pdf(code,snapshot)
+    # Prima pagina: verbale descrittivo compilato dalla Commissione.
+    # La copia statica è reimpaginata integralmente e non presenta
+    # i riquadri data/ora della versione PDF compilabile.
+    descrittivo=_pdf_descrittivo_per_chiusura(db,bando_id,code,cds,sede)
+    graduatoria=render_graduatoria_pdf(code,snapshot)
+    merged=PdfWriter()
+    merged.append(BytesIO(descrittivo))
+    merged.append(BytesIO(graduatoria))
+    out=BytesIO()
+    merged.write(out)
+    front=out.getvalue()
     if not attachments:
         return front
     try:

@@ -217,6 +217,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         assert pdf_default.status_code==200, pdf_default.text
         with zipfile.ZipFile(BytesIO(pdf_default.content)) as archive:
             for name in archive.namelist():
+                if name.startswith("VB_"):continue
                 pdf=PdfReader(BytesIO(archive.read(name)))
                 fields=pdf.get_fields()
                 assert len(pdf.pages)==1
@@ -255,7 +256,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         exported=client.get("/api/bandi/26-02/schede/zip")
         assert exported.status_code == 200, exported.text
         with zipfile.ZipFile(BytesIO(exported.content)) as archive:
-            pdfs=archive.namelist()
+            pdfs=[n for n in archive.namelist() if not n.startswith("VB_")]
             assert len(pdfs)==3
             types=[]
             for name in pdfs:
@@ -308,9 +309,10 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         nn_zip=client.get("/api/bandi/26-02/schede/zip")
         assert nn_zip.status_code==200, nn_zip.text
         with zipfile.ZipFile(BytesIO(nn_zip.content)) as archive:
-            assert len(archive.namelist())==3
+            candidates=[n for n in archive.namelist() if not n.startswith("VB_")]
+            assert len(candidates)==3
             assert sum("P19" in PdfReader(BytesIO(archive.read(name))).get_fields()
-                       for name in archive.namelist())==1
+                       for name in candidates)==1
         # Le celle davvero vuote rimangono da verificare.
         with server.connect() as db:
             db.execute("UPDATE incarichi SET ssd='' WHERE ssd='NN'")

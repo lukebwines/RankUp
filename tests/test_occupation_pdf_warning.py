@@ -27,7 +27,7 @@ def test_pdf_occupation_warning_for_reserved_assignments(tmp_path, monkeypatch):
         assert response.status_code == 200, response.text
         with zipfile.ZipFile(BytesIO(response.content)) as archive:
             sheets = [archive.read(name) for name in archive.namelist()
-                      if name.endswith(".pdf")]
+                      if name.endswith(".pdf") and not name.startswith("VB_")]
         assert len(sheets) == 3
         for data in sheets:
             pdf = PdfReader(BytesIO(data))

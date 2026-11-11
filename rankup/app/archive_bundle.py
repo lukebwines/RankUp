@@ -225,6 +225,23 @@ def crea_pacchetto(db, bando: dict, source_root: Path, temporary_zip: Path,
                          safe_name(place["cds"])+"_"+safe_name(place["sede"])+".pdf")
             write_bytes(zf,destination,raw)
 
+        # Originali verbali descrittivi restituiti: tutte le versioni,
+        # comprese quelle sostituite, con impronta di integrita'.
+        for d in db.execute("""
+            SELECT id,cds,sede,versione,pdf_originale,sha256_originale,
+                   pdf_statico,sha256_statico FROM verbali_descrittivi
+            WHERE bando_id=? ORDER BY cds,sede,versione
+        """,(bando["id"],)).fetchall():
+            head=("05_verbali_descrittivi/"+str(d["id"]).zfill(5)+"_"+
+                  safe_name(d["cds"])[:35]+"_"+safe_name(d["sede"])[:16]+
+                  "_v"+str(d["versione"]))
+            for kind in ("originale","statico"):
+                payload=bytes(d["pdf_"+kind])
+                if hashlib.sha256(payload).hexdigest()!=d["sha256_"+kind]:
+                    raise ArchivioNonPronto(
+                        "Impronta verbale descrittivo non valida: "+d["cds"])
+                write_bytes(zf,head+"_"+kind+".pdf",payload)
+
         # Ciascuna approvazione attualmente valida, con gli estremi registrati.
         approved_ids=sorted({x["approvazione_id"] for x in status["ambiti"]})
         for approval_id in approved_ids:

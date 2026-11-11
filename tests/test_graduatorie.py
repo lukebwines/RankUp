@@ -1,6 +1,8 @@
 """Gestione graduatorie CdS, bozze parziali e chiusura solo dopo gli atti."""
 from io import BytesIO
-from pypdf import PdfReader
+from zipfile import ZipFile
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, TextStringObject
 from test_pdf_import import _setup, _post, _edit, _preview, _confirm
 
 
@@ -15,6 +17,47 @@ def _complete_all(client, sheets):
     assert preview["riepilogo"]["regolare"]==len(docs),preview
     result=_confirm(client,preview["token"])
     assert result["acquisite"]==len(docs),result
+    _prepare_narrative(client)
+
+
+def _prepare_narrative(client):
+    # Il collaudo prepara anche un verbale descrittivo con dati interamente
+    # sintetici. Non trasferire questi valori ai procedimenti reali.
+    refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
+    if not refs.get("testo_verbale_bando"):
+        payload={key:refs.get(key) or "" for key in
+                 ("repertorio","protocollo","data_avviso","data_scadenza","anno_accademico")}
+        payload.update(testo_verbale_bando="Testo sintetico ufficialmente non valido ai soli fini del collaudo",
+                       expected_updated_at=refs.get("aggiornato_il"))
+        saved=client.put("/api/bandi/26-02/riferimenti",
+                         headers={"X-RankUp-Request":"1"},json=payload)
+        assert saved.status_code==200,saved.text
+    package=client.get("/api/bandi/26-02/schede/zip")
+    assert package.status_code==200,package.text
+    with ZipFile(BytesIO(package.content)) as archive:
+        verbali=[name for name in archive.namelist() if name.startswith("VB_")]
+        assert len(verbali)==1,archive.namelist()
+        source=archive.read(verbali[0])
+    reader=PdfReader(BytesIO(source))
+    writer=PdfWriter(clone_from=BytesIO(source))
+    fields=writer._root_object["/AcroForm"].get_object()["/Fields"]
+    values={"data_seduta":"09/11/2026","ora_seduta":"10:00",
+            "riassunto_discussione":"Discussione completamente sintetica per il collaudo."}
+    found=set()
+    for ref in fields:
+        field=ref.get_object()
+        key=str(field.get("/T",""))
+        if key in values:
+            field[NameObject("/V")]=TextStringObject(values[key])
+            found.add(key)
+    assert found==set(values),found
+    out=BytesIO()
+    writer.write(out)
+    result=_post(client,"/api/bandi/26-02/verbali/descrittivi",
+        data={"cds":client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]["cds"],
+              "sede":client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]["sede"]},
+        files={"file":("verbale-restituito.pdf",out.getvalue(),"application/pdf")})
+    assert result.status_code==200,result.text
 
 
 def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
@@ -54,7 +97,11 @@ def test_graduatoria_cdse_approvazione_parziale(tmp_path,monkeypatch):
         assert joined.headers["content-type"]=="application/pdf"
         merged=PdfReader(BytesIO(joined.content))
         original_pages=sum(len(PdfReader(BytesIO(x)).pages) for x in sheets.values())
-        assert len(merged.pages)==len(PdfReader(BytesIO(pdf.content)).pages)+original_pages
+        doc=client.get(base+"/verbali/descrittivi").json()["verbali"][0]
+        static=client.get(base+"/verbali/descrittivi/"+str(doc["id"])+"/pdf")
+        assert static.status_code==200
+        assert len(merged.pages)==(len(PdfReader(BytesIO(pdf.content)).pages)+original_pages+
+                                  len(PdfReader(BytesIO(static.content)).pages))
         joined_text="\\n".join(page.extract_text() or "" for page in merged.pages)
         assert "Graduatoria della Commissione" in joined_text
         assert "Nota di valutazione della commissione" in joined_text

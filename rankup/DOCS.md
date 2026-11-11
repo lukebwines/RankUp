@@ -201,3 +201,14 @@ In **Bando → Valutazioni → Storico**, l'amministratore vede **Acquisisci man
 Le password utente sono protette da hash con salt casuale e conservate nel database persistente. L'Admin continua a usare la password nella configurazione dell'add-on, che conserva il precedente limite minimo di 12 caratteri. La password utente minima è 8 caratteri. Nessuna password viene restituita dopo la creazione. Lo storico amministrativo registra creazione, riattivazione/disattivazione e reset senza conservare password in chiaro.
 
 **Prima dell'aggiornamento 0.8.0:** fare un backup completo dell'add-on. **Collaudo:** creare un utente di prova, accedere in una sessione separata, verificare il permesso di modifica di un bando e il divieto HTTP 403 su Acquisisci manualmente e Gestione utenti, quindi verificare il reset password e il blocco della sessione precedente. L'aggiornamento non elimina gli archivi delle valutazioni.
+
+
+## v1.0.3 — Verbale descrittivo per CdS/sede
+
+Nel procedimento di generazione Schede PDF, lo ZIP contiene un verbale descrittivo AcroForm per ciascun CdS/sede. Il logo riprende l'intestazione del documento Word fornito, ridimensionata. Nome file abbreviato a 55 caratteri.
+
+La Commissione compila data, ora e discussione. Il campo discussione può scorrere nel lettore PDF ma il testo intero viene recuperato da /V e reimpaginato lato server. Non si devono apporre firme digitali al modello prima di importarlo, perché l'assemblaggio della copia definitiva ne invaliderebbe la firma.
+
+In **Riferimenti del bando** l'operatore inserisce il testo autentico delle disposizioni da citare. La schermata **Verbali** acquisisce il PDF compilato e conserva versione originale e copia statica; eventuali versioni precedenti rimangono archiviate. Non usare **Valutazioni** per il documento descrittivo.
+
+La generazione del verbale definitivo verifica che il PDF descrittivo sia acquisito e che la fonte non sia cambiata. Produce nell'ordine: descrittivo statico, graduatoria/verbale CdS, schede individuali non editabili. I riquadri dei campi data e ora non compaiono nel PDF finale. Le versioni già definitive non vengono riscritte. La migrazione dello schema da v4 a v5 esegue uno snapshot SQLite preventivo. L'archiviazione finale comprende tutte le versioni originali e statiche del verbale descrittivo.

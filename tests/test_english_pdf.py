@@ -17,7 +17,7 @@ def test_english_model_and_returned_evaluation(tmp_path,monkeypatch):
         zip_response=client.get("/api/bandi/26-02/schede/zip")
         assert zip_response.status_code==200,zip_response.text
         with zipfile.ZipFile(BytesIO(zip_response.content)) as archive:
-            docs=[archive.read(name) for name in archive.namelist() if name.endswith(".pdf")]
+            docs=[archive.read(name) for name in archive.namelist() if name.endswith(".pdf") and not name.startswith("VB_")]
         english=[]
         other=[]
         for data in docs:
