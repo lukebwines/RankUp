@@ -13,7 +13,7 @@ import secrets
 import sqlite3
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class AutoClosingConnection(sqlite3.Connection):
