@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.2">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.3">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -225,7 +225,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.2<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.3<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -691,9 +691,13 @@
         var code=state.active;
         html(panel("Verbali della Commissione","Caricamento graduatorie per CdS..."));
         try{
-          var data=await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie");
+          var results=await Promise.all([
+            api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie"),
+            api("bandi/"+encodeURIComponent(code)+"/verbali/descrittivi")
+          ]);
           if(state.page!=="verbali"||state.active!==code)return;
-          var rows=data.graduatorie||[];
+          var rows=results[0].graduatorie||[];
+          var descrittivi=results[1].verbali||[];
           var names=[...new Set(rows.map(function(r){return r.cds;}))].sort();
           var selected=state.verbaliCds||"";
           if(selected&&!names.includes(selected))selected="";
@@ -719,7 +723,9 @@
           var blocks=shown.map(function(g,i){
             var issues=g.criticita||[];
             var final=g.stato==="definitiva",approved=g.stato==="approvata";
-            var ready=!!g.verbale_generabile || final || approved;
+            var descr=descrittivi.find(function(d){return d.cds===g.cds&&d.sede===g.sede;});
+            var descrValido=!!(descr&&descr.sorgente_attuale);
+            var ready=(!!g.verbale_generabile&&descrValido) || final || approved;
             var complete=Number(g.schede_validate||0),total=Number(g.totale_candidature||0);
             var percent=total?Math.round(100*complete/total):0;
             var label=approved?"Atti approvati":final?"Definitiva":ready?"Pronto":"In lavorazione";
@@ -732,8 +738,21 @@
               '<span class="ru-verb-status '+statusClass+'">'+rosette+esc(label)+'</span></div>'+
               '<div class="ru-verb-progress" role="progressbar" aria-valuemin="0" aria-valuemax="'+total+
               '" aria-valuenow="'+complete+'" aria-label="Schede validate"><div style="width:'+percent+'%"></div></div>'+
+              '<div class="notice" style="margin:12px 0">'+
+              '<strong>Verbale descrittivo della Commissione · obbligatorio</strong><br>'+
+              (descr ? ('PDF acquisito, versione '+esc(descr.versione)+' · '+esc(descr.data_seduta)+
+                ' ore '+esc(descr.ora_seduta)+(descrValido?'':' · Dati sorgente cambiati, ricaricare il PDF')+
+                ' · <a data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
+                '/verbali/descrittivi/'+encodeURIComponent(descr.id)+
+                '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
+                encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
+                '/pdf?tipo=statico">Anteprima statica</a>')
+                :'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.')+
+              ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
+                '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
+              '</div>'+
               '<p class="caption">'+(final||approved?'Verbale definitivo già registrato: schede non compilabili, documento consultabile.':
-                ready?'Schede validate: la generazione del verbale ne registra automaticamente lo stato definitivo.':
+                ready?'Schede e verbale descrittivo acquisiti: la generazione registra lo stato definitivo.':
                 esc(g.schede_da_risolvere)+' schede da completare o validare; risolvere anche eventuali parità e anomalie.')+'</p>'+
               '<div class="actions">'+
               ((final||approved)&&!g.pdf_definitivo_presente
@@ -750,7 +769,7 @@
                 : (ready&&state.role==="admin")
                   ? '<button type="button" class="btn" data-verb-create="'+i+'">Genera verbale definitivo con schede</button>'
                   : '<button type="button" class="btn" disabled title="'+
-                    (ready?"Operazione riservata all’Admin":"Tutte le schede devono essere validate")+'">'+
+                    (ready?"Operazione riservata all’Admin":"Acquisire verbale descrittivo e completare le schede")+'">'+
                     (ready?"Generazione riservata all’Admin":"Verbale non ancora generabile")+'</button>')+
               ((state.role==="admin"&&final)
                 ? '<button class="btn secondary" data-verb-regress="'+i+'">Regredisci stato</button>':'')+
@@ -850,6 +869,31 @@
                 note("Parità risolta dalla decisione della Commissione. Punteggi invariati.",false);
                 renderVerbaliGraduatorie();
               }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
+          document.querySelectorAll("[data-verb-descr-upload]").forEach(function(btn){
+            btn.onclick=function(){
+              var item=shown[Number(btn.dataset.verbDescrUpload)];
+              if(!item)return;
+              var picker=document.createElement("input");
+              picker.type="file";picker.accept=".pdf,application/pdf";
+              picker.onchange=async function(){
+                var file=picker.files&&picker.files[0];
+                if(!file)return;
+                if(file.size>8*1024*1024){note("Il verbale non può superare 8 MB.",true);return;}
+                var data=new FormData();
+                data.append("cds",item.cds);data.append("sede",item.sede);
+                data.append("file",file,file.name);
+                btn.disabled=true;
+                try{
+                  var outcome=await api("bandi/"+encodeURIComponent(code)+
+                    "/verbali/descrittivi",{method:"POST",body:data});
+                  note("Verbale descrittivo acquisito: versione "+outcome.versione+
+                    ". Testo della discussione reimpaginato per il PDF definitivo.",false);
+                  renderVerbaliGraduatorie();
+                }catch(err){note(err.message,true);btn.disabled=false;}
+              };
+              picker.click();
             };
           });
           document.querySelectorAll("[data-verb-recover]").forEach(function(btn){
@@ -1648,7 +1692,11 @@
            inputs.map(function(x){return '<label style="font-size:13px;font-weight:700">'+esc(x[1])+
              '<input type="'+(x[2]==='data_scadenza'?'datetime-local':'text')+'" id="ref-'+x[0]+'" value="'+esc(r[x[2]]||'')+'" placeholder="'+esc(x[3])+
              '" style="display:block;width:100%;margin-top:7px;padding:10px;border:1px solid #c2d2e2;border-radius:8px;font-size:14px"></label>';}).join('')+
-           '</div><div style="margin-top:14px"><button class="btn" id="refs-save" type="submit">Salva riferimenti del bando</button></div></form>'+
+           '</div><div style="margin-top:14px"><label for="ref-verb-text"><strong>Testo del bando per il verbale descrittivo</strong></label>'+
+           '<p class="caption">Incollare soltanto il testo pertinente del bando ufficiale: requisiti, incompatibilità e disposizioni da richiamare. Nessun testo viene preso dai fac-simile.</p>'+
+           '<textarea id="ref-verb-text" rows="12" maxlength="40000" style="width:100%;min-height:180px">'+
+           esc(r.testo_verbale_bando||'')+'</textarea></div>'+
+           '<div style="margin-top:14px"><button class="btn" id="refs-save" type="submit">Salva riferimenti del bando</button></div></form>'+
            '<p class="caption">Dopo ogni modifica, rigenera le schede PDF già scaricate. Le modifiche sono conservate nello storico del bando e non si propagano ad altri bandi.</p></div>';
           $("refs-form").onsubmit=async function(event){
             event.preventDefault();
@@ -1659,6 +1707,7 @@
               data_avviso:$("ref-date").value.trim(),
               data_scadenza:$("ref-deadline").value.trim(),
               anno_accademico:$("ref-aa").value.trim(),
+              testo_verbale_bando:$("ref-verb-text").value.trim(),
               expected_updated_at:r.aggiornato_il||null
             };
             try{
@@ -2931,7 +2980,7 @@
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
             nnModelliEditor(nnRows)+
-            '<div class="card"><h3 class="section-heading">Genera schede PDF editabili</h3>'+commissionSummary+
+            '<div class="card"><h3 class="section-heading">Genera schede e verbali descrittivi PDF editabili</h3>'+commissionSummary+
             '<p class="caption">Modelli tecnici facsimile. Criteri, massimali e layout devono essere verificati rispetto alle schede ufficiali prima dell’impiego amministrativo.</p>'+
             '<div class="actions" style="margin-top:14px"><select id="sheet-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutti i CdS</option>'+
             courses.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('')+
@@ -2983,7 +3032,7 @@
               link.href=url;link.download="RankUp_"+code+"_schede.zip";
               document.body.appendChild(link);link.click();link.remove();
               setTimeout(function(){URL.revokeObjectURL(url);},60000);
-              note("ZIP delle schede generato; verificare sempre i modelli prima dell'uso amministrativo.",false);
+              note("ZIP generato: schede e verbali descrittivi per CdS/sede. Verificare i modelli prima dell'uso.",false);
             }catch(error){note(error.message,true);}
             finally{button.disabled=false;button.textContent="Genera e scarica ZIP";}
           };
