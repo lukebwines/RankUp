@@ -76,9 +76,11 @@ def test_invalid_replies_are_retried_and_skipped_without_ai_conclusions(tmp_path
         def invalid(*args,**kwargs):
             calls.append(1)
             raise GroqInvalidResponse("JSON malformato o incompleto",23)
-        for _ in range(10):
+        for _ in range(6):
             assert server.ai_process_one(server.connect,server._ai_worker_candidates,
                     invalid,server.GROQ.key,server.GROQ.limits()) is True
+        assert server.ai_process_one(server.connect,server._ai_worker_candidates,
+                invalid,server.GROQ.key,server.GROQ.limits()) is False
         status=client.get("/api/admin/ai/lavori",params={"code":"26-02"}).json()["lavoro"]
         assert status["stato"]=="completata"
         assert status["completati"]==3
