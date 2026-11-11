@@ -9,7 +9,7 @@ lavoro o l'idoneita' amministrativa del candidato.
 from __future__ import annotations
 from ai_groq import prepare_minimal_payload
 
-RULES_VERSION = "ente-guidato-da-prompt-v3"
+RULES_VERSION = "ente-denominazione-originale-v4"
 NON_APPLICABILE = "NON APPLICABILE"
 ENTE_COERENTE = "ENTE COERENTE"
 DA_APPROFONDIRE = "DA APPROFONDIRE"
@@ -18,7 +18,7 @@ DA_APPROFONDIRE = "DA APPROFONDIRE"
 def classifica_ente(entry: dict) -> dict:
     payload=prepare_minimal_payload(entry)
     req=payload["requisito_ente"]
-    ente=payload["categoria_ente_dichiarato"]
+    ente=payload["denominazione_ente_dichiarato"]
     relation=payload["categoria_rapporto_dichiarato"]
     base={
         "esito":DA_APPROFONDIRE,
@@ -40,12 +40,12 @@ def classifica_ente(entry: dict) -> dict:
         return {**base,
                 "motivo":"Il requisito dell'ente non e' classificato.",
                 "verifiche":"Controllare il requisito ufficiale associato all'incarico."}
-    if ente in ("NON DICHIARATO","ENTE NON CLASSIFICATO"):
+    if ente in ("NON DICHIARATO","DENOMINAZIONE NON TRASMETTIBILE"):
         return {**base,
-                "motivo":"Ente non dichiarato o non riconducibile a una categoria sicura.",
-                "verifiche":"Verificare localmente il campo azienda/ente del report PICA."}
+                "motivo":"Ente non dichiarato o campo contenente dettagli non trasmettibili.",
+                "verifiche":"Verificare localmente la denominazione azienda/ente del PICA."}
     return {**base,"richiede_ai":True,
-            "motivo":"In attesa del confronto AI tra categorie e requisito.",
+            "motivo":"In attesa del riconoscimento AI della denominazione istituzionale.",
             "verifiche":"Verificare sempre separatamente il rapporto lavorativo dichiarato."}
 
 
