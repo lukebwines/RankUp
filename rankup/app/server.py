@@ -35,6 +35,12 @@ from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
 from ai_groq import (GroqSecrets, GroqLimit, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
+from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
+                           DA_APPROFONDIRE, RULES_VERSION)
+from ai_ente_queue import (ensure_schema as ai_queue_schema, create_job as ai_create_job,
+                           last_job as ai_last_job, progress as ai_job_progress,
+                           job_action as ai_job_action, cases_with_ai as ai_cases,
+                           process_one as ai_process_one, quota_info as ai_quota_info)
 from title_date_check import check_three_years
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
@@ -706,6 +712,8 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS ix_ai_ente_bando
               ON ai_ente_verifiche(bando_id,candidatura_id,incarico_id,creato_il);
         """)
+        # v7: coda AI persistente; conserva gli esiti storici del vecchio flusso.
+        ai_queue_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -906,7 +914,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.8", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.9", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1330,7 +1338,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.8", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.9", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
