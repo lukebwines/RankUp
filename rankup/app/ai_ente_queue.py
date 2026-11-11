@@ -106,13 +106,23 @@ def _hash(payload:dict, model:str, guidance:str) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
-def _find_cached(db, bid:int, cid:int, iid:int, digest:str, model:str):
-    return db.execute("""
-        SELECT id,indizio,motivo,verifiche,token,registrato_il FROM ai_ente_ai_esiti
-        WHERE bando_id=? AND candidatura_id=? AND incarico_id=?
-          AND input_sha256=? AND modello=? AND versione_regole=?
-        ORDER BY id DESC LIMIT 1
-    """,(bid,cid,iid,digest,model,RULES_VERSION)).fetchone()
+def _find_cached(db, bid:int, digest:str, model:str,
+                 lavoro_id:int|None=None):
+    """Le categorie equivalenti possono riutilizzare lo stesso esito AI.
+
+    Nessun dato identificativo attraversa la cache: il record originale
+    mantiene il legame col suo candidato, i riusi sono tracciati per lavoro.
+    Forza=True riutilizza solo risultati ottenuti NEL nuovo lavoro.
+    """
+    sql="""SELECT id,indizio,motivo,verifiche,token,registrato_il
+           FROM ai_ente_ai_esiti
+           WHERE bando_id=? AND input_sha256=? AND modello=?
+             AND versione_regole=?"""
+    params=[bid,digest,model,RULES_VERSION]
+    if lavoro_id is not None:
+        sql+=" AND lavoro_id=?"
+        params.append(lavoro_id)
+    return db.execute(sql+" ORDER BY id DESC LIMIT 1",params).fetchone()
 
 
 def classifications(candidates: list[dict]) -> list[dict]:
@@ -132,7 +142,7 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
             WHERE bando_id=? AND key=?""",(bid,entry["incarico_key"])).fetchone()
         if not row:continue
         digest=_hash(entry["payload"],model,guidance)
-        cached=_find_cached(db,bid,int(entry["id"]),int(row["id"]),digest,model)
+        cached=_find_cached(db,bid,digest,model)
         entry["ai"]=dict(cached) if cached else None
         if entry["richiede_ai"] and cached:
             entry["esito"]=esito_da_indizio(cached["indizio"])
@@ -171,8 +181,7 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
         if not inc:continue
         payload=entry["payload"]
         digest=_hash(payload,model,guidance)
-        cached=None if force else _find_cached(
-            db,bid,int(candidate["id"]),int(inc["id"]),digest,model)
+        cached=None if force else _find_cached(db,bid,digest,model)
         if not entry["richiede_ai"]:
             status="locale"
             nlocal+=1
@@ -322,6 +331,20 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
             db.commit()
             return True
         pending=dict(pending)
+        cached=_find_cached(db,job["bando_id"],pending["input_sha256"],
+                            job["modello"],job["id"] if job["forzato"] else None)
+        if cached:
+            # Evitare richieste duplicate anche per categorie identiche
+            # incontrate DOPO l'avvio della coda, inclusa la rianalisi forzata.
+            db.execute("""UPDATE ai_ente_lavori_elementi
+                SET stato='riutilizzato',esito_id=?
+                WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?""",
+                (cached["id"],job["id"],pending["candidatura_id"],pending["incarico_id"]))
+            db.execute("""UPDATE ai_ente_lavori SET
+                riutilizzati=riutilizzati+1,aggiornato_il=? WHERE id=?""",
+                (_now(),job["id"]))
+            db.commit()
+            return True
         pause,stat=_quota_pause(db,job["modello"],limits,now)
         if pause:
             _set_status(db,job["id"],"attesa_quota",prossimo_tentativo=pause,
