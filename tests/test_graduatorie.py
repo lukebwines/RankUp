@@ -17,6 +17,10 @@ def _complete_all(client, sheets):
     assert preview["riepilogo"]["regolare"]==len(docs),preview
     result=_confirm(client,preview["token"])
     assert result["acquisite"]==len(docs),result
+    _prepare_narrative(client)
+
+
+def _prepare_narrative(client):
     # Il collaudo prepara anche un verbale descrittivo con dati interamente
     # sintetici. Non trasferire questi valori ai procedimenti reali.
     refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
