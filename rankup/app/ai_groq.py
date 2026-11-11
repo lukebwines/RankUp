@@ -29,7 +29,9 @@ API_CHAT = "https://api.groq.com/openai/v1/chat/completions"
 API_MODELS = "https://api.groq.com/openai/v1/models"
 # Identificazione esplicita del client: Python-urllib/3.12 provoca un
 # blocco Cloudflare 1010 nell'ambiente Home Assistant testato.
-GROQ_USER_AGENT = "RankUP/1.0.8"
+GROQ_USER_AGENT = "RankUP/1.0.9"
+DEFAULT_QUOTA = {"rpm":30,"tpm":8000,"rpd":1000,"tpd":200000,
+                 "margine":80,"stima_token":950}
 _ALLOWED_RESULTS = {"INDIZI COERENTI", "POSSIBILE DISALLINEAMENTO", "DATI INSUFFICIENTI"}
 _ALLOWED_REQUISITES = {"AOUI", "ASUIT", "SSN", "UNITN", "APSS", "SSP",
                        "ALTRO ATENEO", "ASUIT O UNITN", "NESSUNA RISERVA"}
@@ -136,17 +138,23 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
         with request.build_opener(NoRedirect()).open(
             req,timeout=12 if url==API_CHAT else 9
         ) as resp:
-            return resp.read(400_001)
+            hdr=getattr(resp,"headers",{})
+            rate={k:hdr.get(k) for k in (
+                "x-ratelimit-limit-requests","x-ratelimit-limit-tokens",
+                "x-ratelimit-remaining-requests","x-ratelimit-remaining-tokens",
+                "x-ratelimit-reset-requests","x-ratelimit-reset-tokens")
+                if hdr and hdr.get(k) is not None}
+            return resp.read(400_001),rate
     try:
         try:
-            data=read_response()
+            data,rate=read_response()
         except error.HTTPError as first:
             if first.code not in (500,502,503,504):
                 raise
             # Un unico retry esclusivamente sui guasti temporanei upstream.
             # Non ripetere errori 400/401/403/429 e non ripetere timeout.
             time.sleep(0.4)
-            data=read_response()
+            data,rate=read_response()
         if len(data)>400_000:
             raise ValueError("Risposta GroqCloud troppo grande")
         try:
@@ -157,6 +165,7 @@ def _fetch_json(url: str, key: str, payload: dict | None=None) -> dict:
             ) from None
         if not isinstance(doc,dict):
             raise ValueError("Formato di risposta GroqCloud non valido")
+        doc["_rankup_rate"]=rate
         return doc
     except error.HTTPError as exc:
         if exc.code==429:
@@ -222,6 +231,7 @@ class GroqSecrets:
         self.root=root
         self.file=root/".groqcloud_key"
         self.model_file=root/"groqcloud_model.json"
+        self.quota_file=root/"groqcloud_quota.json"
     def key(self) -> str:
         try:
             return self.file.read_text("utf-8").strip()
@@ -233,6 +243,31 @@ class GroqSecrets:
             return data.get("model","") if MODEL_RE.fullmatch(data.get("model","")) else ""
         except (OSError,ValueError,TypeError):
             return ""
+    def limits(self) -> dict:
+        try:
+            doc=json.loads(self.quota_file.read_text("utf-8"))
+            if not isinstance(doc,dict):
+                return dict(DEFAULT_QUOTA)
+            values={k:int(doc.get(k,v)) for k,v in DEFAULT_QUOTA.items()}
+            if values["margine"]<50 or values["margine"]>95:
+                return dict(DEFAULT_QUOTA)
+            return values
+        except (OSError,ValueError,TypeError):
+            return dict(DEFAULT_QUOTA)
+
+    def save_limits(self,values:dict) -> None:
+        if set(values)!=set(DEFAULT_QUOTA):
+            raise ValueError("Parametri della quota non validi")
+        for key,value in values.items():
+            if not isinstance(value,int) or isinstance(value,bool) or value<1:
+                raise ValueError("I limiti devono essere numeri positivi")
+        if not 50<=values["margine"]<=95:
+            raise ValueError("Margine ammesso: 50-95 per cento")
+        if values["stima_token"]>values["tpm"]*values["margine"]//100:
+            raise ValueError("La stima per richiesta supera il budget TPM")
+        self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
+        _atomic_secret(self.quota_file,json.dumps(values,sort_keys=True))
+
     def save(self,key: str|None,model: str) -> None:
         if model and not MODEL_RE.fullmatch(model):
             raise ValueError("Identificativo modello non valido")
@@ -318,7 +353,8 @@ def analyze(key:str,model:str,payload:dict) -> dict:
         return {"indizio":obj["indizio"],
                 "motivo":obj["motivo"][:MAX_RESULT_LENGTH].strip(),
                 "verifiche":obj["verifiche"][:MAX_RESULT_LENGTH].strip(),
-                "origine":"groqcloud","token_usati":max(0,token)}
+                "origine":"groqcloud","token_usati":max(0,token),
+                "quota_provider":res.get("_rankup_rate") or {}}
     except (KeyError,IndexError,TypeError,ValueError):
         raise ValueError("Risposta AI non utilizzabile, nessuna conclusione registrata") from None
 
