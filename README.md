@@ -1,5 +1,19 @@
 # RankUp
 
+## RankUP v1.0.9 — Verifica requisito ente e coda GroqCloud
+
+**Navigazione:** Amministrazione → **Impostazioni AI** permette all'Admin di gestire chiave GroqCloud, modello, limiti preventivi e **prompt istituzionale personalizzabile**. Il controllo delle candidature si trova nel singolo procedimento: **Verifica requisito ente**, immediatamente dopo Candidature, sempre riservato all'Admin.
+
+**Prompt modificabile:** RankUP propone indicazioni generali su AOUI/ASUIT/APSS e SSN, UNITN e natura giuridica degli enti. L'Admin può aggiornarle, sulla base di fonti ufficiali, senza modificare la parte fissa del prompt che impone JSON strutturato, divieto di inventare dati e divieto di pronunciare idoneità. Il testo del prompt non deve mai contenere ID PICA, nominativi, CF, recapiti o dati di singoli candidati. Solo le **categorie** estratte localmente da occupazione attuale, azienda/ente e profilo professionale PICA sono inviate a GroqCloud. L'ID PICA rimane in RankUP per il collegamento amministrativo.
+
+**Classificazione e filtri:** tre stati indipendenti dalle schede di valutazione: Non applicabile (assenza di riserva), Ente coerente (sola coerenza istituzionale proposta da AI), Da approfondire. Dove mancano requisito o dati minimi RankUP non chiama GroqCloud e segnala il problema. Non attribuisce esiti di idoneità: l'effettivo rapporto di lavoro deve essere accertato separatamente. I conteggi si aggiornano dinamicamente per CdS e sede; il report PDF mantiene ID PICA e categoria del rapporto, con i casi da approfondire in testa.
+
+**Coda persistente:** la verifica avviata dal bando procede con un worker seriale. Il database SQLite salva ogni risultato, ripristina i lavori interrotti da riavvio, conserva il numero di token comunicati dal provider, permette Sospendi/Riprendi/Annulla, gestisce HTTP 429 rispettando Retry-After e conserva pause preventive per RPM/TPM/RPD/TPD. Le quote visualizzate sono stime della sola coda RankUP; i response header GroqCloud, quando presenti, sono identificati a parte. I valori predefiniti del modello openai/gpt-oss-120b sono impostazioni iniziali modificabili, non garanzia della quota.
+
+**Cache:** il calcolo del digest include categorie inviate, modello, versione delle regole e testo del prompt. I risultati sono riutilizzati anche tra candidature con categorie identiche nello stesso bando senza mescolare i rispettivi ID PICA. Un cambiamento del prompt invalida il riuso, non elimina lo storico. La rianalisi forzata rigenera almeno una risposta per ogni insieme distinto di categorie, evitando richieste doppie nello stesso lavoro. I lavori già avviati conservano le istruzioni con cui sono partiti.
+
+**Upgrade e sicurezza:** SQLite schema v7 con backup preventivo. I risultati della vecchia interfaccia v1.0.8 rimangono nel database come storico, ma non vengono trattati come prove di coerenza col nuovo prompt. Chiavi e configurazione rimangono nel volume privato dell'add-on, fuori dal repository. Verificare prima le condizioni di servizio GroqCloud e il trattamento dei dati dell'Ateneo. Il report non è un atto amministrativo né un giudizio della Commissione.
+
 ## RankUP v1.0.4 — Assistente AI GroqCloud
 
 L'Assistente AI è accessibile esclusivamente all'Admin. Il controllo è **solo sul requisito di ente** e utilizza i dati dell'occupazione attuale del report PICA, immediatamente dopo la sua importazione: non dipende dalle schede PDF di valutazione. RankUP trasforma localmente denominazione dell'ente e rapporto dichiarato in categorie istituzionali non identificative: sono le sole informazioni inviate al modello GroqCloud insieme al codice del requisito. Non trasmette ID PICA, nominativi, codice fiscale, recapiti, PDF, dichiarazioni originali, punteggi o graduatorie. **ID PICA è conservato localmente** per associare correttamente l'analisi al candidato e compare nel report.
