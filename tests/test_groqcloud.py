@@ -267,3 +267,87 @@ def test_provider_502_returns_424_with_rankup_header(tmp_path,monkeypatch):
         assert "GroqCloud HTTP 502" in probe.json()["detail"]
         assert probe.headers.get("X-RankUp-Response-Origin")=="rankup"
         assert "groq_synthetic_secret_" not in (probe.text+models.text)
+
+
+
+def test_groq_requests_use_rankup_user_agent_for_models_and_completions(monkeypatch):
+    """L'header vale per GET modelli e POST completions, senza chiavi nel risultato."""
+    import ai_groq
+    import json
+
+    sent=[]
+    class Reply:
+        def __init__(self,data):
+            self.data=data
+        def __enter__(self):
+            return self
+        def __exit__(self,*args):
+            return False
+        def read(self,limit):
+            return self.data[:limit]
+
+    class Opener:
+        def open(self,req,timeout=None):
+            sent.append({
+                "url":req.full_url,
+                "method":req.get_method(),
+                "agent":req.get_header("User-agent"),
+                "authorization":req.get_header("Authorization"),
+            })
+            if req.full_url==ai_groq.API_MODELS:
+                return Reply(b'{"data":[{"id":"openai/gpt-oss-120b"}]}')
+            return Reply(json.dumps({
+                "choices":[{"message":{"content":json.dumps({
+                    "indizio":"INDIZI COERENTI",
+                    "motivo":"Categoria compatibile",
+                    "verifiche":"Controllo documentale",
+                })}}],
+                "usage":{"total_tokens":42}
+            }).encode("utf-8"))
+
+    monkeypatch.setattr(ai_groq.request,"build_opener",lambda *_:Opener())
+    secret="groq_test_secret_123456789012345"
+    assert ai_groq.models(secret)==["openai/gpt-oss-120b"]
+    answer=ai_groq.analyze(secret,"openai/gpt-oss-120b",{
+        "requisito_ente":"AOUI",
+        "categoria_ente_dichiarato":"AOUI",
+        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
+    })
+    assert answer["origine"]=="groqcloud"
+    assert [r["method"] for r in sent]==["GET","POST"]
+    assert all(r["agent"]==ai_groq.GROQ_USER_AGENT for r in sent)
+    assert all(r["agent"]!="Python-urllib/3.12" for r in sent)
+    assert all(r["authorization"]=="Bearer "+secret for r in sent)
+    assert secret not in str(answer)
+
+
+def test_cloudflare_1010_is_distinct_from_real_groq_403(monkeypatch):
+    """Il messaggio individua il blocco Cloudflare senza suggerire nuova chiave."""
+    import ai_groq
+    from urllib import error
+    from io import BytesIO
+
+    class Block:
+        def __init__(self,body):
+            self.body=body
+        def open(self,req,timeout=None):
+            raise error.HTTPError(req.full_url,403,"Forbidden",
+                                  {"Content-Type":"text/html"},
+                                  BytesIO(self.body))
+    current=[]
+    def opener(*args):
+        return Block(current[0])
+    monkeypatch.setattr(ai_groq.request,"build_opener",opener)
+    current[:]=[b'<html><title>Access denied</title><p>Error code: 1010</p>'
+                b'<footer>Cloudflare</footer></html>']
+    import pytest
+    with pytest.raises(ValueError,match="Cloudflare 1010") as ex:
+        ai_groq.models("sintetica_chiave_non_reale")
+    assert "chiave API" in str(ex.value)
+    assert "sintetica_chiave_non_reale" not in str(ex.value)
+
+    current[:]=[b'{"error":{"message":"You do not have permission","type":"forbidden"}}']
+    with pytest.raises(ValueError,match="GroqCloud HTTP 403") as ex:
+        ai_groq.models("sintetica_chiave_non_reale")
+    assert "Cloudflare 1010:" not in str(ex.value)
+    assert "sintetica_chiave_non_reale" not in str(ex.value)
