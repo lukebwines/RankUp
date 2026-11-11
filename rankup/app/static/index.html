@@ -1941,6 +1941,7 @@
           }catch(err){note(err.message,true);}
         }
         var currentJob=null;
+        var aiPollTimer=null;
         async function loadStatus(){
           if(state.page!=="verificaenteai"||token!==state.aiPollToken)return null;
           try{
@@ -1970,7 +1971,7 @@
             var local=status.quota_locale||{};
             var provider=job&&job.quota_provider||{};
             var text="Uso locale della coda per il modello: "+
-              (local.richiestе_60s||local.richieste_60s||0)+" richieste / "+
+              (local.richieste_60s||0)+" richieste / "+
               (local.token_60s||0)+" token negli ultimi 60 s; "+
               (local.richieste_24h||0)+" richieste / "+(local.token_24h||0)+
               " token nelle ultime 24 h. Non comprende altri client GroqCloud.";
@@ -1983,12 +1984,15 @@
           }catch(err){note(err.message,true);return null;}
         }
         async function poll(){
+          if(aiPollTimer!==null){
+            clearTimeout(aiPollTimer);aiPollTimer=null;
+          }
           if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
           var job=await loadStatus();
           if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
           if(job&&["in_coda","in_corso","attesa_quota"].includes(job.stato)){
             await loadResults();
-            setTimeout(poll,4500);
+            aiPollTimer=setTimeout(poll,4500);
           }else{
             await loadResults();
           }
