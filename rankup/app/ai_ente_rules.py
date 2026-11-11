@@ -7,7 +7,7 @@ istruzioni configurate dall'Admin. L'esito non attesta mai il rapporto di
 lavoro o l'idoneita' amministrativa del candidato.
 """
 from __future__ import annotations
-from ai_groq import prepare_minimal_payload
+from ai_groq import prepare_minimal_payload, role_category
 
 RULES_VERSION = "ente-denominazione-originale-v4"
 NON_APPLICABILE = "NON APPLICABILE"
@@ -19,7 +19,8 @@ def classifica_ente(entry: dict) -> dict:
     payload=prepare_minimal_payload(entry)
     req=payload["requisito_ente"]
     ente=payload["denominazione_ente_dichiarato"]
-    relation=payload["categoria_rapporto_dichiarato"]
+    relation=role_category(str(entry.get("occupazione") or ""),
+                           str(entry.get("profilo_professionale") or ""))
     base={
         "esito":DA_APPROFONDIRE,
         "requisito":req,
