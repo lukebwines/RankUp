@@ -1,7 +1,7 @@
 """GroqCloud: confronto preliminare sulle denominazioni istituzionali.
 
 Trasmette esclusivamente requisito, denominazione di ente controllata e
-categoria astratta del rapporto. Non invia ID PICA, nomi, contatti o PDF.
+nessuna qualifica personale. Non invia ID PICA, nomi, contatti o PDF.
 La risposta non determina mai idoneita', punteggi o incarichi.
 """
 from __future__ import annotations
@@ -153,15 +153,12 @@ def role_category(occupation: str, profile: str) -> str:
 
 
 def prepare_minimal_payload(entry: dict) -> dict:
-    """Solo requisito, denominazione di ente minimizzata e categoria rapporto."""
+    """Invia solo requisito e denominazione ente; qualifica solo locale."""
     req=_normal(entry.get("ente_richiesto"))
     return {
         "requisito_ente": req if req in _ALLOWED_REQUISITES else "NON CLASSIFICATO",
         "denominazione_ente_dichiarato": safe_institution_name(
             entry.get("azienda_ente",""),entry),
-        "categoria_rapporto_dichiarato": role_category(
-            str(entry.get("occupazione") or ""),
-            str(entry.get("profilo_professionale") or "")),
     }
 
 
@@ -397,7 +394,7 @@ def models(key:str) -> list[str]:
 
 def analyze(key:str,model:str,payload:dict,guidance:str|None=None) -> dict:
     """Accetta solo il payload minimizzato, senza riferimenti al candidato."""
-    expected={"requisito_ente","denominazione_ente_dichiarato","categoria_rapporto_dichiarato"}
+    expected={"requisito_ente","denominazione_ente_dichiarato"}
     if set(payload)!=expected:
         raise ValueError("Campi del quesito non consentiti")
     if not key or not MODEL_RE.fullmatch(model):
