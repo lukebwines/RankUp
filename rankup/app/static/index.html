@@ -1859,6 +1859,9 @@
           '<button type="button" class="ru-ai-stat ru-ai-review" data-ai-filter="'+DA_VEDERE+'"><span>⚠ Da approfondire</span><strong>—</strong></button></div>'+
           '<label class="ru-ai-filter-label">Filtro esito<select id="ai-esito"><option value="">Tutti</option>'+
           '<option>'+NA+'</option><option>'+ENTE_OK+'</option><option>'+DA_VEDERE+'</option></select></label>'+
+          '<label style="display:block;max-width:350px;margin:0 0 12px">Cerca candidato o ID PICA'+
+          '<input id="ai-ricerca" type="search" placeholder="Cognome, nome o ID PICA" '+
+          'autocomplete="off" style="width:100%"></label>'+
           '<div class="tablebox" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
           '<p class="caption" id="ai-counts" aria-live="polite"></p>'+
           '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
@@ -1942,8 +1945,21 @@
                   '<td>'+esc(ai.motivo||"—")+'</td></tr>';
               }).join("")+'</tbody></table>':
               '<p class="caption">Nessuna candidatura per il filtro selezionato.</p>';
+            filtraCandidati();
           }catch(err){note(err.message,true);}
         }
+        function filtraCandidati(){
+          var input=$("ai-ricerca");
+          var term=(input&&input.value||"").trim().toLocaleLowerCase("it");
+          document.querySelectorAll("#ai-results tbody tr").forEach(function(tr){
+            // Ricerca esclusivamente nel nome e nell'ID PICA: nessun dato
+            // identificativo e' trasmesso al server durante la digitazione.
+            var cells=tr.querySelectorAll("td");
+            var searchText=(cells[0]?.textContent||"")+" "+(cells[1]?.textContent||"");
+            tr.hidden=!!term&&!searchText.toLocaleLowerCase("it").includes(term);
+          });
+        }
+        $("ai-ricerca").oninput=filtraCandidati;
         var currentJob=null;
         var aiPollTimer=null;
         async function loadStatus(){
