@@ -127,6 +127,10 @@ def safe_institution_name(value: object, candidate: dict | None = None) -> str:
     # Un semplice nominativo (senza indicatori di organizzazione) non va
     # trasmesso. Non occorre un dizionario di categorie istituzionali.
     if (len(text.split())==2 and
+        not re.match(r"^(?:AZIENDA|AOUI|AULSS|ULSS|ASL|AUSL|ASST|ATS|"
+                     r"APSS|ASUIT|SSP|IRCCS|OSPEDALE|UNIVERSITA|UNIVERSITÀ|"
+                     r"POLICLINICO|FONDAZIONE|ISTITUTO|CENTRO|CASA|"
+                     r"REGIONE|PROVINCIA|COMUNE|ENTE)\b",text) and
         all(re.fullmatch(r"[A-ZÀ-ÖØ-Ý]{3,}",part) for part in text.split())):
         return ENT_E_PRIVATE
     return text
