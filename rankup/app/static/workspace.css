@@ -408,3 +408,53 @@ html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
 .ru-workspace .ru-status-pill--warning{border-color:#b68a51}
 .ru-workspace .ru-status-pill--good{border-color:#459a77}
 .sidebar nav button[aria-current="page"]{font-weight:790}
+
+
+/* Verifica ente v1.0.9 — esiti istituzionali, non giudizi di idoneita'. */
+.ru-workspace .ru-ai-stats {
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;margin:16px 0;
+}
+.ru-workspace .ru-ai-stat {
+  display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+  min-width:0;text-align:left;padding:14px 16px;border-radius:12px;
+  color:var(--ru-ink);background:var(--ru-surface-alt);
+  border:1px solid var(--ru-stroke);
+  border-left:4px solid var(--ru-stroke);
+  cursor:pointer;transition:box-shadow .12s,border-color .12s;
+}
+.ru-workspace .ru-ai-stat:hover,
+.ru-workspace .ru-ai-stat:focus-visible {box-shadow:0 0 0 2px var(--ru-accent-soft);}
+.ru-workspace .ru-ai-stat strong{font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums;}
+.ru-workspace .ru-ai-stat span{font-size:12px;font-weight:700;}
+.ru-workspace .ru-ai-stat.ru-ai-ok{border-left-color:var(--ru-success);}
+.ru-workspace .ru-ai-stat.ru-ai-review{border-left-color:var(--ru-warning);}
+.ru-workspace .ru-ai-stat.ru-ai-neutral{border-left-color:var(--ru-muted);}
+.ru-workspace .ru-ai-stat.ru-ai-stat-selected {
+  outline:2px solid var(--ru-accent);outline-offset:1px;
+}
+.ru-workspace .ru-ai-pill{display:inline-flex;gap:4px;padding:4px 8px;
+  border-radius:7px;font-weight:750;font-size:11px;white-space:normal;}
+.ru-workspace .ru-ai-pill--ok{color:var(--ru-success);background:var(--ru-success-surface);}
+.ru-workspace .ru-ai-pill--review{color:var(--ru-warning);background:var(--ru-warning-surface);}
+.ru-workspace .ru-ai-pill--na{color:var(--ru-muted);background:var(--ru-surface-alt);}
+.ru-workspace .ru-ai-filter-label{display:flex;flex-direction:column;align-items:flex-start;
+  gap:5px;max-width:300px;margin:4px 0 12px;}
+.ru-workspace .ru-ai-quotas{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));
+  align-items:end;gap:14px;margin:15px 0;}
+.ru-workspace .ru-ai-quotas label{display:flex;flex-direction:column;gap:6px;}
+.ru-workspace .ru-ai-quotas input{width:100%;max-width:100%;box-sizing:border-box;}
+.ru-workspace .ru-ai-job-status{background:var(--ru-surface-alt);
+  padding:14px;margin:14px 0 8px;border:1px solid var(--ru-stroke);
+  border-radius:9px;white-space:normal;overflow-wrap:anywhere;}
+.ru-workspace .ru-ai-quota-note{color:var(--ru-muted);font-size:12px;}
+@media(max-width:1000px){
+  .ru-workspace .ru-ai-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .ru-workspace .ru-ai-quotas{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:690px){
+  .ru-workspace .ru-ai-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+  .ru-workspace .ru-ai-stat{padding:10px;}
+  .ru-workspace .ru-ai-stat strong{font-size:23px;}
+  .ru-workspace .ru-ai-quotas{grid-template-columns:minmax(0,1fr);}
+}
