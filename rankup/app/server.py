@@ -2999,7 +2999,8 @@ def _ai_scope(db,code: str,cds: str,sede: str) -> tuple[int,list[dict]]:
         WHERE bando_id=? AND stato='Acquisita' AND attiva=1
     """,(b["id"],)).fetchall() if r[0] is not None}
     candidates=[r for r in list_candidature(code)["candidature"]
-                if int(r["id"]) in eligible and (not cds or r["cds"]==cds)
+                if int(r["id"]) in eligible and r["stato"]=="Attiva"
+                and (not cds or r["cds"]==cds)
                 and (not sede or r["sede"]==sede)]
     if len(candidates)>2000:
         fail("Ambito troppo grande: filtrare per CdS e sede",409)
