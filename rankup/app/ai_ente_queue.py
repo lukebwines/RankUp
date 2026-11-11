@@ -15,7 +15,7 @@ import json
 import sqlite3
 import time
 
-from ai_ente_rules import RULES_VERSION, classifica_ente
+from ai_ente_rules import RULES_VERSION, classifica_ente, esito_da_indizio
 from ai_groq import GroqLimit, prepare_minimal_payload, DEFAULT_QUOTA
 
 ACTIVE = ("in_coda", "in_corso", "attesa_quota", "sospesa")
@@ -34,6 +34,7 @@ def ensure_schema(db):
             sede TEXT NOT NULL DEFAULT '',
             modello TEXT NOT NULL,
             versione_regole TEXT NOT NULL,
+            istruzioni_prompt TEXT NOT NULL,
             stato TEXT NOT NULL CHECK(stato IN
                 ('in_coda','in_corso','attesa_quota','sospesa',
                  'completata','annullata','errore')),
@@ -97,9 +98,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _hash(payload:dict, model:str) -> str:
+def _hash(payload:dict, model:str, guidance:str) -> str:
     # Cambio regole = invalidazione della cache, senza perdere lo storico.
-    blob=json.dumps({"data":payload,"model":model,"rules":RULES_VERSION},
+    blob=json.dumps({"data":payload,"model":model,"rules":RULES_VERSION,
+                     "guidance":guidance},
                     sort_keys=True,ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
@@ -123,24 +125,27 @@ def classifications(candidates: list[dict]) -> list[dict]:
             for c in candidates]
 
 
-def cases_with_ai(db,bid:int,candidates:list[dict],model:str) -> list[dict]:
+def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> list[dict]:
     out=[]
     for entry in classifications(candidates):
         row=db.execute("""SELECT id FROM incarichi
             WHERE bando_id=? AND key=?""",(bid,entry["incarico_key"])).fetchone()
         if not row:continue
-        digest=_hash(entry["payload"],model)
+        digest=_hash(entry["payload"],model,guidance)
         cached=_find_cached(db,bid,int(entry["id"]),int(row["id"]),digest,model)
         entry["ai"]=dict(cached) if cached else None
-        # La categoria resta deterministica anche quando un'AI precedente
-        # aveva interpretato male AOUI/ASUIT come incompatibili con SSN.
+        if entry["richiede_ai"] and cached:
+            entry["esito"]=esito_da_indizio(cached["indizio"])
+            entry["motivo"]=cached["motivo"]
+            entry["verifiche"]=cached["verifiche"]+
+                " Il rapporto di lavoro personale resta da accertare."
         entry.pop("payload",None)
         out.append(entry)
     return out
 
 
 def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
-               candidates:list[dict],who:str,force:bool=False) -> dict:
+               candidates:list[dict],who:str,guidance:str,force:bool=False) -> dict:
     now=_now()
     db.execute("BEGIN IMMEDIATE")
     prior=db.execute("""
@@ -154,10 +159,10 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
         return {"id":prior["id"],"stato":prior["stato"],"gia_esistente":True}
     cur=db.execute("""
         INSERT INTO ai_ente_lavori
-          (bando_id,codice,cds,sede,modello,versione_regole,
+          (bando_id,codice,cds,sede,modello,versione_regole,istruzioni_prompt,
            stato,forzato,creato_da,creato_il,aggiornato_il)
-        VALUES(?,?,?,?,?,?,'in_coda',?,?,?,?)
-    """,(bid,code,cds,sede,model,RULES_VERSION,int(force),who,now,now))
+        VALUES(?,?,?,?,?,?,?,'in_coda',?,?,?,?)
+    """,(bid,code,cds,sede,model,RULES_VERSION,guidance,int(force),who,now,now))
     jobid=cur.lastrowid
     nlocal,ncached=0,0
     for candidate,entry in zip(candidates,classifications(candidates)):
@@ -165,7 +170,7 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
                        (bid,entry["incarico_key"])).fetchone()
         if not inc:continue
         payload=entry["payload"]
-        digest=_hash(payload,model)
+        digest=_hash(payload,model,guidance)
         cached=None if force else _find_cached(
             db,bid,int(candidate["id"]),int(inc["id"]),digest,model)
         if not entry["richiede_ai"]:
@@ -328,9 +333,9 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
         eligible=next((c for c in current if int(c["id"])==pending["candidatura_id"]
                       and c["stato"]=="Attiva"),None)
         expected=json.loads(pending["payload_json"])
-        if not eligible or _hash(prepare_minimal_payload(eligible),job["modello"])!=pending["input_sha256"]:
+        if not eligible or _hash(prepare_minimal_payload(eligible),job["modello"],job["istruzioni_prompt"])!=pending["input_sha256"]:
             raise ValueError("Dati PICA modificati: annullare la coda e avviare una nuova analisi")
-        result=send(get_key(),job["modello"],expected)
+        result=send(get_key(),job["modello"],expected,guidance=job["istruzioni_prompt"])
     except GroqLimit as exc:
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
