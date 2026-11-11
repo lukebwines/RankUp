@@ -133,6 +133,8 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "occupazione": ["occupazione*", "occupazione"],
         "azienda_ente": ["azienda/ente", "azienda ente", "ente di appartenenza", "datore di lavoro"],
         "profilo_professionale": ["profilo professionale"],
+        "ateneo": ["ateneo"],
+        "qualifica": ["qualifica"],
         # Campi dichiarati dal candidato: AU (titolo) e AW (conseguimento).
         # Usare le intestazioni e non la posizione delle colonne.
         "titolo_studio": ["diploma di laurea/laurea specialistica/laurea magistrale in"],
@@ -223,6 +225,8 @@ def parse_pica(filename: str, content: bytes) -> dict:
             "occupazione": get("occupazione"),
             "azienda_ente": get("azienda_ente"),
             "profilo_professionale": get("profilo_professionale"),
+            "ateneo": get("ateneo"),
+            "qualifica": get("qualifica"),
             "titolo_studio": get("titolo_studio"),
             "data_conseguimento": get("data_conseguimento"),
 
