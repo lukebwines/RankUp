@@ -147,6 +147,7 @@ _PERSONAL_CONTENT = re.compile(
     re.IGNORECASE,
 )
 _TAX_ID = re.compile(r"\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b",re.I)
+_PERSON_HONORIFIC = re.compile(r"(?<!\w)(?:SIG\.?|SIGNOR(?:A)?|DOTT\.?|DOTTORE|DOTTORESSA|DR\.?)\s+[A-ZÀ-ÖØ-Ý]",re.I)
 _LONG_DIGITS = re.compile(r"(?<!\w)\+?\d(?:[\s./-]?\d){7,}(?!\w)")
 
 
@@ -177,7 +178,8 @@ def safe_institution_name(value: object, candidate: dict | None = None) -> str:
         return ENT_E_MISSING
     # Nessun tentativo di trasmettere nomi, recapiti o testi strutturati.
     if (any(c in raw for c in "\n\r\t<>{}[]")
-        or _PERSONAL_CONTENT.search(raw) or _TAX_ID.search(raw)
+        or _PERSONAL_CONTENT.search(raw) or _PERSON_HONORIFIC.search(raw)
+        or _TAX_ID.search(raw)
         or _LONG_DIGITS.search(raw)):
         return ENT_E_PRIVATE
     text=" ".join(raw.upper().split())
