@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.8">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.9">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -213,12 +213,13 @@
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
-        <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Assistente AI</button>
+        <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
         <button data-page="candidature"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Candidature</button>
+        <button data-page="verificaenteai" id="band-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Verifica requisito ente</button>
         <button data-page="commissioni"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Commissioni</button>
         <button data-page="schede"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Schede PDF</button>
         <button data-page="valutazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Valutazioni</button>
@@ -226,7 +227,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.8<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.9<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -346,6 +347,7 @@
         $("admin-ssd-link").style.display="none";
         $("admin-commissioni-link").style.display="none";
         $("admin-ai-link").style.display="none";
+        $("band-ai-link").style.display="none";
         $("admin-reset-link").style.display="none";
         $("admin-archive-link").style.display="none";
         $("admin-menu-heading").style.display="none";
@@ -362,10 +364,11 @@
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-commissioni-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
+        $("band-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","commissioniarchivio","azzeramento","archivio","assistenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","commissioniarchivio","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -404,7 +407,7 @@
       };
       const RU_PROCESS=[
         ["riferimenti","Riferimenti"],["incarichi","Incarichi"],["candidature","Candidature"],
-        ["commissioni","Commissioni"],["schede","Schede PDF"],["valutazioni","Valutazioni"],
+        ["verificaenteai","Verifica ente"],["commissioni","Commissioni"],["schede","Schede PDF"],["valutazioni","Valutazioni"],
         ["verbali","Verbali"],["graduatorie","Graduatorie"],["archivio","Archivio"]
       ];
       const RU_DESCRIPTIONS={
@@ -420,7 +423,8 @@
         utenti:"Gestisci gli accessi e le credenziali degli operatori senza modificare le valutazioni.",
         ssdconfig:"Configura l'associazione permanente tra SSD e modelli di valutazione.",
         commissioniarchivio:"Consulta le commissioni conservate e riassociale solo dopo verifica documentale.",
-        assistenteai:"Controllo orientativo dell\u0027ente dichiarato, senza invio di dati identificativi a GroqCloud.",
+        assistenteai:"Gestisci modello, chiave API e limiti GroqCloud in un'unica sezione di amministrazione.",
+        verificaenteai:"Verifica preliminare dell'ente dichiarato nel PICA, con coda e filtri per il bando.",
         azzeramento:"Operazione amministrativa distruttiva: verifica le conseguenze e il backup."
       };
       function rankupWorkspaceGuide(){
@@ -671,7 +675,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Assistente AI",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -683,7 +687,7 @@
         });
         if(state.page==="dashboard")return dashboard();
         if(!state.active && ["riferimenti","incarichi","candidature","commissioni",
-                            "schede","valutazioni","verbali","graduatorie"].includes(state.page)){
+                            "schede","valutazioni","verbali","graduatorie","verificaenteai"].includes(state.page)){
           return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
         }
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
@@ -693,7 +697,8 @@
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="azzeramento")return state.role==="admin"?renderAzzeramento():html(panel("Accesso riservato","Azzeramento dati riservato all\u0027Admin."));
-        if(state.page==="assistenteai")return state.role==="admin"?renderAssistenteAI():html(panel("Accesso riservato","Assistente AI riservato all\u0027Admin."));
+        if(state.page==="assistenteai")return state.role==="admin"?renderAISettings():html(panel("Accesso riservato","Impostazioni AI riservate all'Admin."));
+        if(state.page==="verificaenteai")return state.role==="admin"?renderAIBando():html(panel("Accesso riservato","Verifica requisito ente riservata all'Admin."));
         if(state.page==="riferimenti")return renderBandoReferences();
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="schede")return renderSchede();
@@ -766,7 +771,7 @@
                 '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
                 encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
                 '/pdf?tipo=statico">Anteprima statica</a>')
-                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.8.':
+                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.9.':
                   'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.'))+
               ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
                 '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
@@ -1690,176 +1695,368 @@
 
       // GroqCloud: vengono inviate ESCLUSIVAMENTE categorie di ente/rapporto.
       // ID PICA, nomi, recapiti, CF, PDF e dichiarazioni grezze restano locali.
-      async function renderAssistenteAI(){
+      // Configurazione globale: non dipende da un bando selezionato.
+      async function renderAISettings(){
         if(state.role!=="admin")return;
-        var code=state.active;
-        html('<div class="card mb"><h3 class="section-heading">Assistente AI · GroqCloud</h3>'+
-          '<p class="caption">Controllo esclusivamente istruttorio del requisito di ente. '+
-          'Non attribuisce idoneità, non modifica schede, punteggi o graduatorie. '+
-          'Utilizza i dati di occupazione attuale, azienda/ente e profilo professionale '+
-          'già presenti nell’esportazione PICA, senza attendere le schede di valutazione.</p>'+
-          '<div class="notice"><strong>Dati condivisi:</strong> categoria dell’ente '+
-          'dichiarato, categoria astratta del rapporto e requisito istituzionale. '+
-          '<strong>Non vengono trasmessi:</strong> ID PICA, nomi, codici fiscali, '+
-          'recapiti, documenti, dichiarazioni integrali, punteggi. '+
-          'ID PICA resta nel report locale. Prima di utilizzare un servizio cloud '+
-          'per attività dell’Ateneo verificare le disposizioni sul trattamento dei dati '+
-          'e le impostazioni di conservazione del fornitore.</div>'+
-          '<form id="ai-config" class="actions" style="align-items:end;flex-wrap:wrap">'+
-          '<label>Modello GroqCloud<input id="ai-model" maxlength="125" list="ai-models" placeholder="Seleziona o inserisci ID modello" required></label>'+
-          '<datalist id="ai-models"></datalist>'+
-          '<label>Chiave API (solo per inserirla o sostituirla)<input id="ai-key" type="password" maxlength="256" autocomplete="new-password" placeholder="Non sarà mostrata dopo il salvataggio"></label>'+
+        html('<div class="card mb"><h3 class="section-heading">Impostazioni AI · GroqCloud</h3>'+
+          '<p class="caption">Configurazione amministrativa valida per tutta RankUP. '+
+          'Il controllo delle dichiarazioni PICA si svolge invece in '+
+          '<strong>Procedimento del bando → Verifica requisito ente</strong>.</p>'+
+          '<div class="notice"><strong>Privacy:</strong> RankUP invia al provider soltanto '+
+          'categorie astratte di ente, rapporto e requisito; ID PICA, nominativi, '+
+          'CF, documenti e dichiarazioni integrali rimangono locali.</div>'+
+          '<form id="ai-config" class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
+          '<label>Modello GroqCloud<input id="ai-model" maxlength="125" list="ai-models" '+
+          'placeholder="ID modello" required></label><datalist id="ai-models"></datalist>'+
+          '<label>Chiave API (per inserire o sostituire)<input id="ai-key" type="password" '+
+          'maxlength="256" autocomplete="new-password" placeholder="Non viene mostrata dopo il salvataggio"></label>'+
           '<button type="submit" class="btn">Salva configurazione</button>'+
           '<button type="button" class="btn secondary" id="ai-load-models">Carica modelli disponibili</button>'+
           '<button type="button" class="btn secondary" id="ai-test-model">Test AI con dati sintetici</button>'+
           '<button type="button" class="btn secondary" id="ai-clear-key">Elimina chiave</button></form>'+
           '<p id="ai-key-state" class="caption" aria-live="polite"></p></div>'+
-          '<div class="card"><h3 class="section-heading">Verifica preliminare per CdS</h3>'+
-          (!code?'<p>Seleziona un bando attivo dal menu laterale.</p>':
-          '<p class="caption">Il controllo parte dalle dichiarazioni di occupazione del file PICA importato '+
-          '(non dalle schede della Commissione), utilizzando soltanto categorie estratte localmente. '+
-          'È richiesta una conferma esplicita prima dell’invio a GroqCloud.</p>'+
-          '<div class="actions"><label>Corso di Studio<select id="ai-cds"><option value="">Tutti i CdS</option></select></label>'+
-          '<label>Sede<select id="ai-sede"><option value="">Tutte le sedi</option></select></label></div>'+
-          '<label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input id="ai-consent" type="checkbox">'+
-          'Confermo di aver verificato le condizioni d’uso del servizio esterno e autorizzo l’invio delle sole categorie.</label>'+
-          '<div class="actions"><button type="button" class="btn" id="ai-run">Analizza o riprendi</button>'+
-          '<button type="button" class="btn secondary" id="ai-refresh">Aggiorna risultati</button>'+
-          '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS</a></div>'+
-          '<p class="caption" id="ai-progress">Nessuna analisi avviata.</p>'+
-          '<div id="ai-results" class="tablebox"></div>')+
-          '</div>');
+          '<div class="card"><h3 class="section-heading">Limiti e margine di sicurezza della coda</h3>'+
+          '<p class="caption">Valori di partenza per openai/gpt-oss-120b: '+
+          '30 richieste/min, 8.000 token/min, 1.000 richieste/giorno e '+
+          '200.000 token/giorno. Sono limiti da verificare nella propria console. '+
+          'RankUP utilizza un margine prudenziale e i segnali HTTP 429. '+
+          'Le stime locali non rappresentano il residuo ufficiale dell’account.</p>'+
+          '<form id="ai-quotas" class="ru-ai-quotas">'+
+          '<label>Richieste/minuto<input id="ai-rpm" type="number" min="1" max="1000" required></label>'+
+          '<label>Token/minuto<input id="ai-tpm" type="number" min="100" max="1000000" required></label>'+
+          '<label>Richieste/giorno<input id="ai-rpd" type="number" min="1" max="1000000" required></label>'+
+          '<label>Token/giorno<input id="ai-tpd" type="number" min="100" max="100000000" required></label>'+
+          '<label>Margine (%)<input id="ai-margine" type="number" min="50" max="95" required></label>'+
+          '<label>Token stimati/richiesta<input id="ai-stima" type="number" min="50" max="50000" required></label>'+
+          '<button class="btn" type="submit">Salva limiti</button></form>'+
+          '<p class="caption">In caso di HTTP 429 il lavoro entra in attesa e '+
+          'riparte automaticamente. Il progresso è conservato nel database.</p></div>'+
+          '<div class="card"><h3 class="section-heading">Istruzioni generali per GroqCloud</h3>'+
+          '<p class="caption">Modifica le equivalenze istituzionali applicate dal modello '+
+          '(AOUI, ASUIT/APSS, SSN, UNITN, ecc.). Non inserire nominativi, '+
+          'ID PICA, codici fiscali, contatti né informazioni di singoli candidati. '+
+          'Le istruzioni di sicurezza e il formato delle risposte restano fissi.</p>'+
+          '<form id="ai-guidance"><label for="ai-guidance-text">Prompt istituzionale personalizzato</label>'+
+          '<textarea id="ai-guidance-text" rows="13" maxlength="5000" '+
+          'style="width:100%;min-height:200px" spellcheck="true"></textarea>'+
+          '<div class="actions" style="margin-top:10px">'+
+          '<button class="btn" type="submit">Salva istruzioni AI</button>'+
+          '<button class="btn secondary" type="button" id="ai-guidance-reset">Ripristina suggerite</button>'+
+          '</div></form>'+
+          '<p class="caption">Modificando il prompt, le nuove analisi useranno le nuove istruzioni '+
+          'e i risultati precedenti non saranno riutilizzati automaticamente. '+
+          'Le analisi già in coda mantengono le istruzioni originali.</p></div>');
         try{
-          var cfg=await api("admin/ai/config");
+          var data=await Promise.all([api("admin/ai/config"),api("admin/ai/limiti"),
+                                      api("admin/ai/istruzioni")]);
           if(state.page!=="assistenteai")return;
+          var cfg=data[0],lim=data[1].limiti||{};
+          $("ai-guidance-text").value=data[2].testo||"";
+          $("ai-guidance-reset").onclick=function(){
+            $("ai-guidance-text").value=data[2].predefinito||"";
+          };
           $("ai-model").value=cfg.model||"";
-          $("ai-key-state").textContent=cfg.chiave_configurata?"Chiave API configurata (non visualizzabile).":"Chiave API non configurata.";
+          $("ai-key-state").textContent=cfg.chiave_configurata?
+            "Chiave API presente nel volume privato dell’add-on.":
+            "Chiave API non configurata.";
+          [["rpm","ai-rpm"],["tpm","ai-tpm"],["rpd","ai-rpd"],["tpd","ai-tpd"],
+           ["margine","ai-margine"],["stima_token","ai-stima"]].forEach(function(pair){
+            $(pair[1]).value=lim[pair[0]]==null?"":lim[pair[0]];
+          });
         }catch(err){note(err.message,true);}
         $("ai-config").onsubmit=async function(ev){
           ev.preventDefault();
           try{
             var key=$("ai-key").value.trim();
-            await api("admin/ai/config",{method:"PUT",headers:{"Content-Type":"application/json"},
+            await api("admin/ai/config",{method:"PUT",
+              headers:{"Content-Type":"application/json"},
               body:JSON.stringify({model:$("ai-model").value.trim(),api_key:key||null})});
             $("ai-key").value="";
-            note("Configurazione GroqCloud salvata nel volume privato dell’add-on.",false);
-            renderAssistenteAI();
+            note("Configurazione GroqCloud salvata.",false);
+            renderAISettings();
           }catch(err){note(err.message,true);}
         };
         $("ai-clear-key").onclick=async function(){
-          if(!confirm("Eliminare la chiave GroqCloud salvata nell’add-on?"))return;
+          if(!confirm("Eliminare la chiave GroqCloud salvata?"))return;
           try{
-            await api("admin/ai/config",{method:"PUT",headers:{"Content-Type":"application/json"},
+            await api("admin/ai/config",{method:"PUT",
+              headers:{"Content-Type":"application/json"},
               body:JSON.stringify({model:$("ai-model").value.trim(),elimina_chiave:true})});
-            note("Chiave eliminata.",false);renderAssistenteAI();
+            note("Chiave eliminata.",false);renderAISettings();
           }catch(err){note(err.message,true);}
         };
         $("ai-load-models").onclick=async function(){
           var btn=this;btn.disabled=true;
           try{
             var items=(await api("admin/ai/modelli")).modelli||[];
-            $("ai-models").innerHTML=items.map(function(m){return '<option value="'+esc(m)+'"></option>';}).join("");
-            var selected=$("ai-model").value.trim();
-            note("Collegamento a GroqCloud riuscito: chiave accettata. "+
-              items.length+" modelli disponibili. "+
-              (items.includes(selected)?"Il modello "+selected+" è disponibile.":
-              "Il modello selezionato non compare tra quelli disponibili per questa chiave."),false);
-          }catch(err){note(err.message,true);}
-          finally{btn.disabled=false;}
+            $("ai-models").innerHTML=items.map(function(m){
+              return '<option value="'+esc(m)+'"></option>';
+            }).join("");
+            var chosen=$("ai-model").value.trim();
+            note("Collegamento verificato: "+items.length+" modelli. "+
+              (items.includes(chosen)?"Il modello scelto è disponibile.":
+              "Il modello scelto non compare nell’elenco."),false);
+          }catch(err){note(err.message,true);}finally{btn.disabled=false;}
         };
         $("ai-test-model").onclick=async function(){
           var btn=this;btn.disabled=true;
           try{
             var test=await api("admin/ai/test",{method:"POST"});
-            note("GroqCloud ha risposto con il modello "+test.model+
-                 ". Token utilizzati nel test: "+(test.token_usati==null?"non indicati":test.token_usati)+
-                 ". Nessuna dichiarazione PICA inviata.",false);
+            note("Test sintetico GroqCloud completato. Token: "+
+                 (test.token_usati==null?"non disponibili":test.token_usati)+
+                 ". Nessun dato PICA inviato.",false);
           }catch(err){note("Test GroqCloud fallito: "+err.message,true);}
           finally{btn.disabled=false;}
         };
-        if(!code)return;
-        var locations=[];
-        try{
-          var data=await api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni");
-          locations=data.associazioni||[];
-          $("ai-cds").innerHTML='<option value="">Tutti i CdS</option>'+
-            [...new Set(locations.map(function(r){return r.cds;}))].sort().map(function(r){
-              return '<option value="'+esc(r)+'">'+esc(r)+'</option>';
-            }).join("");
-          $("ai-cds").onchange=function(){
-            var c=this.value;
-            var s=[...new Set(locations.filter(function(x){return !c||x.cds===c;}).map(function(x){return x.sede;}))].sort();
-            $("ai-sede").innerHTML='<option value="">Tutte le sedi</option>'+
-              s.map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>';}).join("");
-            updateReportLink();loadAIResults();
-          };
-          $("ai-sede").onchange=function(){updateReportLink();loadAIResults();};
-        }catch(err){note(err.message,true);}
-        function query(){
-          var params=new URLSearchParams({code:code});
-          if($("ai-cds").value)params.set("cds",$("ai-cds").value);
-          if($("ai-sede").value)params.set("sede",$("ai-sede").value);
-          return params;
-        }
-        function updateReportLink(){
-          $("ai-report").href="api/admin/ai/report.pdf?"+query().toString();
-        }
-        async function loadAIResults(){
+        $("ai-guidance").onsubmit=async function(ev){
+          ev.preventDefault();
           try{
-            var result=await api("admin/ai/risultati?"+query().toString());
-            $("ai-progress").textContent=result.completati+" analisi registrate su "+
-              result.totale+" candidature PICA attive · "+result.da_analizzare+
-              " da esaminare. L'analisi può essere locale se l'ente non è classificabile.";
-            $("ai-results").innerHTML=result.risultati.length?
-              '<table><thead><tr><th>ID PICA</th><th>CdS / sede</th><th>Requisito</th><th>Ente</th>'+
-              '<th>Indizio</th><th>Verifiche</th></tr></thead><tbody>'+
-              result.risultati.map(function(x){
-                return '<tr><td>'+esc(x.id_pica)+'</td><td>'+esc(x.cds+' · '+x.sede)+
-                  '</td><td>'+esc(x.requisito)+'</td><td>'+esc(x.categoria_ente)+
-                  '</td><td>'+esc(x.indizio)+'</td><td>'+esc(x.verifiche)+'</td></tr>';
+            await api("admin/ai/istruzioni",{method:"PUT",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({testo:$("ai-guidance-text").value.trim()})});
+            note("Istruzioni AI aggiornate. I nuovi controlli usano il nuovo prompt.",false);
+          }catch(err){note(err.message,true);}
+        };
+        $("ai-quotas").onsubmit=async function(ev){
+          ev.preventDefault();
+          var body={rpm:Number($("ai-rpm").value),tpm:Number($("ai-tpm").value),
+             rpd:Number($("ai-rpd").value),tpd:Number($("ai-tpd").value),
+             margine:Number($("ai-margine").value),
+             stima_token:Number($("ai-stima").value)};
+          try{
+            await api("admin/ai/limiti",{method:"PUT",
+              headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+            note("Limiti della coda aggiornati. Il saldo del provider non è modificato.",false);
+          }catch(err){note(err.message,true);}
+        };
+      }
+
+      async function renderAIBando(){
+        if(state.role!=="admin")return;
+        var code=state.active;
+        if(!code){
+          html(panel("Seleziona un bando","Seleziona il bando per esaminare le dichiarazioni PICA."));
+          return;
+        }
+        // Evita sovrapposizioni tra polling di bandi o sezioni diverse.
+        state.aiPollToken=(state.aiPollToken||0)+1;
+        var token=state.aiPollToken;
+        var locations=[];
+        var ENTE_OK="ENTE COERENTE", DA_VEDERE="DA APPROFONDIRE", NA="NON APPLICABILE";
+        html('<div class="card mb"><h3 class="section-heading">Verifica requisito ente · Bando '+esc(code)+'</h3>'+
+          '<p class="caption">Classificazione istruttoria delle dichiarazioni di occupazione, '+
+          'azienda/ente e profilo professionale PICA. '+
+          'La coerenza istituzionale non prova il rapporto di dipendenza e non determina idoneità.</p>'+
+          '<div class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
+          '<label style="flex:3;min-width:210px">Corso di Studio<select id="ai-cds"><option value="">Tutti i CdS</option></select></label>'+
+          '<label>Sede<select id="ai-sede"><option value="">Tutte le sedi</option></select></label></div>'+
+          '<div class="ru-ai-stats" id="ai-stats" aria-label="Filtri per classificazione">'+
+          '<button type="button" class="ru-ai-stat" data-ai-filter=""><span>Tutti</span><strong>—</strong></button>'+
+          '<button type="button" class="ru-ai-stat ru-ai-neutral" data-ai-filter="'+NA+'"><span>Non applicabile</span><strong>—</strong></button>'+
+          '<button type="button" class="ru-ai-stat ru-ai-ok" data-ai-filter="'+ENTE_OK+'"><span>Ente coerente</span><strong>—</strong></button>'+
+          '<button type="button" class="ru-ai-stat ru-ai-review" data-ai-filter="'+DA_VEDERE+'"><span>⚠ Da approfondire</span><strong>—</strong></button></div>'+
+          '<label class="ru-ai-filter-label">Filtro esito<select id="ai-esito"><option value="">Tutti</option>'+
+          '<option>'+NA+'</option><option>'+ENTE_OK+'</option><option>'+DA_VEDERE+'</option></select></label>'+
+          '<div class="tablebox" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
+          '<p class="caption" id="ai-counts" aria-live="polite"></p>'+
+          '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
+          '<div class="card"><h3 class="section-heading">Coda AI · Confronto istituzionale</h3>'+
+          '<p class="caption">GroqCloud confronta le categorie sulla base delle istruzioni '+
+          'generali personalizzabili in Amministrazione. Localmente RankUP esclude soltanto '+
+          'i casi senza requisito o senza informazioni minime. '+
+          'Gli esiti si riutilizzano se dati, modello e prompt coincidono.</p>'+
+          '<label style="display:flex;gap:9px;align-items:center;margin:12px 0">'+
+          '<input id="ai-consent" type="checkbox">Confermo le condizioni per l’invio a GroqCloud '+
+          'delle sole categorie non identificative.</label>'+
+          '<div class="actions" style="flex-wrap:wrap;gap:8px">'+
+          '<button class="btn" type="button" id="ai-run">Avvia o recupera analisi</button>'+
+          '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza con nuovo prompt</button>'+
+          '<button class="btn secondary" type="button" id="ai-pause" style="display:none">Sospendi</button>'+
+          '<button class="btn secondary" type="button" id="ai-resume" style="display:none">Riprendi</button>'+
+          '<button class="btn secondary" type="button" id="ai-cancel" style="display:none">Annulla</button>'+
+          '<button class="btn secondary" type="button" id="ai-refresh">Aggiorna risultati</button></div>'+
+          '<div id="ai-job-status" class="ru-ai-job-status" role="status" aria-live="polite">'+
+          'Nessuna analisi in corso.</div>'+
+          '<progress id="ai-progressbar" max="100" value="0" style="width:100%;height:12px"></progress>'+
+          '<p id="ai-quota-live" class="caption">Le quote mostrate distinguono '+
+          'stime locali e valori restituiti dal provider.</p></div>');
+        var selectedEsito="";
+        function query(includeFilter){
+          var p=new URLSearchParams({code:code});
+          if($("ai-cds").value)p.set("cds",$("ai-cds").value);
+          if($("ai-sede").value)p.set("sede",$("ai-sede").value);
+          if(includeFilter && $("ai-esito").value)p.set("esito",$("ai-esito").value);
+          return p;
+        }
+        function updateReport(){
+          $("ai-report").href="api/admin/ai/report.pdf?"+query(true).toString();
+        }
+        function setEsito(next){
+          $("ai-esito").value=next||"";
+          updateReport();loadResults();
+        }
+        function markFilter(){
+          document.querySelectorAll("[data-ai-filter]").forEach(function(btn){
+            var selected=btn.dataset.aiFilter===$("ai-esito").value;
+            btn.classList.toggle("ru-ai-stat-selected",selected);
+            btn.setAttribute("aria-pressed",selected?"true":"false");
+          });
+        }
+        async function loadResults(){
+          if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
+          try{
+            var data=await api("admin/ai/verifiche?"+query(true).toString());
+            if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
+            var count=data.conteggi||{};
+            var ids=["",NA,ENTE_OK,DA_VEDERE];
+            document.querySelectorAll("[data-ai-filter]").forEach(function(btn){
+              var k=btn.dataset.aiFilter;
+              var total=k?(count[k]||0):data.totale;
+              btn.querySelector("strong").textContent=total;
+            });
+            markFilter();
+            $("ai-counts").textContent=data.visualizzati+" candidature visualizzate su "+
+              data.totale+" · Regole "+data.versione_regole+
+              ". Nessun esito determina automaticamente l'idoneità.";
+            $("ai-results").innerHTML=data.casi.length?
+              '<table><thead><tr><th>ID PICA</th><th>CdS / sede</th><th>Requisito</th>'+
+              '<th>Ente dichiarato</th><th>Rapporto dichiarato</th><th>Esito</th>'+
+              '<th>Verifiche</th><th>Nota AI, se presente</th></tr></thead><tbody>'+
+              data.casi.map(function(row){
+                var klass=row.esito===ENTE_OK?"ru-ai-pill--ok":
+                  row.esito===DA_VEDERE?"ru-ai-pill--review":"ru-ai-pill--na";
+                var label=row.esito===DA_VEDERE?"⚠ Da approfondire":
+                  row.esito===ENTE_OK?"✓ Ente coerente":"Non applicabile";
+                var ai=row.ai||{};
+                return '<tr><td>'+esc(row.id_pica)+'</td>'+
+                  '<td>'+esc(row.cds+' · '+row.sede)+'</td>'+
+                  '<td>'+esc(row.requisito)+'</td>'+
+                  '<td>'+esc(row.categoria_ente)+'</td>'+
+                  '<td>'+esc(row.categoria_rapporto)+'</td>'+
+                  '<td><span class="ru-ai-pill '+klass+'">'+esc(label)+'</span></td>'+
+                  '<td>'+esc(row.verifiche)+'</td>'+
+                  '<td>'+esc(ai.motivo||"—")+'</td></tr>';
               }).join("")+'</tbody></table>':
-              '<p class="caption">Nessun risultato registrato per l’ambito selezionato.</p>';
-            return result;
+              '<p class="caption">Nessuna candidatura per il filtro selezionato.</p>';
+          }catch(err){note(err.message,true);}
+        }
+        var currentJob=null;
+        var aiPollTimer=null;
+        async function loadStatus(){
+          if(state.page!=="verificaenteai"||token!==state.aiPollToken)return null;
+          try{
+            var status=await api("admin/ai/lavori?"+query(false).toString());
+            if(state.page!=="verificaenteai"||token!==state.aiPollToken)return null;
+            currentJob=status.lavoro||null;
+            var job=currentJob;
+            var active=job&&["in_coda","in_corso","attesa_quota"].includes(job.stato);
+            $("ai-pause").style.display=active?"inline-flex":"none";
+            $("ai-cancel").style.display=job&&["in_coda","in_corso","attesa_quota","sospesa"].includes(job.stato)?"inline-flex":"none";
+            $("ai-resume").style.display=job&&["sospesa","errore","attesa_quota"].includes(job.stato)?"inline-flex":"none";
+            $("ai-run").disabled=!!active;
+            var progress=job&&job.totale?
+              Math.round(100*job.completati/job.totale):0;
+            $("ai-progressbar").value=progress;
+            if(job){
+              var message="Stato: "+job.stato+" · "+job.completati+" di "+
+                job.totale+" completati · "+job.da_esaminare+" da elaborare · "+
+                job.chiamate+" chiamate API · "+job.token+" token registrati. "+
+                job.riutilizzati+" risultati riutilizzati · "+job.locali+" locali.";
+              if(job.stato==="attesa_quota")
+                message+=" Pausa per quota: ripresa automatica fra circa "+
+                  (job.riprende_tra||0)+" secondi.";
+              if(job.ultimo_errore)message+=" "+job.ultimo_errore;
+              $("ai-job-status").textContent=message;
+            }else $("ai-job-status").textContent="Nessuna coda attivata per questo CdS/sede.";
+            var local=status.quota_locale||{};
+            var provider=job&&job.quota_provider||{};
+            var text="Uso locale della coda per il modello: "+
+              (local.richieste_60s||0)+" richieste / "+
+              (local.token_60s||0)+" token negli ultimi 60 s; "+
+              (local.richieste_24h||0)+" richieste / "+(local.token_24h||0)+
+              " token nelle ultime 24 h. Non comprende altri client GroqCloud.";
+            if(provider["x-ratelimit-remaining-tokens"])
+              text+=" Provider: "+provider["x-ratelimit-remaining-tokens"]+
+                " token residui al minuto, "+(provider["x-ratelimit-remaining-requests"]||"?")+
+                " richieste residue al giorno.";
+            $("ai-quota-live").textContent=text;
+            return job;
           }catch(err){note(err.message,true);return null;}
         }
-        $("ai-refresh").onclick=loadAIResults;
-        $("ai-run").onclick=async function(){
+        async function poll(){
+          if(aiPollTimer!==null){
+            clearTimeout(aiPollTimer);aiPollTimer=null;
+          }
+          if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
+          var job=await loadStatus();
+          if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
+          if(job&&["in_coda","in_corso","attesa_quota"].includes(job.stato)){
+            await loadResults();
+            aiPollTimer=setTimeout(poll,4500);
+          }else{
+            await loadResults();
+          }
+        }
+        try{
+          var source=await api("bandi/"+encodeURIComponent(code)+"/candidature");
+          if(state.page!=="verificaenteai"||token!==state.aiPollToken)return;
+          locations=source.candidature||[];
+          var courseNames=[...new Set(locations.map(function(r){return r.cds;}))].sort();
+          $("ai-cds").innerHTML='<option value="">Tutti i CdS</option>'+
+            courseNames.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join("");
+        }catch(err){note(err.message,true);}
+        function seatOptions(){
+          var c=$("ai-cds").value;
+          var seats=[...new Set(locations.filter(function(r){
+            return !c||r.cds===c;
+          }).map(function(r){return r.sede;}))].sort();
+          $("ai-sede").innerHTML='<option value="">Tutte le sedi</option>'+
+            seats.map(function(v){return '<option value="'+esc(v)+'">'+esc(v)+'</option>';}).join("");
+        }
+        seatOptions();
+        $("ai-cds").onchange=function(){seatOptions();loadResults();poll();updateReport();};
+        $("ai-sede").onchange=function(){loadResults();poll();updateReport();};
+        $("ai-esito").onchange=function(){updateReport();loadResults();};
+        document.querySelectorAll("[data-ai-filter]").forEach(function(btn){
+          btn.onclick=function(){setEsito(this.dataset.aiFilter);};
+        });
+        async function queue(force){
           if(!$("ai-consent").checked){
-            note("Confermare esplicitamente le condizioni per l’uso di GroqCloud.",true);return;
+            note("Conferma prima le condizioni per l'uso di GroqCloud.",true);return;
           }
-          var btn=this;btn.disabled=true;
-          var q={code:code,cds:$("ai-cds").value,sede:$("ai-sede").value};
-          var paused=false, calls=0,tokens=0,local=0;
+          if(force&&!confirm("Ricalcolare tutti i casi con requisito di ente e informazioni sufficienti, anche se esistono risultati riutilizzabili?")){
+            return;
+          }
+          var body={code:code,cds:$("ai-cds").value,sede:$("ai-sede").value,
+                    forza:!!force,conferma_servizio:true};
           try{
-            for(var i=0;i<200;i++){
-              var res=await api("admin/ai/analizza-passo",{
-                method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify(q)});
-              calls+=(res.chiamate_groq||0);
-              tokens+=(res.token_groq||0);
-              local+=(res.solo_locale||0);
-              $("ai-progress").textContent=res.completati+" controlli completati · "+
-                res.da_analizzare+" ancora da verificare · "+
-                calls+" chiamate GroqCloud · "+tokens+" token API · "+
-                local+" controlli solo locali";
-              if(res.limite_raggiunto){
-                note("Limite GroqCloud raggiunto. Puoi riprendere l’analisi dopo circa "+
-                     res.retry_after+" secondi; gli esiti già salvati sono conservati.",true);
-                paused=true;break;
-              }
-              if(!res.da_analizzare||!res.nuovi)break;
-            }
-          }catch(err){note("Controllo interrotto: "+err.message,true);}
-          finally{
-            btn.disabled=false;
-            await loadAIResults();
-            if(!paused)note("Controllo completato/interrotto: "+calls+
-              " chiamate effettive a GroqCloud, "+tokens+" token segnalati dal provider, "+
-              local+" verifiche solo locali. Nessuna scheda né graduatoria modificata.",false);
-          }
-        };
-        updateReportLink();
-        await loadAIResults();
+            var result=await api("admin/ai/lavori",{method:"POST",
+              headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+            note(result.lavoro.gia_esistente?
+              "Coda già esistente: monitoraggio ripreso.":
+              "Coda creata. I risultati sono salvati progressivamente nel database.",false);
+            poll();
+          }catch(err){note(err.message,true);}
+        }
+        $("ai-run").onclick=function(){queue(false);};
+        $("ai-reanalyze").onclick=function(){queue(true);};
+        $("ai-refresh").onclick=function(){loadResults();loadStatus();};
+        async function action(name){
+          if(!currentJob)return;
+          if(name==="annulla"&&!confirm("Annullare le richieste ancora in coda?"+
+                   " I risultati già acquisiti saranno conservati."))return;
+          try{
+            await api("admin/ai/lavori/"+currentJob.id+"/"+name,{method:"POST"});
+            note("Coda aggiornata: "+name+".",false);
+            poll();
+          }catch(err){note(err.message,true);}
+        }
+        $("ai-pause").onclick=function(){action("sospendi");};
+        $("ai-resume").onclick=function(){action("riprendi");};
+        $("ai-cancel").onclick=function(){action("annulla");};
+        updateReport();
+        await loadResults();
+        poll();
       }
 
       async function renderBandoReferences(){

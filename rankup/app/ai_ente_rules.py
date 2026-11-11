@@ -1,0 +1,54 @@
+"""Verifica preliminare ente del PICA, basata sul prompt GroqCloud.
+
+RankUP calcola localmente solo categorie prive di identificativi e scarta i
+casi in cui non c'e' un requisito da verificare o mancano categorie minime.
+Le equivalenze istituzionali vengono invece presentate all'AI nelle
+istruzioni configurate dall'Admin. L'esito non attesta mai il rapporto di
+lavoro o l'idoneita' amministrativa del candidato.
+"""
+from __future__ import annotations
+from ai_groq import prepare_minimal_payload
+
+RULES_VERSION = "ente-guidato-da-prompt-v3"
+NON_APPLICABILE = "NON APPLICABILE"
+ENTE_COERENTE = "ENTE COERENTE"
+DA_APPROFONDIRE = "DA APPROFONDIRE"
+
+
+def classifica_ente(entry: dict) -> dict:
+    payload=prepare_minimal_payload(entry)
+    req=payload["requisito_ente"]
+    ente=payload["categoria_ente_dichiarato"]
+    relation=payload["categoria_rapporto_dichiarato"]
+    base={
+        "esito":DA_APPROFONDIRE,
+        "requisito":req,
+        "categoria_ente":ente,
+        "categoria_rapporto":relation,
+        "verifica_rapporto":"La posizione lavorativa individuale deve essere verificata separatamente.",
+        "richiede_ai":False,
+        "motivo":"",
+        "verifiche":"",
+        "payload":payload,
+    }
+    if req=="NESSUNA RISERVA":
+        return {**base,"esito":NON_APPLICABILE,
+                "verifica_rapporto":"Non applicabile al requisito di ente.",
+                "motivo":"Nessuna riserva di ente per l'incarico.",
+                "verifiche":"Nessuna verifica di appartenenza istituzionale necessaria."}
+    if req=="NON CLASSIFICATO":
+        return {**base,
+                "motivo":"Il requisito dell'ente non e' classificato.",
+                "verifiche":"Controllare il requisito ufficiale associato all'incarico."}
+    if ente in ("NON DICHIARATO","ENTE NON CLASSIFICATO"):
+        return {**base,
+                "motivo":"Ente non dichiarato o non riconducibile a una categoria sicura.",
+                "verifiche":"Verificare localmente il campo azienda/ente del report PICA."}
+    return {**base,"richiede_ai":True,
+            "motivo":"In attesa del confronto AI tra categorie e requisito.",
+            "verifiche":"Verificare sempre separatamente il rapporto lavorativo dichiarato."}
+
+
+def esito_da_indizio(indizio: str | None) -> str:
+    """Il modello puo' suggerire coerenza dell'ente, mai l'idoneita' del candidato."""
+    return ENTE_COERENTE if indizio=="INDIZI COERENTI" else DA_APPROFONDIRE

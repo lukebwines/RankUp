@@ -79,6 +79,6 @@ def test_menu_archivio_finale_riservato_a_admin():
     assert 'data-page="archivio" id="admin-archive-link" style="display:none"' in html
     assert '$("admin-archive-link").style.display="none";' in html
     assert '$("admin-archive-link").style.display=state.role==="admin"?"flex":"none";' in html
-    assert '"azzeramento","archivio","assistenteai"].includes(state.page)' in html
+    assert '"azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page)' in html
     assert 'id="admin-ai-link" style="display:none"' in html
     assert 'if(page==="archivio"&&state.role!=="admin")return;' in html
