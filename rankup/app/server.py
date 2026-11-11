@@ -1983,7 +1983,8 @@ def list_candidature(code: str):
             record={}
         original=employment.get((str(d["id_pica"]),d["incarico_key"]),{})
         candidate={name:(record.get(name) or original.get(name) or "") for name in
-                   ("occupazione","azienda_ente","profilo_professionale")}
+                   ("occupazione","azienda_ente","profilo_professionale",
+                    "ateneo","qualifica")}
         d.update(candidate)
         d["titolo_studio"] = (record.get("titolo_studio") or original.get("titolo_studio") or "")
         d["data_conseguimento"] = (record.get("data_conseguimento") or original.get("data_conseguimento") or "")
