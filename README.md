@@ -1,5 +1,16 @@
 # RankUp
 
+## RankUP v1.0.3 — Verbale descrittivo della Commissione
+
+- **Schede PDF:** lo ZIP include un PDF descrittivo editabile per ogni CdS/sede, con intestazione originale del modello di Facoltà, riferimenti verificati e composizione della Commissione. Il nome del PDF identifica il CdS e non supera 55 caratteri. I PDF delle candidature rimangono separati.
+- **Riferimenti del bando:** nuovo campo per il testo ufficiale di requisiti e disposizioni da riprodurre nei verbali. Non viene ricavato automaticamente dal fac-simile; in assenza del testo RankUP espone \`[DA VERIFICARE]\`.
+- **Verbali:** il modulo restituito viene caricato nella pagina Verbali, non in Valutazioni. RankUP controlla identificativo interno di bando/CdS/sede, la versione della fonte e la presenza di data, ora e discussione. Originale e versioni precedenti rimangono conservati con SHA-256.
+- **Generazione definitiva:** caricamento del verbale descrittivo **obbligatorio**. La discussione viene recuperata integralmente dal campo PDF e impaginata automaticamente su più pagine; data e ora appaiono come testo normale senza riquadri; intestazione con logo e firma seguono il testo. La copia statica precede la graduatoria CdS e le schede appiattite.
+- **Compatibilità:** gli atti già definitivi e gli originali delle schede non sono modificati. Migrazione SQLite v5 con backup preventivo; ZIP archivistico finale include originali descrittivi, copie statiche e versioni storiche.
+- **Firme:** la conversione reimpagina il documento, perciò un PDF già firmato digitalmente è rifiutato. La firma sull'atto complessivo va apposta fuori RankUP dopo la generazione del definitivo, secondo le procedure amministrative applicabili.
+
+**Attenzione:** lo ZIP dell'add-on non equivale a conservazione digitale a norma. Testare i campi PDF su Windows e macOS prima dell'uso amministrativo.
+
 ## RankUP v1.0.2 — Archivio ZIP finale riservato all'Admin
 
 La voce **Archivio finale** del procedimento è ora visibile solo all'Admin. I controlli server già presenti vengono verificati con test di regressione: un operatore non può avviare la chiusura (né usare l'API sincrona), verificare lo stato del lavoro, consultare o scaricare gli ZIP finali, ricercare nell'archivio storico o riaprire un bando; tutte le API rispondono con HTTP 403. Lo **ZIP operativo delle schede** rimane disponibile anche agli operatori.
