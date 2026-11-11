@@ -1,4 +1,4 @@
-"""Coda GroqCloud persistente per verifiche ente (schema v7).
+"""Coda GroqCloud persistente per verifiche ente (schema v9).
 
 Il processo usa un solo worker e un solo invio alla volta. Ogni esito e'
 salvato in una transazione propria. Lo stato della coda sopravvive ai
@@ -40,6 +40,7 @@ def ensure_schema(db):
                 ('in_coda','in_corso','attesa_quota','sospesa',
                  'completata','annullata','errore')),
             forzato INTEGER NOT NULL CHECK(forzato IN (0,1)),
+            mirato INTEGER NOT NULL DEFAULT 0 CHECK(mirato IN (0,1)),
             chiamate INTEGER NOT NULL DEFAULT 0,
             token INTEGER NOT NULL DEFAULT 0,
             locali INTEGER NOT NULL DEFAULT 0,
@@ -104,6 +105,10 @@ def ensure_schema(db):
         CREATE INDEX IF NOT EXISTS ix_ai_quota_recenti
           ON ai_ente_quota_eventi(modello,eseguito_il);
     """)
+    # Aggiornamento idempotente dei database esistenti.
+    columns={r["name"] for r in db.execute("PRAGMA table_info(ai_ente_lavori)")}
+    if "mirato" not in columns:
+        db.execute("ALTER TABLE ai_ente_lavori ADD COLUMN mirato INTEGER NOT NULL DEFAULT 0 CHECK(mirato IN (0,1))")
 
 
 def _now() -> str:
@@ -120,22 +125,50 @@ def _hash(payload:dict, model:str, guidance:str) -> str:
 
 def _find_cached(db, bid:int, digest:str, model:str,
                  lavoro_id:int|None=None):
-    """Le categorie equivalenti possono riutilizzare lo stesso esito AI.
+    """Cache globale: mai propagare gli esiti di una revisione MIRATA.
 
-    Nessun dato identificativo attraversa la cache: il record originale
-    mantiene il legame col suo candidato, i riusi sono tracciati per lavoro.
-    Forza=True riutilizza solo risultati ottenuti NEL nuovo lavoro.
+    Una revisione mirata vale solo per le candidature presenti nel lavoro;
+    i riusi validi di lavori ordinari o forzati su intero ambito restano
+    disponibili per tutti i payload identici.
     """
-    sql="""SELECT id,indizio,motivo,verifiche,token,registrato_il
-           FROM ai_ente_ai_esiti
-           WHERE bando_id=? AND input_sha256=? AND modello=?
-             AND versione_regole=?"""
+    sql="""SELECT a.id,a.indizio,a.motivo,a.verifiche,a.token,a.registrato_il
+           FROM ai_ente_ai_esiti a
+           LEFT JOIN ai_ente_lavori j ON j.id=a.lavoro_id
+           WHERE a.bando_id=? AND a.input_sha256=? AND a.modello=?
+             AND a.versione_regole=?"""
     params=[bid,digest,model,RULES_VERSION]
-    if lavoro_id is not None:
-        sql+=" AND lavoro_id=?"
+    if lavoro_id is None:
+        sql+=" AND (j.id IS NULL OR j.mirato=0)"
+    else:
+        sql+=" AND a.lavoro_id=?"
         params.append(lavoro_id)
-    return db.execute(sql+" ORDER BY id DESC LIMIT 1",params).fetchone()
+    return db.execute(sql+" ORDER BY a.id DESC LIMIT 1",params).fetchone()
 
+
+def _find_cached_for_candidate(db,bid:int,digest:str,model:str,
+                               candidate_id:int,incarico_id:int):
+    """Esito attuale per candidato: priorita' alle revisioni mirate proprie.
+
+    L'esito di una revisione mirata non altera i candidati estranei, anche
+    quando l'ente e il requisito dichiarati coincidono esattamente.
+    """
+    return db.execute("""
+        SELECT a.id,a.indizio,a.motivo,a.verifiche,a.token,a.registrato_il
+        FROM ai_ente_ai_esiti a
+        LEFT JOIN ai_ente_lavori j ON j.id=a.lavoro_id
+        WHERE a.bando_id=? AND a.input_sha256=? AND a.modello=?
+          AND a.versione_regole=?
+          AND (
+            j.id IS NULL OR j.mirato=0 OR
+            (a.candidatura_id=? AND a.incarico_id=?) OR
+            EXISTS(SELECT 1 FROM ai_ente_lavori_elementi e
+                   WHERE e.lavoro_id=j.id
+                     AND e.candidatura_id=? AND e.incarico_id=?
+                     AND e.esito_id=a.id)
+          )
+        ORDER BY a.id DESC LIMIT 1
+    """,(bid,digest,model,RULES_VERSION,candidate_id,incarico_id,
+         candidate_id,incarico_id)).fetchone()
 
 def classifications(candidates: list[dict]) -> list[dict]:
     """Gli esiti istituzionali non dipendono dalla risposta del modello AI."""
@@ -166,7 +199,7 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
             WHERE bando_id=? AND key=?""",(bid,entry["incarico_key"])).fetchone()
         if not row:continue
         digest=_hash(entry["payload"],model,guidance)
-        cached=_find_cached(db,bid,digest,model)
+        cached=_find_cached_for_candidate(db,bid,digest,model,entry["id"],row["id"])
         entry["ai"]=dict(cached) if cached else None
         technical=anomalies.get((entry["id"],row["id"]))
         if entry["richiede_ai"] and not cached and technical:
@@ -186,7 +219,8 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
 
 
 def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
-               candidates:list[dict],who:str,guidance:str,force:bool=False) -> dict:
+               candidates:list[dict],who:str,guidance:str,force:bool=False,
+               targeted:bool=False) -> dict:
     now=_now()
     db.execute("BEGIN IMMEDIATE")
     prior=db.execute("""
@@ -201,9 +235,10 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
     cur=db.execute("""
         INSERT INTO ai_ente_lavori
           (bando_id,codice,cds,sede,modello,versione_regole,istruzioni_prompt,
-           stato,forzato,creato_da,creato_il,aggiornato_il)
-        VALUES(?,?,?,?,?,?,?,'in_coda',?,?,?,?)
-    """,(bid,code,cds,sede,model,RULES_VERSION,guidance,int(force),who,now,now))
+           stato,forzato,mirato,creato_da,creato_il,aggiornato_il)
+        VALUES(?,?,?,?,?,?,?,'in_coda',?,?,?,?,?)
+    """,(bid,code,cds,sede,model,RULES_VERSION,guidance,int(force),
+         int(targeted),who,now,now))
     jobid=cur.lastrowid
     nlocal,ncached=0,0
     for candidate,entry in zip(candidates,classifications(candidates)):
