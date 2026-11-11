@@ -28,24 +28,29 @@ def classifica_ente(entry: dict) -> dict:
         "categoria_rapporto":relation,
         "verifica_rapporto":"La posizione lavorativa individuale deve essere verificata separatamente.",
         "richiede_ai":False,
+        "tipo_approfondimento":"",
         "motivo":"",
         "verifiche":"",
         "payload":payload,
     }
     if req=="NESSUNA RISERVA":
         return {**base,"esito":NON_APPLICABILE,
+                "tipo_approfondimento":"NON APPLICABILE",
                 "verifica_rapporto":"Non applicabile al requisito di ente.",
                 "motivo":"Nessuna riserva di ente per l'incarico.",
                 "verifiche":"Nessuna verifica di appartenenza istituzionale necessaria."}
     if req=="NON CLASSIFICATO":
-        return {**base,
+        return {**base,"tipo_approfondimento":"REQUISITO NON CLASSIFICATO",
                 "motivo":"Il requisito dell'ente non e' classificato.",
                 "verifiche":"Controllare il requisito ufficiale associato all'incarico."}
     if ente in ("NON DICHIARATO","DENOMINAZIONE NON TRASMETTIBILE"):
         return {**base,
+                "tipo_approfondimento":("ENTE NON DICHIARATO" if ente=="NON DICHIARATO"
+                                       else "FILTRO PRIVACY"),
                 "motivo":"Ente non dichiarato o campo contenente dettagli non trasmettibili.",
                 "verifiche":"Verificare localmente la denominazione azienda/ente del PICA."}
     return {**base,"richiede_ai":True,
+            "tipo_approfondimento":"IN ATTESA AI",
             "motivo":"In attesa del riconoscimento AI della denominazione istituzionale.",
             "verifiche":"Verificare sempre separatamente il rapporto lavorativo dichiarato."}
 
