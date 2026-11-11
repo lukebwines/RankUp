@@ -313,13 +313,16 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
     """
     now=time.time()
     with connect() as db:
+        # Rivendicazione atomica: un solo worker puo' estrarre una richiesta.
+        db.execute("BEGIN IMMEDIATE")
         db.execute("""UPDATE ai_ente_lavori
             SET stato='in_coda',prossimo_tentativo=NULL,aggiornato_il=?
             WHERE stato='attesa_quota' AND prossimo_tentativo<=?
         """,(_now(),now))
         job=db.execute("""SELECT * FROM ai_ente_lavori
-            WHERE stato IN ('in_coda','in_corso') ORDER BY id LIMIT 1""").fetchone()
+            WHERE stato='in_coda' ORDER BY id LIMIT 1""").fetchone()
         if not job:
+            db.commit()
             return False
         job=dict(job)
         pending=db.execute("""SELECT * FROM ai_ente_lavori_elementi
@@ -365,20 +368,25 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
     except GroqLimit as exc:
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("""INSERT INTO ai_ente_quota_eventi
-                          (eseguito_il,modello,token) VALUES(?,?,0)""",
-                       (time.time(),job["modello"]))
-            # Il server ha un'indicazione del provider, che prevale sulla stima.
-            _set_status(db,job["id"],"attesa_quota",
-                prossimo_tentativo=time.time()+max(10,min(exc.retry_after,MAX_RETRY_SECONDS)),
-                ultimo_errore="Limite GroqCloud HTTP 429: ripresa automatica")
+            state=db.execute("SELECT stato FROM ai_ente_lavori WHERE id=?",
+                             (job["id"],)).fetchone()
+            if state and state["stato"]=="in_corso":
+                db.execute("""INSERT INTO ai_ente_quota_eventi
+                              (eseguito_il,modello,token) VALUES(?,?,0)""",
+                           (time.time(),job["modello"]))
+                _set_status(db,job["id"],"attesa_quota",
+                    prossimo_tentativo=time.time()+max(10,min(exc.retry_after,MAX_RETRY_SECONDS)),
+                    ultimo_errore="Limite GroqCloud HTTP 429: ripresa automatica")
             db.commit()
         return True
     except (ValueError,OSError,TypeError,KeyError) as exc:
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            _set_status(db,job["id"],"errore",
-                        ultimo_errore=str(exc)[:250],prossimo_tentativo=None)
+            state=db.execute("SELECT stato FROM ai_ente_lavori WHERE id=?",
+                             (job["id"],)).fetchone()
+            if state and state["stato"]=="in_corso":
+                _set_status(db,job["id"],"errore",
+                            ultimo_errore=str(exc)[:250],prossimo_tentativo=None)
             db.commit()
         return True
     with connect() as db:
@@ -419,5 +427,9 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
             aggiornato_il=? WHERE id=?""",
             (1 if origin=="groqcloud" else 0,token,
              json.dumps(safe_rate),json.dumps(safe_rate),_now(),job["id"]))
+        # Libera il lavoro per il prossimo elemento, solo se non sospeso
+        # o annullato dall'Admin durante la chiamata di rete.
+        if row["stato"]=="in_corso":
+            _set_status(db,job["id"],"in_coda")
         db.commit()
     return True
