@@ -78,14 +78,37 @@ def nome_verbale(code: str, cds: str, sede: str) -> str:
             "BOLZANO": "BZ", "LEGNAGO": "LG", "ROVERETO": "RVT"}.get(s)
     if not seat:
         seat = re.sub(r"[^A-Z0-9]+", "", s)[:6] or "SEDE"
-    exceptions = {
-        "TECNICA_DELLA_RIABILITAZIONE_PSICHIATRICA": "RIAB_PSI",
-        "SCIENZE_RIABILITATIVE_DELLE_PROFESSIONI_SANITARIE": "LM_SCI_RIABIL",
-        "SCIENZE_DELLE_PROFESSIONI_SANITARIE_DELLA_RIABILITAZIONE": "LM_SCI_RIABIL",
-        "TECNICHE_DI_LABORATORIO_BIOMEDICO": "LAB_BIOMEDICO",
-        "SCIENZE_INFERMIERISTICHE_E_OSTETRICHE": "LM_INF_OST",
-    }
-    slug = exceptions.get(reduced, reduced)
+    # Abbreviazioni approvate per i CdS dell'area Medicina.
+    # Le corrispondenze più specifiche precedono quelle generiche.
+    approved = (
+        ("SCIENZE_INFERMIERISTICHE_SPECIALISTICHE", "LM_INF_FAM_COM"),
+        ("TECNICHE_DI_FISIOPATOLOGIA_CARDIOCIRCOLATORIA", "FISIOP_CARDIO_PERF"),
+        ("TECNICHE_DELLA_PREVENZIONE", "TEC_PREVENZIONE"),
+        ("TECNICA_DELLA_RIABILITAZIONE_PSICHIATRICA", "RIAB_PSI"),
+        ("SCIENZE_DELLE_PROFESSIONI_SANITARIE_TECNICHE_ASSISTENZIALI", "LM_PROF_TEC_ASS"),
+        ("SCIENZE_DELLE_PROFESSIONI_SANITARIE_DELLA_RIABILITAZIONE", "LM_SCI_RIABIL"),
+        ("SCIENZE_RIABILITATIVE_DELLE_PROFESSIONI_SANITARIE", "LM_SCI_RIABIL"),
+        ("SCIENZE_NUTRACEUTICHE", "SC_NUTRACEUTICHE"),
+        ("BIOLOGY_FOR_TRANSLATIONAL_RESEARCH", "LM_BIO_TRANSL"),
+        ("MEDICINA_E_CHIRURGIA_A_INDIRIZZO_TECNOLOGICO", "MED_CHIR_TEC"),
+        ("MEDICINA_E_CHIRURGIA_INTERATENEO", "MED_CHIR"),
+        ("SCIENZE_INFERMIERISTICHE_E_OSTETRICHE", "LM_INF_OST"),
+        ("TECNICHE_DI_LABORATORIO_BIOMEDICO", "LAB_BIOMEDICO"),
+        ("TECNICHE_DI_RADIOLOGIA_MEDICA", "RADIOL_MEDICA"),
+        ("TECNICHE_AUDIOPROTESICHE", "TEC_AUDIOPROTESICHE"),
+        ("TECNICHE_ORTOPEDICHE", "TEC_ORTOPEDICHE"),
+        ("ODONTOIATRIA_E_PROTESI_DENTARIA", "ODONTOIATRIA"),
+        ("ASSISTENZA_SANITARIA", "ASS_SANITARIA"),
+        ("IGIENE_DENTALE", "IGIENE_DENTALE"),
+        ("FISIOTERAPIA", "FISIOTERAPIA"),
+        ("INFERMIERISTICA", "INFERMIERISTICA"),
+        ("LOGOPEDIA", "LOGOPEDIA"),
+        ("OSTEOPATIA", "OSTEOPATIA"),
+        ("OSTETRICIA", "OSTETRICIA"),
+        ("FARMACIA", "FARMACIA"),
+        ("MEDICINA_E_CHIRURGIA", "MED_CHIR"),
+    )
+    slug = next((abbr for phrase,abbr in approved if phrase in reduced), reduced)
     raw = "VB_" + slug + "_" + seat + "_" + re.sub(r"[^A-Z0-9-]", "", code.upper()) + ".pdf"
     if len(raw) <= 55:
         return raw
