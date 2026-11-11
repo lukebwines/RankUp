@@ -448,3 +448,15 @@ La ricerca aggiunta alle tabelle consultive è **locale**: non modifica i dati. 
 L'Assistente AI controlla i dati PICA relativi a **occupazione attuale**, **azienda/ente** e **profilo professionale** degli incarichi con requisito di ente. Le schede della Commissione non servono e non sono consultate da questa funzione. La classificazione e la minimizzazione avvengono localmente; la richiesta remota contiene esclusivamente categorie senza identificativi. L'ID PICA resta nel database e nel report PDF locale.
 
 In Amministrazione → Assistente AI, **Carica modelli disponibili** esegue GET `/models` e non consuma token di inferenza. **Test AI con dati sintetici** esegue invece una vera chiamata al modello configurato, consumando token senza trasmettere dati di candidati; indica quanti ne riporta il provider. Durante l'analisi, l'interfaccia distingue chiamate GroqCloud e controlli conclusi localmente per mancanza di informazioni sufficienti. Le quote HTTP 429 e gli errori di autenticazione e rete sono indicati in modo esplicito, senza esporre la chiave API.
+
+
+### Diagnostica GroqCloud v1.0.7
+
+Il modello `openai/gpt-oss-120b` è compatibile con GroqCloud, ma un errore HTTP 502 non ne dimostra l'incompatibilità.
+
+- Errori HTTP 5xx del provider: un solo tentativo supplementare con timeout limitato. Errori 400/401/403/429 non vengono ripetuti.
+- La risposta dell'add-on include `X-RankUp-Response-Origin: rankup`; gli errori di dipendenza del provider utilizzano HTTP 424 con descrizione sintetica invece di HTTP 502. Se la risposta è 502 senza intestazione di RankUP, la UI avverte di verificare il proxy Home Assistant/Cloudflare e il registro dell'add-on.
+- **Carica modelli disponibili** verifica la connessione e la presenza del modello associato alla chiave senza consumare token di inferenza.
+- **Test AI con dati sintetici** effettua una chiamata reale al modello per controllare generazione e token, senza comunicare i dati PICA.
+- Gli ID PICA rimangono nell'applicazione; l'analisi utilizza occupazione, azienda/ente e profilo professionale PICA, convertiti *in locale* in categorie. Nessuna modifica alle schede o alle graduatorie.
+
