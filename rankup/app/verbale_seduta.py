@@ -129,13 +129,15 @@ class _CampiSeduta(Flowable):
                 ("data_seduta", 44, 107, "Data GG/MM/AAAA"),
                 ("ora_seduta", 218, 72, "Ora HH:MM"),
             ):
+                # Solo una riga di guida: niente riquadro per data e ora.
+                # Nel PDF statico non viene disegnata neppure questa riga.
+                c.setStrokeColor(colors.HexColor("#A7B3BF"))
+                c.line(x, 7, x+w, 7)
                 c.acroForm.textfield(
-                    name=name, tooltip=hint, x=x, y=7, width=w, height=23,
-                    borderWidth=0.7, borderStyle="solid",
-                    borderColor=colors.HexColor("#C5CFDA"),
+                    name=name, tooltip=hint, x=x, y=8, width=w, height=22,
+                    borderWidth=0, borderStyle="solid",
                     fillColor=colors.white, textColor=colors.black,
                     fontName="Helvetica", fontSize=10, maxlen=20,
-                    forceBorder=True,
                 )
         else:
             c.drawString(44, 14, self.data)
