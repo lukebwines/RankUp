@@ -915,7 +915,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.13", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.14", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1339,7 +1339,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.13", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.14", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -3229,21 +3229,30 @@ def salva_limiti_ai(body:AIQuotaConfig,request:Request):
 
 
 @app.get("/api/admin/ai/verifiche")
-def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str=""):
+def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str="",tipo:str=""):
     """Tutte le candidature PICA, anche quelle mai inviate all'AI."""
     require_admin(request)
     if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
         fail("Filtro esito non valido",400)
+    if len(tipo)>90:
+        fail("Filtro tipo troppo lungo",400)
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
         rows=ai_cases(db,bid,candidates,GROQ.model(),GROQ.guidance())
     counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
+    tipi={}
     for entry in rows:
         counts[entry["esito"]]+=1
+        label=entry.get("tipo_approfondimento") or "NON DEFINITO"
+        tipi[label]=tipi.get(label,0)+1
+    if tipo and tipo not in tipi:
+        fail("Tipo di approfondimento non valido",400)
     if esito:
         rows=[r for r in rows if r["esito"]==esito]
+    if tipo:
+        rows=[r for r in rows if r.get("tipo_approfondimento")==tipo]
     return {"casi":rows,"totale":len(candidates),"visualizzati":len(rows),
-            "conteggi":counts,"versione_regole":RULES_VERSION,
+            "conteggi":counts,"conteggi_tipo":tipi,"versione_regole":RULES_VERSION,
             "avvertenza":"La coerenza istituzionale dell'ente non prova il "
                          "rapporto di dipendenza e non determina idoneita'."}
 
@@ -3251,6 +3260,7 @@ def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str
 class AccodaAnalisiEnte(ParametriAnalisiEnte):
     conferma_servizio: bool = False
     forza: bool = False
+    ids_candidature: list[int] = Field(default_factory=list,max_length=2000)
 
 
 @app.post("/api/admin/ai/lavori")
@@ -3266,10 +3276,25 @@ def avvia_analisi_ente(body:AccodaAnalisiEnte,request:Request):
         b=db.execute("SELECT stato FROM bandi WHERE id=?",(bid,)).fetchone()
         if not b or b["stato"]=="Archiviato":
             fail("Bando archiviato: non si possono avviare nuove analisi",409)
+        selected=body.ids_candidature
+        if selected:
+            ids=set(selected)
+            if len(ids)!=len(selected) or any(i<=0 for i in ids):
+                fail("Selezione candidature non valida o duplicata",400)
+            available={int(c["id"]):c for c in candidates}
+            if not ids.issubset(available):
+                fail("La selezione contiene candidature non presenti nell'ambito attivo",400)
+            candidates=[available[i] for i in selected]
+            if not all(classifica_ente(c)["richiede_ai"] for c in candidates):
+                fail("Selezione non inviabile: ente assente, requisito non valido o dati protetti",400)
         job=ai_create_job(db,bid,valid_code(body.code),body.cds,body.sede,
-                          model,candidates,who["username"],GROQ.guidance(),bool(body.forza))
+                          model,candidates,who["username"],GROQ.guidance(),
+                          bool(body.forza or selected))
+        if selected and job.get("gia_esistente"):
+            fail("Una coda e' gia' attiva per questo CdS/sede: attenderne il termine",409)
     AI_WORKER_STOP_WAKE.set()
     return {"lavoro":job,"totale_candidature":len(candidates),
+            "selezione_mirata":bool(body.ids_candidature),
             "avviso":"Gli esiti locali sono conservati e le chiamate GroqCloud "
                      "usano solo denominazioni di ente minimizzate."}
 
@@ -3361,7 +3386,7 @@ def arresta_worker_ai():
 
 @app.get("/api/admin/ai/report.pdf")
 def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
-                  esito: str=""):
+                  esito: str="",tipo: str=""):
     """Report per CdS/sede: solo Admin, nessuna chiamata GroqCloud."""
     require_admin(request)
     if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
@@ -3373,10 +3398,15 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
     counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
     for item in results:
         counts[item["esito"]]+=1
-    included=[item for item in results if not esito or item["esito"]==esito]
+    if tipo and (len(tipo)>90 or tipo not in
+                 {r.get("tipo_approfondimento") for r in results}):
+        fail("Tipo di approfondimento non valido",400)
+    included=[item for item in results
+              if (not esito or item["esito"]==esito)
+              and (not tipo or item.get("tipo_approfondimento")==tipo)]
     payload=render_ente_report_pdf(
         code,cds or "Tutti i CdS",sede or "Tutte le sedi",
-        included,counts,filter_text=esito)
+        included,counts,filter_text=" / ".join(x for x in (esito,tipo) if x))
     # Nome leggibile anche quando si scaricano report di CdS differenti:
     # sostituzione conservativa per sistemi Windows.
     def part(value):
@@ -3385,10 +3415,10 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
                       "ascii","ignore").decode("ascii").upper()).strip("_")
         return (normal or "TUTTI")[:24].rstrip("_")
     label="_".join([part(code),part(cds),part(sede),
-                    part(esito or "TUTTI")])
+                    part(esito or "TUTTI"),part(tipo or "TUTTI")])
     # Digest del filtro originale per evitare collisioni fra CdS molto lunghi.
     unique=hashlib.sha256(
-        json.dumps([code,cds,sede,esito],ensure_ascii=False).encode("utf-8")
+        json.dumps([code,cds,sede,esito,tipo],ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:6].upper()
     filename="RANKUP_ENTE_"+label[:55].rstrip("_")+"_"+unique+".pdf"
     return Response(content=payload,media_type="application/pdf",headers={
