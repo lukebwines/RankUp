@@ -154,3 +154,72 @@ def test_reject_description_for_other_course_or_unfilled(tmp_path,monkeypatch):
         wrong=_post(client,base,data={"cds":"CdS diverso","sede":group["sede"]},
                     files={"file":("altro.pdf",other,"application/pdf")})
         assert wrong.status_code in (409,422),wrong.text
+
+
+def test_acroform_fields_follow_text_and_no_orphan_signature(tmp_path,monkeypatch):
+    """I widget devono seguire i Flowable e non sovrapporre testo e piè pagina."""
+    from verbale_seduta import genera_pdf
+    import re
+    context = {
+        "codice":"PROVA-PDF", "cds":"CORSO DI PROVA", "sede":"SEDE DI PROVA",
+        "presidente":"PRESIDENTE DI PROVA", "componenti":"COMPONENTE DI PROVA",
+        "anno_accademico":"", "repertorio":"", "protocollo":"",
+        "data_avviso":"",
+        "testo_bando":"\n".join(
+            "Disposizione interamente sintetica di collaudo, con riferimenti non utilizzabili "
+            "in un procedimento reale e finalizzata soltanto alla verifica dell'impaginazione."
+            for _ in range(45)
+        ),
+    }
+    raw=genera_pdf(context,editable=True)
+    pdf=PdfReader(BytesIO(raw))
+    assert len(pdf.pages)>=2
+    assert "[DA VERIFICARE]" not in (pdf.pages[0].extract_text() or "")
+    widgets={}
+    for page_number,page in enumerate(pdf.pages):
+        for a in page.get("/Annots") or []:
+            annot=a.get_object()
+            if str(annot.get("/Subtype",""))!="/Widget":
+                continue
+            name=str(annot.get("/T",""))
+            rect=[float(v) for v in annot.get("/Rect")]
+            # Contenuto entro i margini di stampa e fuori dal footer.
+            assert rect[0]>=48, (page_number,name,rect)
+            assert rect[1]>=62, (page_number,name,rect)
+            assert rect[2]<=float(page.mediabox.width)-48, (page_number,name,rect)
+            assert rect[3]<=float(page.mediabox.height)-110, (page_number,name,rect)
+            widgets[name]=(page_number,rect)
+    assert set(widgets)=={"data_seduta","ora_seduta","riassunto_discussione"}
+    # Al contrario della versione errata, data e ora non sono sul fondo pagina.
+    assert widgets["data_seduta"][0]==0
+    assert widgets["ora_seduta"][0]==0
+    assert widgets["data_seduta"][1][1]>450
+    assert widgets["ora_seduta"][1][1]>450
+    assert widgets["riassunto_discussione"][1][0]>48
+    assert "Il campo può scorrere durante la compilazione" not in " ".join(
+        p.extract_text() or "" for p in pdf.pages)
+    assert "Il Presidente" in (pdf.pages[-1].extract_text() or "")
+
+
+def test_verbale_discussione_on_third_page_does_not_create_signature_only_page():
+    """Scenario di tre pagine: spazio riassunto ampio, firma non isolata."""
+    from verbale_seduta import genera_pdf
+    context={
+        "codice":"PROVA-3", "cds":"LOGOPEDIA - CORSO SINTETICO DI COLLAUDO",
+        "sede":"SEDE DI PROVA", "presidente":"[DA VERIFICARE]",
+        "componenti":"[DA VERIFICARE]", "anno_accademico":"",
+        "repertorio":"","protocollo":"","data_avviso":"",
+        "testo_bando":"\n".join(
+            "Condizioni generali e disposizioni riportate solo a scopo di prova "
+            "dell'impaginazione di un documento multipagina. "
+            "Nessun dato di procedimenti o candidati reali."
+            for _ in range(62)),
+    }
+    pdf=PdfReader(BytesIO(genera_pdf(context,editable=True)))
+    # La pagina della firma deve contenere anche almeno una parte sostanziale
+    # del verbale e non soltanto un blocco di sottoscrizione.
+    last=pdf.pages[-1].extract_text() or ""
+    assert len(last.split()) > 25,(len(pdf.pages),last)
+    assert "Il Presidente" in last
+    assert any("Riassunto della discussione" in (p.extract_text() or "")
+               for p in pdf.pages)
