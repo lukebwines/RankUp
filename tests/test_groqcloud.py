@@ -24,7 +24,6 @@ def test_only_institutional_categories_are_sent_to_groq():
     minimal=prepare_minimal_payload(raw)
     assert set(minimal)=={
         "requisito_ente","denominazione_ente_dichiarato",
-        "categoria_rapporto_dichiarato",
     }
     assert minimal["requisito_ente"]=="AOUI"
     assert minimal["denominazione_ente_dichiarato"]=="AOUI VERONA"
@@ -79,8 +78,7 @@ def test_analysis_runs_on_current_PICA_occupations_without_evaluation_sheets(tmp
             assert key=="groq_fake_key_1234567890"
             assert model=="llama-3.3-70b-versatile"
             assert set(payload)=={
-                "requisito_ente","denominazione_ente_dichiarato",
-                "categoria_rapporto_dichiarato"}
+                "requisito_ente","denominazione_ente_dichiarato"}
             assert "candidato" not in str(payload).lower()
             sent.append(dict(payload))
             return {"indizio":"DATI INSUFFICIENTI",
@@ -182,7 +180,6 @@ def test_live_model_probe_is_synthetic_and_does_not_touch_pica(tmp_path,monkeypa
         assert observed==[{
             "requisito_ente":"AOUI",
             "denominazione_ente_dichiarato":"AOUI VERONA",
-            "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
         }]
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM ai_ente_verifiche").fetchone()[0]==0
@@ -193,7 +190,6 @@ def test_prepares_json_mode_and_reads_usage_without_pica_identifiers(monkeypatch
     payload={
         "requisito_ente":"AOUI",
         "denominazione_ente_dichiarato":"AOUI",
-        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
     }
     outbound=[]
     def fake_json(url,key,body):
@@ -311,7 +307,6 @@ def test_groq_requests_use_rankup_user_agent_for_models_and_completions(monkeypa
     answer=ai_groq.analyze(secret,"openai/gpt-oss-120b",{
         "requisito_ente":"AOUI",
         "denominazione_ente_dichiarato":"AOUI",
-        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
     })
     assert answer["origine"]=="groqcloud"
     assert [r["method"] for r in sent]==["GET","POST"]
