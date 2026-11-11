@@ -747,7 +747,8 @@
                 '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
                 encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
                 '/pdf?tipo=statico">Anteprima statica</a>')
-                :'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.')+
+                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.3.':
+                  'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.'))+
               ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
                 '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
               '</div>'+
