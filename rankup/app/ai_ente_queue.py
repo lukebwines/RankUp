@@ -399,6 +399,30 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
                 (_now(),job["id"]))
             db.commit()
             return True
+        # Lo stesso ente/requisito non deve generare altri tre tentativi
+        # dopo un fallimento tecnico definitivo della medesima richiesta.
+        # Non si tratta di una valutazione riutilizzabile: resta DA APPROFONDIRE.
+        failed=db.execute("""
+            SELECT a.ultimo_errore FROM ai_ente_lavori_anomalie a
+            JOIN ai_ente_lavori_elementi e
+              ON e.lavoro_id=a.lavoro_id
+             AND e.candidatura_id=a.candidatura_id
+             AND e.incarico_id=a.incarico_id
+            WHERE a.lavoro_id=? AND e.input_sha256=? AND a.esaurito=1
+            LIMIT 1
+        """,(job["id"],pending["input_sha256"])).fetchone()
+        if failed:
+            db.execute("""INSERT INTO ai_ente_lavori_anomalie
+                (lavoro_id,candidatura_id,incarico_id,tentativi,ultimo_errore,esaurito)
+                VALUES(?,?,?,?,?,1)""",
+                (job["id"],pending["candidatura_id"],pending["incarico_id"],
+                 0,failed["ultimo_errore"]))
+            db.execute("""UPDATE ai_ente_lavori_elementi
+                SET stato='completato',esito_id=NULL
+                WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?""",
+                (job["id"],pending["candidatura_id"],pending["incarico_id"]))
+            db.commit()
+            return True
         pause,stat=_quota_pause(db,job["modello"],limits,now)
         if pause:
             _set_status(db,job["id"],"attesa_quota",prossimo_tentativo=pause,
