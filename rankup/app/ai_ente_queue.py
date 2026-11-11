@@ -16,12 +16,11 @@ import sqlite3
 import time
 
 from ai_ente_rules import RULES_VERSION, classifica_ente
-from ai_groq import GroqLimit, prepare_minimal_payload
+from ai_groq import GroqLimit, prepare_minimal_payload, DEFAULT_QUOTA
 
 ACTIVE = ("in_coda", "in_corso", "attesa_quota", "sospesa")
 TERMINAL = ("completata", "annullata", "errore")
-RATE_DEFAULTS = {"rpm":30,"tpm":8000,"rpd":1000,"tpd":200000,
-                 "margine":80,"stima_token":950}
+RATE_DEFAULTS = DEFAULT_QUOTA
 MAX_RETRY_SECONDS = 90_000
 
 
@@ -45,6 +44,7 @@ def ensure_schema(db):
             riutilizzati INTEGER NOT NULL DEFAULT 0,
             prossimo_tentativo REAL,
             ultimo_errore TEXT NOT NULL DEFAULT '',
+            quota_provider_json TEXT NOT NULL DEFAULT '{}',
             creato_da TEXT NOT NULL,
             creato_il TEXT NOT NULL,
             aggiornato_il TEXT NOT NULL
@@ -126,9 +126,6 @@ def classifications(candidates: list[dict]) -> list[dict]:
 def cases_with_ai(db,bid:int,candidates:list[dict],model:str) -> list[dict]:
     out=[]
     for entry in classifications(candidates):
-        candidate=next(c for c in candidates
-                       if c["id"]==entry["id"] and
-                       c["incarico_key"]==entry["incarico_key"])
         row=db.execute("""SELECT id FROM incarichi
             WHERE bando_id=? AND key=?""",(bid,entry["incarico_key"])).fetchone()
         if not row:continue
@@ -202,6 +199,10 @@ def _set_status(db,jobid:int,status:str,**changes):
 def progress(db,job):
     if not job:return None
     row=dict(job)
+    try:
+        row["quota_provider"]=json.loads(row.pop("quota_provider_json") or "{}")
+    except (TypeError,ValueError):
+        row["quota_provider"]={}
     by_status={r["stato"]:int(r["tot"]) for r in db.execute("""
         SELECT stato,COUNT(*) tot FROM ai_ente_lavori_elementi
         WHERE lavoro_id=? GROUP BY stato""",(row["id"],)).fetchall()}
@@ -376,9 +377,16 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
             SET stato='completato',esito_id=?
             WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?""",
             (cur.lastrowid,job["id"],pending["candidatura_id"],pending["incarico_id"]))
+        rate=result.get("quota_provider") or {}
+        if not isinstance(rate,dict):rate={}
+        safe_rate={k:str(v)[:80] for k,v in rate.items()
+                   if k.startswith("x-ratelimit-") and isinstance(v,(str,int,float))}
         db.execute("""UPDATE ai_ente_lavori SET
             chiamate=chiamate+?,token=token+?,
+            quota_provider_json=CASE WHEN ?!='{}' THEN ?
+                                     ELSE quota_provider_json END,
             aggiornato_il=? WHERE id=?""",
-            (1 if origin=="groqcloud" else 0,token,_now(),job["id"]))
+            (1 if origin=="groqcloud" else 0,token,
+             json.dumps(safe_rate),json.dumps(safe_rate),_now(),job["id"]))
         db.commit()
     return True
