@@ -906,7 +906,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.5", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.6", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1329,7 +1329,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.5", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.6", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2976,7 +2976,14 @@ def salva_config_ai(body: ConfigGroqCloud,request: Request):
 def elenco_modelli_groq(request: Request):
     require_admin(request)
     try:
-        return {"modelli":groq_models(GROQ.key())}
+        found=groq_models(GROQ.key())
+        return {"modelli":found,"provider":"GroqCloud","connessione":"verificata"}
+    except GroqLimit as exc:
+        # In precedenza un HTTP 429 non gestito diventava un generico errore 500.
+        raise HTTPException(status_code=429,detail=
+            "GroqCloud: limite richieste raggiunto. Riprovare dopo "+
+            str(exc.retry_after)+" secondi.",
+            headers={"Retry-After":str(exc.retry_after)}) from None
     except ValueError as exc:
         fail(str(exc),502)
 
@@ -2988,18 +2995,17 @@ class ParametriAnalisiEnte(BaseModel):
 
 
 def _ai_scope(db,code: str,cds: str,sede: str) -> tuple[int,list[dict]]:
+    """Controllo preliminare sugli incarichi PICA importati, non sulle schede PDF.
+
+    Un requisito dell'ente può essere controllato prima della valutazione
+    della Commissione. Nessun dato identificativo va a GroqCloud.
+    """
     code=valid_code(code)
     b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
     if not b:
         fail("Bando non trovato",404)
-    # Solo candidature con scheda acquisita, attiva e validata:
-    # l'Assistente entra in gioco dopo la restituzione delle schede.
-    eligible={int(r[0]) for r in db.execute("""
-        SELECT DISTINCT candidatura_id FROM valutazioni_pdf
-        WHERE bando_id=? AND stato='Acquisita' AND attiva=1
-    """,(b["id"],)).fetchall() if r[0] is not None}
     candidates=[r for r in list_candidature(code)["candidature"]
-                if int(r["id"]) in eligible and r["stato"]=="Attiva"
+                if r["stato"]=="Attiva"
                 and (not cds or r["cds"]==cds)
                 and (not sede or r["sede"]==sede)]
     if len(candidates)>2000:
