@@ -16,12 +16,13 @@ import sqlite3
 import time
 
 from ai_ente_rules import RULES_VERSION, classifica_ente, esito_da_indizio
-from ai_groq import GroqLimit, prepare_minimal_payload, DEFAULT_QUOTA
+from ai_groq import GroqLimit, GroqInvalidResponse, prepare_minimal_payload, DEFAULT_QUOTA
 
 ACTIVE = ("in_coda", "in_corso", "attesa_quota", "sospesa")
 TERMINAL = ("completata", "annullata", "errore")
 RATE_DEFAULTS = DEFAULT_QUOTA
 MAX_RETRY_SECONDS = 90_000
+MAX_INVALID_ATTEMPTS = 3  # primo invio e due tentativi aggiuntivi
 
 
 def ensure_schema(db):
@@ -83,6 +84,17 @@ def ensure_schema(db):
         );
         CREATE INDEX IF NOT EXISTS ix_ai_elementi_pending
           ON ai_ente_lavori_elementi(lavoro_id,stato);
+        CREATE TABLE IF NOT EXISTS ai_ente_lavori_anomalie (
+            lavoro_id INTEGER NOT NULL REFERENCES ai_ente_lavori(id) ON DELETE CASCADE,
+            candidatura_id INTEGER NOT NULL REFERENCES candidature(id) ON DELETE CASCADE,
+            incarico_id INTEGER NOT NULL REFERENCES incarichi(id) ON DELETE CASCADE,
+            tentativi INTEGER NOT NULL DEFAULT 0,
+            ultimo_errore TEXT NOT NULL DEFAULT '',
+            esaurito INTEGER NOT NULL DEFAULT 0 CHECK(esaurito IN (0,1)),
+            PRIMARY KEY(lavoro_id,candidatura_id,incarico_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_ai_anomalie_esaurite
+          ON ai_ente_lavori_anomalie(lavoro_id,esaurito);
         CREATE TABLE IF NOT EXISTS ai_ente_quota_eventi (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             eseguito_il REAL NOT NULL,
@@ -139,6 +151,16 @@ def classifications(candidates: list[dict]) -> list[dict]:
 
 def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> list[dict]:
     out=[]
+    anomalies={}
+    for r in db.execute("""
+        SELECT a.candidatura_id,a.incarico_id,a.ultimo_errore
+        FROM ai_ente_lavori_anomalie a JOIN ai_ente_lavori j
+          ON j.id=a.lavoro_id
+        WHERE j.bando_id=? AND j.modello=? AND j.versione_regole=?
+          AND j.istruzioni_prompt=? AND a.esaurito=1
+        ORDER BY j.id ASC
+    """,(bid,model,RULES_VERSION,guidance)):
+        anomalies[(r["candidatura_id"],r["incarico_id"])]=r["ultimo_errore"]
     for entry in classifications(candidates):
         row=db.execute("""SELECT id FROM incarichi
             WHERE bando_id=? AND key=?""",(bid,entry["incarico_key"])).fetchone()
@@ -146,6 +168,11 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
         digest=_hash(entry["payload"],model,guidance)
         cached=_find_cached(db,bid,digest,model)
         entry["ai"]=dict(cached) if cached else None
+        technical=anomalies.get((entry["id"],row["id"]))
+        if entry["richiede_ai"] and not cached and technical:
+            entry["motivo"]="Errore tecnico AI: nessuna conclusione registrata."
+            entry["verifiche"]="Ritentare soltanto questo caso dalla coda AI. "+technical
+            entry["errore_tecnico"]=True
         if entry["richiede_ai"] and cached:
             entry["esito"]=esito_da_indizio(cached["indizio"])
             entry["motivo"]=cached["motivo"]
@@ -228,7 +255,12 @@ def progress(db,job):
     total=sum(by_status.values())
     done=total-by_status.get("in_attesa",0)
     retry=row.get("prossimo_tentativo")
-    row.update({"totale":total,"completati":done,
+    technical=db.execute("""
+        SELECT COUNT(*) FROM ai_ente_lavori_anomalie
+        WHERE lavoro_id=? AND esaurito=1
+    """,(row["id"],)).fetchone()[0]
+    row.update({"errori_tecnici":technical,
+        "totale":total,"completati":done,
         "da_esaminare":by_status.get("in_attesa",0),
         "riutilizzati":by_status.get("riutilizzato",0),
         "locali":by_status.get("locale",0),
@@ -254,6 +286,23 @@ def job_action(db,jobid:int,action:str):
         _set_status(db,jobid,"sospesa",prossimo_tentativo=None)
     elif action=="annulla" and status in ACTIVE:
         _set_status(db,jobid,"annullata",prossimo_tentativo=None)
+    elif action=="riprova_errori" and status in ("completata","errore"):
+        exhausted=db.execute("""SELECT candidatura_id,incarico_id
+            FROM ai_ente_lavori_anomalie
+            WHERE lavoro_id=? AND esaurito=1""",(jobid,)).fetchall()
+        if not exhausted:
+            db.rollback()
+            raise ValueError("Nessun caso tecnico da riprovare")
+        for item in exhausted:
+            db.execute("""UPDATE ai_ente_lavori_elementi
+                SET stato='in_attesa',esito_id=NULL
+                WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?
+                  AND esito_id IS NULL""",
+                (jobid,item["candidatura_id"],item["incarico_id"]))
+        db.execute("""UPDATE ai_ente_lavori_anomalie
+            SET tentativi=0,esaurito=0,ultimo_errore=''
+            WHERE lavoro_id=? AND esaurito=1""",(jobid,))
+        _set_status(db,jobid,"in_coda",prossimo_tentativo=None,ultimo_errore="")
     elif action=="riprendi" and status in ("sospesa","errore","attesa_quota"):
         # Gli elementi gia' completati o riutilizzati rimangono acquisiti.
         _set_status(db,jobid,"in_coda",prossimo_tentativo=None,ultimo_errore="")
@@ -379,6 +428,58 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
                 _set_status(db,job["id"],"attesa_quota",
                     prossimo_tentativo=time.time()+max(10,min(exc.retry_after,MAX_RETRY_SECONDS)),
                     ultimo_errore="Limite GroqCloud HTTP 429: ripresa automatica")
+            db.commit()
+        return True
+    except GroqInvalidResponse as exc:
+        # Una risposta non conforme non e' un esito AI.
+        # Sono consentiti 2 retry, poi il singolo caso resta da approfondire.
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            state=db.execute("SELECT stato FROM ai_ente_lavori WHERE id=?",
+                             (job["id"],)).fetchone()
+            if state and state["stato"]=="in_corso":
+                db.execute("""INSERT INTO ai_ente_lavori_anomalie
+                    (lavoro_id,candidatura_id,incarico_id,tentativi,ultimo_errore)
+                    VALUES(?,?,?,?,?)
+                    ON CONFLICT(lavoro_id,candidatura_id,incarico_id)
+                    DO UPDATE SET tentativi=tentativi+1,
+                                  ultimo_errore=excluded.ultimo_errore
+                """,(job["id"],pending["candidatura_id"],pending["incarico_id"],
+                     1,str(exc)[:200]))
+                attempts=db.execute("""SELECT tentativi
+                    FROM ai_ente_lavori_anomalie WHERE lavoro_id=?
+                    AND candidatura_id=? AND incarico_id=?""",
+                    (job["id"],pending["candidatura_id"],
+                     pending["incarico_id"])).fetchone()[0]
+                db.execute("""INSERT INTO ai_ente_quota_eventi
+                    (eseguito_il,modello,token) VALUES(?,?,?)""",
+                    (time.time(),job["modello"],exc.tokens))
+                rate=exc.rate if isinstance(exc.rate,dict) else {}
+                safe_rate={k:str(v)[:80] for k,v in rate.items()
+                           if k.startswith("x-ratelimit-")
+                           and isinstance(v,(str,int,float))}
+                db.execute("""UPDATE ai_ente_lavori SET
+                    chiamate=chiamate+1,token=token+?,
+                    quota_provider_json=CASE WHEN ?!='{}' THEN ?
+                                             ELSE quota_provider_json END
+                    WHERE id=?""",(exc.tokens,json.dumps(safe_rate),
+                                  json.dumps(safe_rate),job["id"]))
+                if attempts>=MAX_INVALID_ATTEMPTS:
+                    db.execute("""UPDATE ai_ente_lavori_anomalie
+                        SET esaurito=1 WHERE lavoro_id=? AND candidatura_id=?
+                        AND incarico_id=?""",
+                        (job["id"],pending["candidatura_id"],pending["incarico_id"]))
+                    db.execute("""UPDATE ai_ente_lavori_elementi
+                        SET stato='completato',esito_id=NULL
+                        WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?""",
+                        (job["id"],pending["candidatura_id"],pending["incarico_id"]))
+                    _set_status(db,job["id"],"in_coda",
+                        ultimo_errore="Un caso senza esito AI dopo 3 tentativi: "
+                                     "segnalato e coda proseguita.")
+                else:
+                    _set_status(db,job["id"],"in_coda",
+                        ultimo_errore="Risposta AI non valida: nuovo tentativo "+
+                                     str(attempts+1)+" di 3.")
             db.commit()
         return True
     except (ValueError,OSError,TypeError,KeyError) as exc:
