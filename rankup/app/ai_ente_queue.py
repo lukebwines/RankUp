@@ -204,6 +204,9 @@ def _set_status(db,jobid:int,status:str,**changes):
 def progress(db,job):
     if not job:return None
     row=dict(job)
+    # Il prompt integrale e' disponibile solo nella pagina delle impostazioni,
+    # non deve essere ripetuto in ogni chiamata di avanzamento.
+    row.pop("istruzioni_prompt",None)
     try:
         row["quota_provider"]=json.loads(row.pop("quota_provider_json") or "{}")
     except (TypeError,ValueError):
