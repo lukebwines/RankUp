@@ -33,7 +33,7 @@ from pypdf import PdfReader, PdfWriter
 
 from pica import MAX_FILE_BYTES, parse_pica
 from ente_check import evaluate_ente
-from ai_groq import (DEFAULT_GUIDANCE, GroqSecrets, GroqLimit, role_category, prepare_minimal_payload, source_hash as groq_source_hash,
+from ai_groq import (DEFAULT_GUIDANCE, REVISED_GUIDANCE, GroqSecrets, GroqLimit, role_category, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
 from ai_ente_report import render_ente_report_pdf
 from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
@@ -3184,8 +3184,11 @@ class AIIndicazioniInput(BaseModel):
 @app.get("/api/admin/ai/istruzioni")
 def leggi_istruzioni_ai(request:Request):
     require_admin(request)
-    return {"testo":GROQ.guidance(),"predefinito":DEFAULT_GUIDANCE,
-            "avviso":"Inserire soltanto indicazioni istituzionali generali, "
+    return {"testo":GROQ.guidance(),"predefinito":REVISED_GUIDANCE,
+            "avviso":"Le correzioni v1.0.14 sono gia' attive nel prompt fisso. " 
+                     "Sostituire le istruzioni generali e' facoltativo e invalida "
+                     "il riutilizzo della cache di tutti i candidati. "
+                     "Inserire soltanto indicazioni istituzionali generali, "
                      "mai dati di candidati. Le modifiche valgono per le "
                      "nuove analisi e invalidano il riutilizzo dei vecchi esiti."}
 
