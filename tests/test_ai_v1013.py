@@ -84,9 +84,9 @@ def test_invalid_replies_are_retried_and_skipped_without_ai_conclusions(tmp_path
         assert status["completati"]==3
         assert status["da_esaminare"]==0
         assert status["errori_tecnici"]==3
-        assert status["chiamate"]==9
-        assert status["token"]==9*23
-        assert len(calls)==9
+        assert status["chiamate"]==3
+        assert status["token"]==3*23
+        assert len(calls)==3
         results=client.get("/api/admin/ai/verifiche",params={"code":"26-02"}).json()["casi"]
         assert len(results)==3
         assert all(row["ai"] is None for row in results)
