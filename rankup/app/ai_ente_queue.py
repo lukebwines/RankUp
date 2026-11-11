@@ -129,6 +129,8 @@ def classifications(candidates: list[dict]) -> list[dict]:
     """Gli esiti istituzionali non dipendono dalla risposta del modello AI."""
     return [dict(classifica_ente(c),
                  id=c["id"],id_pica=str(c["id_pica"]),
+                 cognome=str(c.get("cognome") or "").strip(),
+                 nome=str(c.get("nome") or "").strip(),
                  incarico_key=str(c["incarico_key"]),
                  cds=c["cds"],sede=c["sede"],insegnamento=c["insegnamento"],
                  stato_candidatura=c["stato"])
