@@ -906,7 +906,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.6", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.7", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -947,6 +947,7 @@ async def require_rankup_login(request: Request, call_next):
         response = await call_next(request)
     finally:
         CURRENT_ACTOR.reset(token)
+    response.headers["X-RankUp-Response-Origin"] = "rankup"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     if path.startswith("/api/"):
@@ -1329,7 +1330,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.6", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.7", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2985,7 +2986,9 @@ def elenco_modelli_groq(request: Request):
             str(exc.retry_after)+" secondi.",
             headers={"Retry-After":str(exc.retry_after)}) from None
     except ValueError as exc:
-        fail(str(exc),502)
+        # 424: errore di dipendenza esterna, distinto dal 502 del proxy
+        # Home Assistant/Cloudflare. La UI può visualizzare il dettaglio JSON.
+        fail(str(exc),424)
 
 
 @app.post("/api/admin/ai/test")
@@ -3009,7 +3012,9 @@ def prova_modello_groq(request: Request):
             str(exc.retry_after)+" secondi.",
             headers={"Retry-After":str(exc.retry_after)}) from None
     except ValueError as exc:
-        fail(str(exc),502)
+        # 424: errore di dipendenza esterna, distinto dal 502 del proxy
+        # Home Assistant/Cloudflare. La UI può visualizzare il dettaglio JSON.
+        fail(str(exc),424)
     if result.get("origine")=="locale":
         fail("Il test non ha raggiunto GroqCloud",502)
     return {"ok":True,"model":model,
@@ -3120,7 +3125,9 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
                     "chiamate_groq":requests_sent,"token_groq":tokens_used,
                     "solo_locale":local_only}
         except ValueError as exc:
-            fail(str(exc),502)
+            # 424: errore di dipendenza esterna, distinto dal 502 del proxy
+        # Home Assistant/Cloudflare. La UI può visualizzare il dettaglio JSON.
+        fail(str(exc),424)
         if outcome.get("origine")=="groqcloud":
             requests_sent+=1
             tokens_used+=int(outcome.get("token_usati") or 0)
