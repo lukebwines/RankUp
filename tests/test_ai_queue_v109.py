@@ -79,15 +79,16 @@ def test_prompt_editable_admin_and_ai_produces_institutional_coherence(tmp_path,
         for i in range(4):
             assert server.ai_process_one(server.connect,server._ai_worker_candidates,
                 fake_send,server.GROQ.key,server.GROQ.limits()) is True
-        assert len(outbound)==3
+        assert len(outbound)==1  # Tre categorie uguali, una sola chiamata remota
         results=client.get("/api/admin/ai/verifiche",params={"code":"26-02"}).json()
         assert results["conteggi"][ENTE_COERENTE]==3
         assert all(r["ai"]["indizio"]=="INDIZI COERENTI" for r in results["casi"])
         assert all("rapporto" in r["verifiche"].lower() for r in results["casi"])
         status=client.get("/api/admin/ai/lavori",params={"code":"26-02"}).json()
         assert status["lavoro"]["stato"]=="completata"
-        assert status["lavoro"]["chiamate"]==3
-        assert status["lavoro"]["token"]==375
+        assert status["lavoro"]["chiamate"]==1
+        assert status["lavoro"]["riutilizzati"]==2
+        assert status["lavoro"]["token"]==125
         report=client.get("/api/admin/ai/report.pdf",params={"code":"26-02","esito":ENTE_COERENTE})
         assert report.status_code==200,report.text
         pdf=PdfReader(BytesIO(report.content))
