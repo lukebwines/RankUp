@@ -205,9 +205,11 @@ def parse_pica(filename: str, content: bytes) -> dict:
         if row_key in keys_seen:
             duplicate_rows += 1
             prior = rows_seen[row_key]
-            # Le esportazioni possono ripetere un incarico; integrare soltanto
-            # campi AU/AW mancanti, senza sovrascrivere dati discordanti.
-            for field in ("titolo_studio", "data_conseguimento"):
+            # Le esportazioni possono ripetere un incarico: integra anche
+            # Ateneo e Qualifica quando mancanti, mai sovrascrivendo
+            # dichiarazioni discordanti provenienti da PICA.
+            for field in ("titolo_studio", "data_conseguimento",
+                          "ateneo", "qualifica"):
                 value = get(field)
                 if value and not prior.get(field):
                     prior[field] = value
