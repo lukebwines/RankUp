@@ -171,9 +171,28 @@ class _CampiSeduta(Flowable):
 
 
 class _CampoDiscussione(Flowable):
+    """Campo ampio ma adattato alla pagina, con spazio per chiusura e firma.
+
+    L'altezza AcroForm e' fissa nel modello consegnato, non il testo
+    recuperato: nella versione definitiva viene ripaginato integralmente.
+    """
+
+    MAX_HEIGHT = 248
+    MIN_HEIGHT = 140
+    RESERVED_AFTER = 140  # formula conclusiva, spaziature e blocco firma
+
     def __init__(self):
         Flowable.__init__(self)
-        self.width, self.height = 485, 248
+        self.width, self.height = 485, self.MAX_HEIGHT
+
+    def wrap(self, availWidth, availHeight):
+        available = float(availHeight) - self.RESERVED_AFTER
+        if available < self.MIN_HEIGHT:
+            # Nessun campo troppo piccolo: sposta il modulo alla pagina
+            # successiva prima di staccare la sottoscrizione.
+            return self.width, float(availHeight) + 1
+        self.height = min(self.MAX_HEIGHT, available)
+        return self.width, self.height
 
     def draw(self):
         # Il riquadro deve seguire il punto del testo dove il Flowable
@@ -182,7 +201,7 @@ class _CampoDiscussione(Flowable):
         self.canv.acroForm.textfield(
             name="riassunto_discussione",
             tooltip="Riassunto integrale della discussione della Commissione",
-            x=px, y=py, width=480, height=238,
+            x=px, y=py, width=480, height=self.height - 10,
             borderWidth=0.7, borderStyle="solid",
             borderColor=colors.HexColor("#C5CFDA"),
             fillColor=colors.white, textColor=colors.black,
