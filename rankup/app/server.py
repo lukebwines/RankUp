@@ -3125,9 +3125,8 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
                     "chiamate_groq":requests_sent,"token_groq":tokens_used,
                     "solo_locale":local_only}
         except ValueError as exc:
-            # 424: errore di dipendenza esterna, distinto dal 502 del proxy
-        # Home Assistant/Cloudflare. La UI può visualizzare il dettaglio JSON.
-        fail(str(exc),424)
+            # 424 differenzia l'errore del provider dal gateway dell'add-on.
+            fail(str(exc),424)
         if outcome.get("origine")=="groqcloud":
             requests_sent+=1
             tokens_used+=int(outcome.get("token_usati") or 0)
