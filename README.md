@@ -460,3 +460,10 @@ Il modello `openai/gpt-oss-120b` è compatibile con GroqCloud, ma un errore HTTP
 - **Test AI con dati sintetici** effettua una chiamata reale al modello per controllare generazione e token, senza comunicare i dati PICA.
 - Gli ID PICA rimangono nell'applicazione; l'analisi utilizza occupazione, azienda/ente e profilo professionale PICA, convertiti *in locale* in categorie. Nessuna modifica alle schede o alle graduatorie.
 
+
+
+### RankUP v1.0.8 — Cloudflare 1010 e User-Agent GroqCloud
+
+La connessione diretta da Home Assistant ha mostrato HTTP 403 con codice Cloudflare 1010 per \`Python-urllib/3.12\`, ma HTTP 401 (chiave omessa) usando lo User-Agent applicativo RankUP. La v1.0.8 invia ora \`User-Agent: RankUP/1.0.8\` a entrambi gli endpoint di GroqCloud (GET modelli e POST chat), evitando la firma predefinita del client urllib. Non modifica la chiave API e non invia alcuna informazione ulteriore sui candidati.
+
+In caso di 403, RankUP distingue un'eventuale pagina Cloudflare 1010 dal normale errore 403 per permessi o progetto, senza pubblicare il contenuto della risposta, credenziali o dati PICA. La diagnosi deriva dal test HTTP locale; il funzionamento autenticato con la chiave reale va comunque verificato nella pagina **Assistente AI → Test AI con dati sintetici** dopo l'aggiornamento dell'add-on.
