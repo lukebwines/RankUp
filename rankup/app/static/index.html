@@ -1730,11 +1730,31 @@
           '<label>Token stimati/richiesta<input id="ai-stima" type="number" min="50" max="50000" required></label>'+
           '<button class="btn" type="submit">Salva limiti</button></form>'+
           '<p class="caption">In caso di HTTP 429 il lavoro entra in attesa e '+
-          'riparte automaticamente. Il progresso è conservato nel database.</p></div>');
+          'riparte automaticamente. Il progresso è conservato nel database.</p></div>'+
+          '<div class="card"><h3 class="section-heading">Istruzioni generali per GroqCloud</h3>'+
+          '<p class="caption">Modifica le equivalenze istituzionali applicate dal modello '+
+          '(AOUI, ASUIT/APSS, SSN, UNITN, ecc.). Non inserire nominativi, '+
+          'ID PICA, codici fiscali, contatti né informazioni di singoli candidati. '+
+          'Le istruzioni di sicurezza e il formato delle risposte restano fissi.</p>'+
+          '<form id="ai-guidance"><label for="ai-guidance-text">Prompt istituzionale personalizzato</label>'+
+          '<textarea id="ai-guidance-text" rows="13" maxlength="5000" '+
+          'style="width:100%;min-height:200px" spellcheck="true"></textarea>'+
+          '<div class="actions" style="margin-top:10px">'+
+          '<button class="btn" type="submit">Salva istruzioni AI</button>'+
+          '<button class="btn secondary" type="button" id="ai-guidance-reset">Ripristina suggerite</button>'+
+          '</div></form>'+
+          '<p class="caption">Modificando il prompt, le nuove analisi useranno le nuove istruzioni '+
+          'e i risultati precedenti non saranno riutilizzati automaticamente. '+
+          'Le analisi già in coda mantengono le istruzioni originali.</p></div>');
         try{
-          var data=await Promise.all([api("admin/ai/config"),api("admin/ai/limiti")]);
+          var data=await Promise.all([api("admin/ai/config"),api("admin/ai/limiti"),
+                                      api("admin/ai/istruzioni")]);
           if(state.page!=="assistenteai")return;
           var cfg=data[0],lim=data[1].limiti||{};
+          $("ai-guidance-text").value=data[2].testo||"";
+          $("ai-guidance-reset").onclick=function(){
+            $("ai-guidance-text").value=data[2].predefinito||"";
+          };
           $("ai-model").value=cfg.model||"";
           $("ai-key-state").textContent=cfg.chiave_configurata?
             "Chiave API presente nel volume privato dell’add-on.":
@@ -1788,6 +1808,15 @@
           }catch(err){note("Test GroqCloud fallito: "+err.message,true);}
           finally{btn.disabled=false;}
         };
+        $("ai-guidance").onsubmit=async function(ev){
+          ev.preventDefault();
+          try{
+            await api("admin/ai/istruzioni",{method:"PUT",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({testo:$("ai-guidance-text").value.trim()})});
+            note("Istruzioni AI aggiornate. I nuovi controlli usano il nuovo prompt.",false);
+          }catch(err){note(err.message,true);}
+        };
         $("ai-quotas").onsubmit=async function(ev){
           ev.preventDefault();
           var body={rpm:Number($("ai-rpm").value),tpm:Number($("ai-tpm").value),
@@ -1831,16 +1860,17 @@
           '<div class="tablebox" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
           '<p class="caption" id="ai-counts" aria-live="polite"></p>'+
           '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
-          '<div class="card"><h3 class="section-heading">Coda AI per i soli casi ambigui</h3>'+
-          '<p class="caption">I casi senza riserva e gli enti istituzionalmente riconosciuti '+
-          'sono classificati localmente. Gli esiti AI già verificati si riutilizzano '+
-          'se modello, dati e versione delle regole coincidono.</p>'+
+          '<div class="card"><h3 class="section-heading">Coda AI · Confronto istituzionale</h3>'+
+          '<p class="caption">GroqCloud confronta le categorie sulla base delle istruzioni '+
+          'generali personalizzabili in Amministrazione. Localmente RankUP esclude soltanto '+
+          'i casi senza requisito o senza informazioni minime. '+
+          'Gli esiti si riutilizzano se dati, modello e prompt coincidono.</p>'+
           '<label style="display:flex;gap:9px;align-items:center;margin:12px 0">'+
           '<input id="ai-consent" type="checkbox">Confermo le condizioni per l’invio a GroqCloud '+
           'delle sole categorie non identificative.</label>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px">'+
           '<button class="btn" type="button" id="ai-run">Avvia o recupera analisi</button>'+
-          '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza casi ambigui</button>'+
+          '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza con nuovo prompt</button>'+
           '<button class="btn secondary" type="button" id="ai-pause" style="display:none">Sospendi</button>'+
           '<button class="btn secondary" type="button" id="ai-resume" style="display:none">Riprendi</button>'+
           '<button class="btn secondary" type="button" id="ai-cancel" style="display:none">Annulla</button>'+
@@ -1990,7 +2020,7 @@
           if(!$("ai-consent").checked){
             note("Conferma prima le condizioni per l'uso di GroqCloud.",true);return;
           }
-          if(force&&!confirm("Ricalcolare i casi ambigui anche se esistono risultati riutilizzabili?")){
+          if(force&&!confirm("Ricalcolare tutti i casi con requisito di ente e informazioni sufficienti, anche se esistono risultati riutilizzabili?")){
             return;
           }
           var body={code:code,cds:$("ai-cds").value,sede:$("ai-sede").value,
