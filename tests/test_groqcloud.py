@@ -115,7 +115,8 @@ def test_analysis_runs_after_sheets_and_stores_only_local_id(tmp_path,monkeypatc
         assert len(output.pages)>=1
         text="\n".join(page.extract_text() or "" for page in output.pages)
         assert "ID PICA" in text
-        assert "DA VERIFICARE" not in text.upper() or "DA VERIFICARE" in text.upper()
+        assert "RANKUP" in text.upper()
+        assert "ID PICA" in text
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM ai_ente_verifiche").fetchone()[0]==3
             assert db.execute("SELECT COUNT(*) FROM valutazioni_pdf WHERE stato='Acquisita'").fetchone()[0]==start
