@@ -1954,14 +1954,14 @@
           '<div class="actions" style="flex-wrap:wrap;gap:8px;margin:12px 0">'+'<button class="btn secondary" type="button" id="ai-select-visible">Seleziona righe visualizzate</button>'+'<button class="btn secondary" type="button" id="ai-clear-selection">Deseleziona tutte</button>'+'<span id="ai-selected-count" class="caption">0 candidature selezionate</span></div>'+
           '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
           '<div class="card"><h3 class="section-heading">Coda AI · Confronto istituzionale</h3>'+
-          '<p class="caption">GroqCloud confronta la denominazione dichiarata dell’ente sulla base delle istruzioni '+
+          '<p class="caption">GroqCloud confronta i cinque campi PICA minimizzati sulla base delle istruzioni '+
           'generali personalizzabili in Amministrazione. Localmente RankUP esclude '+
           'i campi con possibili dati personali. Se BB manca, considera BD e BM. '+
           'I precedenti esiti restano nello storico; i nuovi elaborano tutti i campi.</p>'+
           '<label style="display:flex;gap:9px;align-items:center;margin:12px 0">'+
           '<input id="ai-consent" type="checkbox">Confermo le condizioni per l’invio a GroqCloud '+
           'del requisito e dei campi Azienda/ente, Ateneo, Occupazione, Profilo professionale e '+
-          'Qualifica minimizzati. Non vengono inviati nominativi, contatti, CF o documenti.</label>'+
+          'Qualifica minimizzati. RankUP esclude i campi che contengono indicatori personali.</label>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px">'+
           '<button class="btn" type="button" id="ai-run">Avvia o recupera analisi</button>'+
           '<button class="btn secondary" type="button" id="ai-reanalyze">Rianalizza tutte (forzato)</button>'+
@@ -2039,10 +2039,12 @@
               '<th>Ente dichiarato</th><th>Rapporto dichiarato</th><th>Esito</th><th>Motivo</th>'+
               '<th>Verifiche</th><th>Nota AI, se presente</th></tr></thead><tbody>'+
               data.casi.map(function(row){
-                var klass=row.esito===ENTE_OK?"ru-ai-pill--ok":
+                var klass=row.valutazione_storica?"ru-ai-pill--na":
+                  row.esito===ENTE_OK?"ru-ai-pill--ok":
                   row.esito===DA_VEDERE?"ru-ai-pill--review":"ru-ai-pill--na";
                 var label=row.esito===DA_VEDERE?"⚠ Da approfondire":
                   row.esito===ENTE_OK?"✓ Ente coerente":"Non applicabile";
+                if(row.valutazione_storica)label+=" · storico";
                 var ai=row.ai||{};
                 var candidato=[row.cognome,row.nome].filter(Boolean).join(' ');
                 var canSelect=!!row.richiede_ai;
