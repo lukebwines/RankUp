@@ -241,15 +241,22 @@ def analyze(key:str,model:str,payload:dict) -> dict:
            ("NON DICHIARATO","ENTE NON CLASSIFICATO")):
         return {"indizio":"DATI INSUFFICIENTI",
                 "motivo":"Non esistono categorie verificate sufficienti per l'analisi.",
-                "verifiche":"Verificare manualmente la dichiarazione e il requisito ufficiale."}
-    res=_fetch_json(API_CHAT,key,{
+                "verifiche":"Verificare manualmente la dichiarazione e il requisito ufficiale.",
+                "origine":"locale","token_usati":0}
+    params={
         "model":model,
         "messages":[
             {"role":"system","content":SYSTEM_PROMPT},
             {"role":"user","content":json.dumps(payload,ensure_ascii=False)},
         ],
-        "temperature":0.1,"max_tokens":350,
-    })
+        "temperature":0.1,
+        "max_completion_tokens":850,
+        "response_format":{"type":"json_object"},
+    }
+    if model.startswith("openai/gpt-oss-"):
+        params["reasoning_effort"]="low"
+        params["include_reasoning"]=False
+    res=_fetch_json(API_CHAT,key,params)
     try:
         txt=res["choices"][0]["message"]["content"].strip()
         txt=re.sub(r"^"+r"'''" +r"(?:json)?\s*|"+r"\s*'''" +r"$","",txt)
@@ -261,9 +268,12 @@ def analyze(key:str,model:str,payload:dict) -> dict:
             raise ValueError("Motivazione mancante")
         if not isinstance(obj.get("verifiche"),str) or not obj["verifiche"].strip():
             raise ValueError("Verifiche mancanti")
+        usage=res.get("usage") or {}
+        token=int(usage.get("total_tokens") or 0) if isinstance(usage,dict) else 0
         return {"indizio":obj["indizio"],
                 "motivo":obj["motivo"][:MAX_RESULT_LENGTH].strip(),
-                "verifiche":obj["verifiche"][:MAX_RESULT_LENGTH].strip()}
+                "verifiche":obj["verifiche"][:MAX_RESULT_LENGTH].strip(),
+                "origine":"groqcloud","token_usati":max(0,token)}
     except (KeyError,IndexError,TypeError,ValueError):
         raise ValueError("Risposta AI non utilizzabile, nessuna conclusione registrata") from None
 
