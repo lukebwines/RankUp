@@ -29,7 +29,7 @@ API_CHAT = "https://api.groq.com/openai/v1/chat/completions"
 API_MODELS = "https://api.groq.com/openai/v1/models"
 # Identificazione esplicita del client: Python-urllib/3.12 provoca un
 # blocco Cloudflare 1010 nell'ambiente Home Assistant testato.
-GROQ_USER_AGENT = "RankUP/1.0.13"
+GROQ_USER_AGENT = "RankUP/1.0.14"
 DEFAULT_QUOTA = {"rpm":30,"tpm":8000,"rpd":1000,"tpd":200000,
                  "margine":80,"stima_token":950}
 _ALLOWED_RESULTS = {"INDIZI COERENTI", "POSSIBILE DISALLINEAMENTO", "DATI INSUFFICIENTI"}
@@ -44,6 +44,16 @@ DEFAULT_GUIDANCE = """RICONOSCIMENTO ISTITUZIONALE DEGLI ENTI — controllo prel
 - Riconosci sigle e varianti inequivocabili di enti del SSN/SSR italiano
   (per esempio ULSS/AULSS, ASL/AUSL, ASST, ATS, aziende ospedaliere,
   AOUI, APSS, ASUIT), quando la denominazione identifica chiaramente l'ente.
+- AZIENDA ZERO VENETO: ente del servizio sanitario regionale del Veneto,
+  con personalita' giuridica di diritto pubblico (LR Veneto 19/2016, art. 1).
+  Non descriverla come azienda privata. Fonte: Consiglio regionale Veneto,
+  https://www.consiglioveneto.it/web/crv/dettaglio-legge?anno=2016&catStruttura=LR&numero=19&tab=vigente
+- ASST della Lombardia: Aziende Socio Sanitarie Territoriali, strutture
+  pubbliche del sistema sanitario regionale. Non interpretare ASST come
+  impresa privata. Fonte: Regione Lombardia, pagina sulle ASST.
+- Le diciture generiche 'azienda ospedaliera universitaria integrata' e
+  'Ospedale Santa Chiara', senza indicazione sufficiente della sede,
+  non identificano necessariamente un ente univoco: chiedi chiarimenti.
 - Per il requisito SSN, valuta l'appartenenza istituzionale al SSN/SSR:
   non basta che un ente sia pubblico, sanitario, accreditato o convenzionato.
 - Per i requisiti specifici AOUI, ASUIT, APSS, UNITN, SSP e ALTRO ATENEO,
@@ -52,6 +62,10 @@ DEFAULT_GUIDANCE = """RICONOSCIMENTO ISTITUZIONALE DEGLI ENTI — controllo prel
 - Per ospedali privati, IRCCS, fondazioni, RSA, IPAB, cooperative, studi e
   denominazioni ambigue non presumere l'appartenenza al SSN: se la
   denominazione non basta, usa DATI INSUFFICIENTI.
+- Un IRCCS puo' essere di diritto pubblico oppure privato; la qualifica
+  IRCCS e il suo accreditamento non provano da soli la dipendenza SSN.
+- IPAB significa Istituzioni Pubbliche di Assistenza e Beneficenza e
+  non costituisce automaticamente prova di appartenenza al SSN.
 - INDIZI COERENTI: ente chiaramente riconducibile al requisito.
   POSSIBILE DISALLINEAMENTO: ente chiaramente incompatibile col requisito.
   DATI INSUFFICIENTI: abbreviazioni ambigue, affiliazione incerta o dubbio.
@@ -72,6 +86,10 @@ SYSTEM_PROMPT = (
     "Identifica la natura istituzionale dell'ente, considerando sigle e "
     "varianti di scrittura quando univoche. Confrontala col requisito, "
     "senza presumere rapporto di lavoro personale, assunzione o idoneita'. "
+    "La legge regionale Veneto 19/2016 art. 1 definisce Azienda Zero ente "
+    "pubblico del SSR; le ASST lombarde sono strutture pubbliche del SSR. "
+    "Non descriverle come soggetti privati. IRCCS, IPAB, ospedali privati "
+    "o accreditati richiedono verifica della specifica natura giuridica. "
     "Non hai accesso a registri ufficiali in tempo reale: se non sei sicuro "
     "usa DATI INSUFFICIENTI. Rispondi ESCLUSIVAMENTE con un oggetto JSON "
     "che abbia le tre chiavi indizio, motivo e verifiche. "
@@ -103,38 +121,57 @@ _TAX_ID = re.compile(r"\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b",re.I)
 _LONG_DIGITS = re.compile(r"(?<!\w)\+?\d(?:[\s./-]?\d){7,}(?!\w)")
 
 
-def safe_institution_name(value: object, candidate: dict | None = None) -> str:
-    """Conserva la denominazione, ma rifiuta il campo se ha dettagli personali.
+_ORG_LEAD = re.compile(
+    r"^(?:(?:REGIONE\s+[A-ZÀ-ÖØ-Ý]+\s*[-–]\s*)?"
+    r"(?:AZIENDA|AOUI|ASUIT|APSS|AULSS\d*|ULSS\d*|ASL\d*|AUSL\d*|"
+    r"ASST|ATS|IRCCS|OSPEDALE|OSPEDALI|ISTITUTO|FONDAZIONE|"
+    r"POLICLINICO|UNIVERSITA|UNIVERSITÀ|ENTE)\b)",
+    re.IGNORECASE,
+)
+_ORGANISATION_SUFFIX = re.compile(
+    r"\s+[-–]\s+(?=(?:U\.?O\.?(?:C\.?)?|UNIT[ÀA]|REPARTO|"
+    r"DIPARTIMENTO|SERVIZIO|SEDE|AMBULATORIO|DIVISIONE|"
+    r"STRUTTURA(?:\s+COMPLESSA)?)\b)",
+    re.IGNORECASE,
+)
 
-    Non tenta di identificare se l'organizzazione sia SSN: lo fa il modello.
+
+def safe_institution_name(value: object, candidate: dict | None = None) -> str:
+    """Invia unicamente il nome istituzionale; non cerca di decidere se e' SSN.
+
+    Se il campo contiene indicatori personali lo blocca integralmente.
+    Solo per denominazioni istituzionali evidenti elimina i dettagli delle
+    unita' operative separate da un delimitatore esplicito.
     """
     raw=str(value or "").strip()
     if not raw:
         return ENT_E_MISSING
-    if (len(raw)>MAX_ENTE_NAME or any(c in raw for c in "\n\r\t<>{}[]")
+    # Nessun tentativo di trasmettere nomi, recapiti o testi strutturati.
+    if (any(c in raw for c in "\n\r\t<>{}[]")
         or _PERSONAL_CONTENT.search(raw) or _TAX_ID.search(raw)
         or _LONG_DIGITS.search(raw)):
         return ENT_E_PRIVATE
     text=" ".join(raw.upper().split())
-    if not re.fullmatch(r"[\wÀ-ÖØ-Ý\s&.'’/()\-]+",text,re.UNICODE):
-        return ENT_E_PRIVATE
     if candidate:
         for field in ("nome","cognome"):
-            name=str(candidate.get(field) or "").strip()
-            if len(name)>=4 and re.search(
-                r"(?<!\w)"+re.escape(name.upper())+r"(?!\w)",text):
+            value=str(candidate.get(field) or "").strip()
+            if len(value)>=4 and re.search(
+                r"(?<!\w)"+re.escape(value.upper())+r"(?!\w)",text):
                 return ENT_E_PRIVATE
-    # Un semplice nominativo (senza indicatori di organizzazione) non va
-    # trasmesso. Non occorre un dizionario di categorie istituzionali.
-    if (len(text.split())==2 and
-        not re.match(r"^(?:AZIENDA|AOUI|AULSS|ULSS|ASL|AUSL|ASST|ATS|"
-                     r"APSS|ASUIT|SSP|IRCCS|OSPEDALE|UNIVERSITA|UNIVERSITÀ|"
-                     r"POLICLINICO|FONDAZIONE|ISTITUTO|CENTRO|CASA|"
-                     r"REGIONE|PROVINCIA|COMUNE|ENTE)\b",text) and
-        all(re.fullmatch(r"[A-ZÀ-ÖØ-Ý]{3,}",part) for part in text.split())):
+    if _ORG_LEAD.match(text):
+        cut=_ORGANISATION_SUFFIX.search(text)
+        if cut:
+            text=text[:cut.start()].rstrip(" -,;")
+    if len(text)>MAX_ENTE_NAME:
+        return ENT_E_PRIVATE
+    if not re.fullmatch(r"[\wÀ-ÖØ-Ý\s&.'’/()\-]+",text,re.UNICODE):
+        return ENT_E_PRIVATE
+    # Due parole senza prefisso di organizzazione possono essere un nominativo.
+    if (len(text.split())==2 and not _ORG_LEAD.match(text) and
+        all(re.fullmatch(r"[A-ZÀ-ÖØ-Ý]{3,}",part)
+            for part in text.split())):
         return ENT_E_PRIVATE
     return text
-
 
 def role_category(occupation: str, profile: str) -> str:
     line=_normal(occupation+" "+profile)
