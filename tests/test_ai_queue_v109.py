@@ -73,7 +73,7 @@ def test_prompt_editable_admin_and_ai_produces_institutional_coherence(tmp_path,
             assert key=="groq_fittizia_non_vera_123456789"
             assert model=="openai/gpt-oss-120b"
             assert guidance==prompt
-            assert set(payload)=={"requisito_ente","denominazione_ente_dichiarato"}
+            assert set(payload)=={"requisito_ente","denominazione_ente_dichiarato","ateneo_dichiarato","occupazione_dichiarata","profilo_professionale_dichiarato","qualifica_dichiarata"}
             assert payload["requisito_ente"]=="SSN"
             assert payload["denominazione_ente_dichiarato"]=="AOUI VERONA"
             assert "1001" not in str(payload)
