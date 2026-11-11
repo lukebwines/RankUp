@@ -906,7 +906,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.5", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.6", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1329,7 +1329,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.5", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.6", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2976,9 +2976,45 @@ def salva_config_ai(body: ConfigGroqCloud,request: Request):
 def elenco_modelli_groq(request: Request):
     require_admin(request)
     try:
-        return {"modelli":groq_models(GROQ.key())}
+        found=groq_models(GROQ.key())
+        return {"modelli":found,"provider":"GroqCloud","connessione":"verificata"}
+    except GroqLimit as exc:
+        # In precedenza un HTTP 429 non gestito diventava un generico errore 500.
+        raise HTTPException(status_code=429,detail=
+            "GroqCloud: limite richieste raggiunto. Riprovare dopo "+
+            str(exc.retry_after)+" secondi.",
+            headers={"Retry-After":str(exc.retry_after)}) from None
     except ValueError as exc:
         fail(str(exc),502)
+
+
+@app.post("/api/admin/ai/test")
+def prova_modello_groq(request: Request):
+    """Una sola richiesta sintetica, priva di qualunque dato PICA."""
+    require_admin(request)
+    model=GROQ.model()
+    key=GROQ.key()
+    if not model or not key:
+        fail("Configurare prima modello e chiave GroqCloud",409)
+    synthetic={
+        "requisito_ente":"AOUI",
+        "categoria_ente_dichiarato":"AOUI",
+        "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
+    }
+    try:
+        result=groq_analyze(key,model,synthetic)
+    except GroqLimit as exc:
+        raise HTTPException(status_code=429,detail=
+            "GroqCloud: limite richieste raggiunto. Riprovare dopo "+
+            str(exc.retry_after)+" secondi.",
+            headers={"Retry-After":str(exc.retry_after)}) from None
+    except ValueError as exc:
+        fail(str(exc),502)
+    if result.get("origine")=="locale":
+        fail("Il test non ha raggiunto GroqCloud",502)
+    return {"ok":True,"model":model,
+            "chiamata_groq":True,"token_usati":result.get("token_usati"),
+            "avviso":"Test effettuato con sole categorie sintetiche, senza dati PICA."}
 
 
 class ParametriAnalisiEnte(BaseModel):
@@ -2988,18 +3024,17 @@ class ParametriAnalisiEnte(BaseModel):
 
 
 def _ai_scope(db,code: str,cds: str,sede: str) -> tuple[int,list[dict]]:
+    """Controllo preliminare sugli incarichi PICA importati, non sulle schede PDF.
+
+    Un requisito dell'ente può essere controllato prima della valutazione
+    della Commissione. Nessun dato identificativo va a GroqCloud.
+    """
     code=valid_code(code)
     b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
     if not b:
         fail("Bando non trovato",404)
-    # Solo candidature con scheda acquisita, attiva e validata:
-    # l'Assistente entra in gioco dopo la restituzione delle schede.
-    eligible={int(r[0]) for r in db.execute("""
-        SELECT DISTINCT candidatura_id FROM valutazioni_pdf
-        WHERE bando_id=? AND stato='Acquisita' AND attiva=1
-    """,(b["id"],)).fetchall() if r[0] is not None}
     candidates=[r for r in list_candidature(code)["candidature"]
-                if int(r["id"]) in eligible and r["stato"]=="Attiva"
+                if r["stato"]=="Attiva"
                 and (not cds or r["cds"]==cds)
                 and (not sede or r["sede"]==sede)]
     if len(candidates)>2000:
@@ -3066,8 +3101,12 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
         bid,cands=_ai_scope(db,code,body.cds,body.sede)
         results,pending=_ai_result_rows(db,bid,cands,model)
     if not pending:
-        return {"completati":len(results),"da_analizzare":0,"nuovi":0}
+        return {"completati":len(results),"da_analizzare":0,"nuovi":0,
+                "chiamate_groq":0,"token_groq":0,"solo_locale":0}
     count=0
+    requests_sent=0
+    tokens_used=0
+    local_only=0
     for task in pending[:3]:
         original=task["documento"]
         minimal=task["payload"]
@@ -3077,9 +3116,16 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
             return {"completati":len(results)+count,
                     "da_analizzare":len(pending)-count,
                     "nuovi":count,"limite_raggiunto":True,
-                    "retry_after":exc.retry_after}
+                    "retry_after":exc.retry_after,
+                    "chiamate_groq":requests_sent,"token_groq":tokens_used,
+                    "solo_locale":local_only}
         except ValueError as exc:
             fail(str(exc),502)
+        if outcome.get("origine")=="groqcloud":
+            requests_sent+=1
+            tokens_used+=int(outcome.get("token_usati") or 0)
+        elif outcome.get("origine")=="locale":
+            local_only+=1
         source=groq_source_hash(minimal,model)
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -3106,7 +3152,9 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
         count+=1
     return {"completati":len(results)+count,
             "da_analizzare":len(pending)-count,"nuovi":count,
-            "limite_raggiunto":False}
+            "limite_raggiunto":False,
+            "chiamate_groq":requests_sent,"token_groq":tokens_used,
+            "solo_locale":local_only}
 
 
 @app.get("/api/admin/ai/report.pdf")

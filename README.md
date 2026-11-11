@@ -2,7 +2,7 @@
 
 ## RankUP v1.0.4 — Assistente AI GroqCloud
 
-L'Assistente AI è accessibile esclusivamente all'Admin. Il controllo è **solo sul requisito di ente** dopo l'acquisizione delle schede PICA. RankUP trasforma localmente denominazione dell'ente e rapporto dichiarato in categorie istituzionali non identificative: sono le sole informazioni inviate al modello GroqCloud insieme al codice del requisito. Non trasmette ID PICA, nominativi, codice fiscale, recapiti, PDF, dichiarazioni originali, punteggi o graduatorie. **ID PICA è conservato localmente** per associare correttamente l'analisi al candidato e compare nel report.
+L'Assistente AI è accessibile esclusivamente all'Admin. Il controllo è **solo sul requisito di ente** e utilizza i dati dell'occupazione attuale del report PICA, immediatamente dopo la sua importazione: non dipende dalle schede PDF di valutazione. RankUP trasforma localmente denominazione dell'ente e rapporto dichiarato in categorie istituzionali non identificative: sono le sole informazioni inviate al modello GroqCloud insieme al codice del requisito. Non trasmette ID PICA, nominativi, codice fiscale, recapiti, PDF, dichiarazioni originali, punteggi o graduatorie. **ID PICA è conservato localmente** per associare correttamente l'analisi al candidato e compare nel report.
 
 La chiave API è configurata dall'Admin nell'applicazione e viene salvata solo in `/data/.groqcloud_key`, con permessi 0600: non viene inserita nel repository, nel database o nelle risposte del server. Il modello viene scelto nell'interfaccia usando la lista dei modelli effettivamente disponibili nel proprio account.
 
@@ -441,3 +441,10 @@ La Fase 1 della pagina **Valutazioni** introdotta in 0.9.24 è preservata; quest
 La ricerca aggiunta alle tabelle consultive è **locale**: non modifica i dati. È deliberatamente esclusa dalle tabelle con selezione multipla o operazioni che rischierebbero di agire su righe nascoste. Le autorizzazioni Admin/operatore restano quelle del server.
 
 **Collaudo:** suite GitHub Actions Python/JavaScript/ZIP e controlli statici UI. Per la qualità visiva e il flusso reale servono prove manuali su Home Assistant Ingress, con tema chiaro/scuro, desktop e mobile. Effettuare un backup dell'add-on prima dell'aggiornamento; non vi sono migrazioni dello schema database in questa release.
+
+
+## Correzione v1.0.6 — PICA e verifica effettiva GroqCloud
+
+L'Assistente AI controlla i dati PICA relativi a **occupazione attuale**, **azienda/ente** e **profilo professionale** degli incarichi con requisito di ente. Le schede della Commissione non servono e non sono consultate da questa funzione. La classificazione e la minimizzazione avvengono localmente; la richiesta remota contiene esclusivamente categorie senza identificativi. L'ID PICA resta nel database e nel report PDF locale.
+
+In Amministrazione → Assistente AI, **Carica modelli disponibili** esegue GET `/models` e non consuma token di inferenza. **Test AI con dati sintetici** esegue invece una vera chiamata al modello configurato, consumando token senza trasmettere dati di candidati; indica quanti ne riporta il provider. Durante l'analisi, l'interfaccia distingue chiamate GroqCloud e controlli conclusi localmente per mancanza di informazioni sufficienti. Le quote HTTP 429 e gli errori di autenticazione e rete sono indicati in modo esplicito, senza esporre la chiave API.

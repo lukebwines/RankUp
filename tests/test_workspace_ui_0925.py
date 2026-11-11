@@ -28,7 +28,7 @@ def test_tutte_le_sezioni_presenti_e_guide_procedurali():
 
 
 def test_layout_di_tutte_le_sezioni_isolato_dalle_valutazioni():
-    assert '<link rel="stylesheet" href="static/workspace.css?v=1.0.5">' in PAGE
+    assert '<link rel="stylesheet" href="static/workspace.css?v=1.0.6">' in PAGE
     assert '<link rel="stylesheet" href="static/valutazioni.css">' in PAGE
     assert 'if(state.page==="valutazioni"||!content)' in PAGE
     assert 'ru-workspace ru-page-' in PAGE
@@ -202,7 +202,7 @@ def test_nn_assignment_choices_visible_in_schede_and_valutazioni():
 
 def test_v1_footer_and_reset_preservation_notice():
     for marker in (
-        "RANKUP · v1.0.5",
+        "RANKUP · v1.0.6",
         "Crafted by Luca B.",
         "© 2026 Luca B. · All rights reserved.",
         "ru-footer-credit",

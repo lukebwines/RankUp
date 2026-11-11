@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.5">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.6">
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -226,7 +226,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.5<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.6<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -274,7 +274,13 @@
         var response=await fetch("api/"+path,opts);
         var data=await response.json().catch(function(){return {};});
         if(response.status===401 && path!=="auth/login"){showLogin("Sessione scaduta: effettua nuovamente l'accesso.");}
-        if(!response.ok)throw new Error(data.detail||"Operazione non riuscita");
+        if(!response.ok){
+          var message=typeof data.detail==="string"?data.detail:
+            "Richiesta non riuscita (HTTP "+response.status+").";
+          if(typeof data.detail==="string"&&data.detail.length>700)
+            message=data.detail.slice(0,700);
+          throw new Error(message);
+        }
         return data;
       };
       // Forza il download dei PDF anche nei percorsi Home Assistant Ingress
@@ -752,7 +758,7 @@
                 '/pdf?tipo=originale">Originale</a> · <a data-pdf-download href="api/bandi/'+
                 encodeURIComponent(code)+'/verbali/descrittivi/'+encodeURIComponent(descr.id)+
                 '/pdf?tipo=statico">Anteprima statica</a>')
-                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.5.':
+                :(final||approved?'PDF definitivo storico: nessun verbale descrittivo acquisito prima della v1.0.6.':
                   'Non ancora acquisito. Il PDF si trova nello ZIP delle Schede PDF.'))+
               ((!final&&!approved)?' <button class="btn secondary" type="button" data-verb-descr-upload="'+i+
                 '">'+(descr?'Sostituisci PDF':'Carica PDF della Commissione')+'</button>':'')+
@@ -1682,7 +1688,8 @@
         html('<div class="card mb"><h3 class="section-heading">Assistente AI · GroqCloud</h3>'+
           '<p class="caption">Controllo esclusivamente istruttorio del requisito di ente. '+
           'Non attribuisce idoneità, non modifica schede, punteggi o graduatorie. '+
-          'Si applica soltanto ai candidati con valutazioni già acquisite.</p>'+
+          'Utilizza i dati di occupazione attuale, azienda/ente e profilo professionale '+
+          'già presenti nell’esportazione PICA, senza attendere le schede di valutazione.</p>'+
           '<div class="notice"><strong>Dati condivisi:</strong> categoria dell’ente '+
           'dichiarato, categoria astratta del rapporto e requisito istituzionale. '+
           '<strong>Non vengono trasmessi:</strong> ID PICA, nomi, codici fiscali, '+
@@ -1696,11 +1703,13 @@
           '<label>Chiave API (solo per inserirla o sostituirla)<input id="ai-key" type="password" maxlength="256" autocomplete="new-password" placeholder="Non sarà mostrata dopo il salvataggio"></label>'+
           '<button type="submit" class="btn">Salva configurazione</button>'+
           '<button type="button" class="btn secondary" id="ai-load-models">Carica modelli disponibili</button>'+
+          '<button type="button" class="btn secondary" id="ai-test-model">Test AI con dati sintetici</button>'+
           '<button type="button" class="btn secondary" id="ai-clear-key">Elimina chiave</button></form>'+
           '<p id="ai-key-state" class="caption" aria-live="polite"></p></div>'+
           '<div class="card"><h3 class="section-heading">Verifica preliminare per CdS</h3>'+
           (!code?'<p>Seleziona un bando attivo dal menu laterale.</p>':
-          '<p class="caption">Il controllo utilizza esclusivamente le categorie estratte localmente da PICA. '+
+          '<p class="caption">Il controllo parte dalle dichiarazioni di occupazione del file PICA importato '+
+          '(non dalle schede della Commissione), utilizzando soltanto categorie estratte localmente. '+
           'È richiesta una conferma esplicita prima dell’invio a GroqCloud.</p>'+
           '<div class="actions"><label>Corso di Studio<select id="ai-cds"><option value="">Tutti i CdS</option></select></label>'+
           '<label>Sede<select id="ai-sede"><option value="">Tutte le sedi</option></select></label></div>'+
@@ -1746,6 +1755,16 @@
           }catch(err){note(err.message,true);}
           finally{btn.disabled=false;}
         };
+        $("ai-test-model").onclick=async function(){
+          var btn=this;btn.disabled=true;
+          try{
+            var test=await api("admin/ai/test",{method:"POST"});
+            note("GroqCloud ha risposto con il modello "+test.model+
+                 ". Token utilizzati nel test: "+(test.token_usati==null?"non indicati":test.token_usati)+
+                 ". Nessuna dichiarazione PICA inviata.",false);
+          }catch(err){note("Test GroqCloud fallito: "+err.message,true);}
+          finally{btn.disabled=false;}
+        };
         if(!code)return;
         var locations=[];
         try{
@@ -1777,7 +1796,8 @@
           try{
             var result=await api("admin/ai/risultati?"+query().toString());
             $("ai-progress").textContent=result.completati+" analisi registrate su "+
-              result.totale+" schede acquisite · "+result.da_analizzare+" da esaminare.";
+              result.totale+" candidature PICA attive · "+result.da_analizzare+
+              " da esaminare. L'analisi può essere locale se l'ente non è classificabile.";
             $("ai-results").innerHTML=result.risultati.length?
               '<table><thead><tr><th>ID PICA</th><th>CdS / sede</th><th>Requisito</th><th>Ente</th>'+
               '<th>Indizio</th><th>Verifiche</th></tr></thead><tbody>'+
@@ -1797,14 +1817,19 @@
           }
           var btn=this;btn.disabled=true;
           var q={code:code,cds:$("ai-cds").value,sede:$("ai-sede").value};
-          var paused=false;
+          var paused=false, calls=0,tokens=0,local=0;
           try{
             for(var i=0;i<200;i++){
               var res=await api("admin/ai/analizza-passo",{
                 method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify(q)});
-              $("ai-progress").textContent=res.completati+" completati · "+
-                res.da_analizzare+" ancora da verificare";
+              calls+=(res.chiamate_groq||0);
+              tokens+=(res.token_groq||0);
+              local+=(res.solo_locale||0);
+              $("ai-progress").textContent=res.completati+" controlli completati · "+
+                res.da_analizzare+" ancora da verificare · "+
+                calls+" chiamate GroqCloud · "+tokens+" token API · "+
+                local+" controlli solo locali";
               if(res.limite_raggiunto){
                 note("Limite GroqCloud raggiunto. Puoi riprendere l’analisi dopo circa "+
                      res.retry_after+" secondi; gli esiti già salvati sono conservati.",true);
@@ -1816,7 +1841,9 @@
           finally{
             btn.disabled=false;
             await loadAIResults();
-            if(!paused)note("Controllo terminato o interrotto. Nessuna valutazione o graduatoria modificata.",false);
+            if(!paused)note("Controllo completato/interrotto: "+calls+
+              " chiamate effettive a GroqCloud, "+tokens+" token segnalati dal provider, "+
+              local+" verifiche solo locali. Nessuna scheda né graduatoria modificata.",false);
           }
         };
         updateReportLink();
