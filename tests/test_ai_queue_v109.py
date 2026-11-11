@@ -155,3 +155,25 @@ def test_quota_429_pause_resume_and_progress_persist_after_restart(tmp_path,monk
         canceled=_post(client,f"/api/admin/ai/lavori/{jobid}/annulla")
         assert canceled.status_code==200
         assert canceled.json()["lavoro"]["stato"]=="annullata"
+
+
+
+def test_interfaccia_ai_javascript_is_syntactically_valid(tmp_path):
+    """Evita regressioni di sintassi del nuovo grande pannello HTML/JS."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+    import pytest
+    node=shutil.which("node")
+    if not node:
+        pytest.skip("Node non disponibile nell'ambiente di test")
+    html=(Path(__file__).resolve().parents[1]/
+          "rankup/app/static/index.html").read_text("utf-8")
+    matches=re.findall(r"<script(?:\s[^>]*)?>([\s\S]*?)</script>",html)
+    assert matches
+    script=tmp_path/"rankup_ui.js"
+    script.write_text("\n".join(matches),encoding="utf-8")
+    result=subprocess.run([node,"--check",str(script)],capture_output=True,
+                          text=True,timeout=15)
+    assert result.returncode==0,result.stderr
