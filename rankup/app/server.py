@@ -915,7 +915,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.12", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.13", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1339,7 +1339,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.12", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.13", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -3010,7 +3010,7 @@ def prova_modello_groq(request: Request):
         fail("Configurare prima modello e chiave GroqCloud",409)
     synthetic={
         "requisito_ente":"AOUI",
-        "categoria_ente_dichiarato":"AOUI",
+        "denominazione_ente_dichiarato":"AOUI VERONA",
         "categoria_rapporto_dichiarato":"RAPPORTO DIPENDENTE DICHIARATO",
     }
     try:
@@ -3028,7 +3028,7 @@ def prova_modello_groq(request: Request):
         fail("Il test non ha raggiunto GroqCloud",502)
     return {"ok":True,"model":model,
             "chiamata_groq":True,"token_usati":result.get("token_usati"),
-            "avviso":"Test effettuato con sole categorie sintetiche, senza dati PICA."}
+            "avviso":"Test effettuato con ente e categorie sintetici, senza dati PICA."}
 
 
 class ParametriAnalisiEnte(BaseModel):
@@ -3159,7 +3159,7 @@ def esegui_passo_ai(body:ParametriAnalisiEnte,request:Request):
                  verifiche,autore,creato_il)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,(bid,int(original["id"]),int(fresh["incarico_id"]),source,model,
-                 minimal["requisito_ente"],minimal["categoria_ente_dichiarato"],
+                 minimal["requisito_ente"],minimal["denominazione_ente_dichiarato"],
                  minimal["categoria_rapporto_dichiarato"],outcome["indizio"],
                  outcome["motivo"],outcome["verifiche"],who["username"],
                  datetime.now(timezone.utc).isoformat(timespec="seconds")))
@@ -3271,7 +3271,7 @@ def avvia_analisi_ente(body:AccodaAnalisiEnte,request:Request):
     AI_WORKER_STOP_WAKE.set()
     return {"lavoro":job,"totale_candidature":len(candidates),
             "avviso":"Gli esiti locali sono conservati e le chiamate GroqCloud "
-                     "avvengono esclusivamente per categorie ambigue."}
+                     "usano solo denominazioni di ente minimizzate."}
 
 
 @app.get("/api/admin/ai/lavori")
@@ -3315,7 +3315,7 @@ def _ai_worker_candidates(code:str,cds:str,sede:str) -> list[dict]:
 def _ai_worker_main():
     while not AI_WORKER_STOP.is_set():
         try:
-            # Una richiesta per iterazione, solo categorie preclassificate.
+            # Una richiesta per iterazione; denominazioni controllate, non dati candidati.
             did_work=ai_process_one(connect,_ai_worker_candidates,groq_analyze,
                                     GROQ.key,GROQ.limits())
         except Exception as exc:
