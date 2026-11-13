@@ -125,7 +125,7 @@ def test_sanitize_formula_injection_and_preserve_leading_zero_identifier():
         assert cells[col].data_type=="s"
         assert cells[col].value.startswith("'")
     assert not any(cell.data_type=="f" for sheet in wb for rr in sheet for cell in rr)
-    assert wb["Valori AI"]["F2"].value=="DENOMINAZIONE NON TRASMETTIBILE"
+    assert wb["Valori AI"]["E2"].value=="DENOMINAZIONE NON TRASMETTIBILE"
 
 
 def test_xlsx_endpoint_restricted_to_admin(tmp_path,monkeypatch):
