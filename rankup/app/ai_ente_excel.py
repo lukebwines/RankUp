@@ -197,7 +197,12 @@ def render_ente_report_xlsx(code:str,cds:str,sede:str,
         _write_text(summary.cell(idx,1),label)
         label_cell=summary.cell(idx,1)
         label_cell.font=Font(name="Aptos",size=10,bold=True,color=BLUE)
-        _write_text(summary.cell(idx,2),value)
+        if isinstance(value,int) and not isinstance(value,bool):
+            summary.cell(idx,2).value=value
+            summary.cell(idx,2).number_format="0"
+            summary.cell(idx,2).alignment=Alignment(vertical="center")
+        else:
+            _write_text(summary.cell(idx,2),value)
         summary.cell(idx,2).font=Font(name="Aptos",size=10,color=INK)
         if idx%2:
             for col in (1,2):
