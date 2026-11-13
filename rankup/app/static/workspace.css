@@ -195,7 +195,7 @@ main{padding:25px clamp(19px,2vw,34px) 56px}
 .ru-workspace .tablebox td .caption{margin-top:5px}
 .ru-workspace .tablebox .actions{gap:7px}
 .ru-workspace .tablebox .btn{min-height:35px;padding:8px 11px;font-size:12px}
-.ru-workspace .tablebox input,.ru-workspace .tablebox select{min-width:115px}
+.ru-workspace .tablebox input:not([type="checkbox"]):not([type="radio"]),.ru-workspace .tablebox select{min-width:115px}
 .ru-table-tools{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
 .ru-table-tools label{display:flex;align-items:center;gap:9px;min-width:260px;flex:1;max-width:500px}
 .ru-table-tools input{flex:1;min-width:120px}
@@ -535,12 +535,22 @@ html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
 .ru-workspace .ru-ai-filters select:focus-visible,
 .ru-workspace .ru-ai-filters input:focus-visible{outline:2px solid var(--ru-accent);outline-offset:2px}
 .ru-workspace .ru-ai-results-table{min-width:1320px}
-.ru-workspace .ru-ai-results-table thead th:first-child{font-size:11px;text-align:center;white-space:normal}
-.ru-workspace .ru-ai-select-cell{padding:10px 5px!important;text-align:center}
-.ru-workspace .ru-ai-select-cell input[type="checkbox"]{
+.ru-workspace .ru-ai-results-table thead th.ru-ai-select-head{
+  font-size:11px;text-align:center;white-space:normal;padding:12px 6px;
+}
+.ru-workspace .ru-ai-results-table tbody td.ru-ai-select-cell{
+  padding:10px 6px!important;text-align:center;vertical-align:middle;
+}
+.ru-workspace .ru-ai-select-inner{
+  display:flex;justify-content:center;align-items:center;width:100%;min-width:0;
+}
+.ru-workspace .ru-ai-select-inner input[type="checkbox"]{
   position:static!important;display:block;float:none!important;
-  width:19px;height:19px;min-width:19px;min-height:19px;
-  margin:0 auto!important;padding:0!important;
+  box-sizing:border-box!important;
+  width:19px!important;height:19px!important;
+  min-width:19px!important;max-width:19px!important;
+  min-height:19px!important;max-height:19px!important;
+  flex:0 0 19px;margin:0!important;padding:0!important;
   transform:none!important;vertical-align:middle;accent-color:#62b5ef;
 }
 .ru-workspace .ru-ai-results-table .ru-ai-candidate{overflow-wrap:anywhere}
