@@ -29,7 +29,7 @@ API_CHAT = "https://api.groq.com/openai/v1/chat/completions"
 API_MODELS = "https://api.groq.com/openai/v1/models"
 # Identificazione esplicita del client: Python-urllib/3.12 provoca un
 # blocco Cloudflare 1010 nell'ambiente Home Assistant testato.
-GROQ_USER_AGENT = "RankUP/1.0.22"
+GROQ_USER_AGENT = "RankUP/1.0.23"
 DEFAULT_QUOTA = {"rpm":30,"tpm":8000,"rpd":1000,"tpd":200000,
                  "margine":80,"stima_token":950}
 _ALLOWED_RESULTS = {"INDIZI COERENTI", "POSSIBILE DISALLINEAMENTO", "DATI INSUFFICIENTI"}
