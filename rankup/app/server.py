@@ -3417,7 +3417,7 @@ def arresta_worker_ai():
 
 @app.get("/api/admin/ai/report.pdf")
 def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
-                  esito: str="",tipo: str="",graduatoria: str=""):
+                  esito: str="",tipo: str="",graduatoria: str="",ricerca: str=""):
     """Report per CdS/sede: solo Admin, nessuna chiamata GroqCloud."""
     require_admin(request)
     if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
@@ -3439,10 +3439,12 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
               and (not tipo or item.get("tipo_approfondimento")==tipo)
               and (not graduatoria or
                    item["commissione"]["stato_graduatoria"]==graduatoria)]
+    included=_filtra_ricerca_candidati(included,ricerca)
     payload=render_ente_report_pdf(
         code,cds or "Tutti i CdS",sede or "Tutte le sedi",
         included,counts,filter_text=" / ".join(x for x in (esito,tipo,
-            "Graduatoria: "+graduatoria if graduatoria else "") if x))
+            "Graduatoria: "+graduatoria if graduatoria else "",
+            "Ricerca: "+ricerca.strip() if ricerca.strip() else "") if x))
     # Nome leggibile anche quando si scaricano report di CdS differenti:
     # sostituzione conservativa per sistemi Windows.
     def part(value):
@@ -3452,10 +3454,10 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
         return (normal or "TUTTI")[:24].rstrip("_")
     label="_".join([part(code),part(cds),part(sede),
                     part(esito or "TUTTI"),part(tipo or "TUTTI"),
-                    part(graduatoria or "TUTTI")])
+                    part(graduatoria or "TUTTI"),part(ricerca or "TUTTI")])
     # Digest del filtro originale per evitare collisioni fra CdS molto lunghi.
     unique=hashlib.sha256(
-        json.dumps([code,cds,sede,esito,tipo,graduatoria],ensure_ascii=False).encode("utf-8")
+        json.dumps([code,cds,sede,esito,tipo,graduatoria,ricerca.strip()],ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:6].upper()
     filename="RANKUP_ENTE_"+label[:55].rstrip("_")+"_"+unique+".pdf"
     return Response(content=payload,media_type="application/pdf",headers={
