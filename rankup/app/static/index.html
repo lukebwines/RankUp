@@ -1892,7 +1892,7 @@
           var cfg=data[0],lim=data[1].limiti||{};
           var savedModel=cfg.model||"";
           var savedReserve=cfg.fallback_model||"";
-          function fillModels(items){
+          var fillModels=function(items){
             var models=[...new Set([savedModel,savedReserve,...items].filter(Boolean))];
             $("ai-model").innerHTML=models.map(function(m){
               return '<option value="'+esc(m)+'">'+esc(m)+'</option>';
@@ -1903,10 +1903,10 @@
               }).join("");
             $("ai-model").value=savedModel;
             $("ai-backup-model").value=savedReserve;
-          }
+          };
           fillModels([]);
           $("ai-failover").checked=!!cfg.fallback_enabled;
-          async function loadModelLimits(model){
+          var loadModelLimits=async function(model){
             if(!model)return;
             var info=await api("admin/ai/limiti?model="+encodeURIComponent(model));
             if($("ai-model").value!==model)return;
@@ -1919,7 +1919,7 @@
             $("ai-quota-profile-status").textContent=info.profilo_configurato?
               "Profilo salvato per questo modello.":
               "Profilo non ancora salvato: confronta i limiti con la console GroqCloud.";
-          }
+          };
           $("ai-model").onchange=function(){
             loadModelLimits(this.value).catch(function(err){note(err.message,true);});
           };
