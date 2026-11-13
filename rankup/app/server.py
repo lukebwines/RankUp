@@ -915,7 +915,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.16", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.17", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1339,7 +1339,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.16", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.17", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2962,13 +2962,15 @@ class ConfigGroqCloud(BaseModel):
     model: str = Field(default="", max_length=125)
     api_key: str | None = Field(default=None, max_length=256)
     elimina_chiave: bool = False
+    fallback_model: str | None = Field(default=None,max_length=125)
+    fallback_enabled: bool | None = None
 
 
 @app.get("/api/admin/ai/config")
 def config_ai(request: Request):
     require_admin(request)
     return {"model":GROQ.model(),"chiave_configurata":bool(GROQ.key()),
-            "provider":"GroqCloud","solo_categorie_ente":False,
+            **GROQ.failover(),"provider":"GroqCloud","solo_categorie_ente":False,
             "campi_pica_minimizzati":["Azienda/ente","Ateneo","Occupazione",
                                      "Profilo professionale","Qualifica"]}
 
@@ -2979,7 +2981,8 @@ def salva_config_ai(body: ConfigGroqCloud,request: Request):
     if body.elimina_chiave and body.api_key:
         fail("Non è possibile aggiungere ed eliminare contemporaneamente la chiave")
     try:
-        GROQ.save("" if body.elimina_chiave else body.api_key,body.model.strip())
+        GROQ.save("" if body.elimina_chiave else body.api_key,body.model.strip(),
+                  body.fallback_model,body.fallback_enabled)
     except (ValueError,OSError) as exc:
         fail(str(exc),400)
     return config_ai(request)
@@ -3221,21 +3224,25 @@ class AIQuotaConfig(BaseModel):
 
 
 @app.get("/api/admin/ai/limiti")
-def leggi_limiti_ai(request:Request):
+def leggi_limiti_ai(request:Request,model:str=""):
     require_admin(request)
-    return {"limiti":GROQ.limits(),
-            "avviso":"Valori configurati per la coda RankUP; le quote reali "
-                     "dipendono dall'organizzazione e dal progetto GroqCloud."}
+    selected=model or GROQ.model()
+    if len(selected)>125:
+        fail("Modello non valido",400)
+    return {"model":selected,"limiti":GROQ.limits(selected),
+            "profilo_configurato":selected in GROQ.configured_models(),
+            "avviso":"I profili sono locali a RankUP: verificare sempre i valori "
+                     "ufficiali in GroqCloud. La modifica non aumenta le quote."}
 
 
 @app.put("/api/admin/ai/limiti")
-def salva_limiti_ai(body:AIQuotaConfig,request:Request):
+def salva_limiti_ai(body:AIQuotaConfig,request:Request,model:str=""):
     require_admin(request)
     try:
-        GROQ.save_limits(body.model_dump())
+        GROQ.save_limits(body.model_dump(),model or GROQ.model())
     except (ValueError,OSError) as exc:
         fail(str(exc),400)
-    return leggi_limiti_ai(request)
+    return leggi_limiti_ai(request,model)
 
 
 @app.get("/api/admin/ai/verifiche")
@@ -3295,9 +3302,16 @@ def avvia_analisi_ente(body:AccodaAnalisiEnte,request:Request):
             candidates=[available[i] for i in selected]
             if not all(classifica_ente(c)["richiede_ai"] for c in candidates):
                 fail("Selezione non inviabile: ente assente, requisito non valido o dati protetti",400)
+        fallback=GROQ.failover()
+        reserve=fallback["fallback_model"] if fallback["fallback_enabled"] else ""
+        profiles={model:GROQ.limits(model)}
+        if reserve:
+            profiles[reserve]=GROQ.limits(reserve)
         job=ai_create_job(db,bid,valid_code(body.code),body.cds,body.sede,
                           model,candidates,who["username"],GROQ.guidance(),
-                          bool(body.forza or selected),targeted=bool(selected))
+                          bool(body.forza or selected),targeted=bool(selected),
+                          fallback_model=reserve,fallback_enabled=bool(reserve),
+                          limits_by_model=profiles)
         if selected and job.get("gia_esistente"):
             fail("Una coda e' gia' attiva per questo CdS/sede: attenderne il termine",409)
     AI_WORKER_STOP_WAKE.set()
@@ -3313,7 +3327,8 @@ def stato_analisi_ente(request:Request,code:str,cds:str="",sede:str=""):
     with connect() as db:
         bid,_=_ai_scope(db,code,cds,sede)
         result=ai_last_job(db,bid,cds,sede)
-        quota=ai_quota_info(db,GROQ.model(),GROQ.limits())
+        current=(result.get("modello_attivo") or result.get("modello")) if result else GROQ.model()
+        quota=ai_quota_info(db,current,GROQ.limits(current))
     return {"lavoro":result,"quota_locale":quota,
             "avviso_quota":"Il conteggio locale comprende soltanto le chiamate "
                            "della coda RankUP, non altri client o progetti GroqCloud."}
@@ -3350,7 +3365,7 @@ def _ai_worker_main():
         try:
             # Una richiesta per iterazione; denominazioni controllate, non dati candidati.
             did_work=ai_process_one(connect,_ai_worker_candidates,groq_analyze,
-                                    GROQ.key,GROQ.limits())
+                                    GROQ.key,GROQ.limits)
         except Exception as exc:
             # Nessuna dichiarazione PICA, chiave o testo remoto nei log.
             import logging

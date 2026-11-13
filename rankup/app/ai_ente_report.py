@@ -196,6 +196,9 @@ def _detail(item):
     sources=item.get("fonti_pica") or []
     if sources:
         result.append(_p("Campi PICA disponibili: "+", ".join(sources),SMALL))
+    used=item.get("modello_ai") or (item.get("ai") or {}).get("modello")
+    if used:
+        result.append(_p("Modello AI effettivamente utilizzato: "+str(used),SMALL))
     # Queste voci sono presentate una sola volta per posizione, senza
     # sovrapporre il suggerimento AI alla verifica amministrativa.
     reason=str(item.get("motivo") or "").strip()

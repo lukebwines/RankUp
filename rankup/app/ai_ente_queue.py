@@ -35,6 +35,10 @@ def ensure_schema(db):
             cds TEXT NOT NULL DEFAULT '',
             sede TEXT NOT NULL DEFAULT '',
             modello TEXT NOT NULL,
+            modello_attivo TEXT NOT NULL DEFAULT '',
+            modello_riserva TEXT NOT NULL DEFAULT '',
+            failover_attivo INTEGER NOT NULL DEFAULT 0 CHECK(failover_attivo IN (0,1)),
+            limiti_modelli_json TEXT NOT NULL DEFAULT '{}',
             versione_regole TEXT NOT NULL,
             istruzioni_prompt TEXT NOT NULL,
             stato TEXT NOT NULL CHECK(stato IN
@@ -110,6 +114,17 @@ def ensure_schema(db):
     columns={r["name"] for r in db.execute("PRAGMA table_info(ai_ente_lavori)")}
     if "mirato" not in columns:
         db.execute("ALTER TABLE ai_ente_lavori ADD COLUMN mirato INTEGER NOT NULL DEFAULT 0 CHECK(mirato IN (0,1))")
+    # La configurazione di fallback e le quote delle code esistenti non cambiano:
+    # per gli archivi storici il failover e' sempre disabilitato.
+    additions={
+        "modello_attivo":"TEXT NOT NULL DEFAULT ''",
+        "modello_riserva":"TEXT NOT NULL DEFAULT ''",
+        "failover_attivo":"INTEGER NOT NULL DEFAULT 0 CHECK(failover_attivo IN (0,1))",
+        "limiti_modelli_json":"TEXT NOT NULL DEFAULT '{}'",
+    }
+    for name,sql_type in additions.items():
+        if name not in columns:
+            db.execute("ALTER TABLE ai_ente_lavori ADD COLUMN "+name+" "+sql_type)
 
 
 def _now() -> str:
@@ -179,6 +194,13 @@ def _find_cached_for_candidate(db,bid:int,digest:str,model:str,
 def classifications(candidates: list[dict]) -> list[dict]:
     """Gli esiti istituzionali non dipendono dalla risposta del modello AI."""
     return [dict(classifica_ente(c),
+                 campi_pica_originali={
+                     "Azienda/ente":str(c.get("azienda_ente") or ""),
+                     "Ateneo":str(c.get("ateneo") or ""),
+                     "Occupazione":str(c.get("occupazione") or ""),
+                     "Profilo professionale":str(c.get("profilo_professionale") or ""),
+                     "Qualifica":str(c.get("qualifica") or ""),
+                 },
                  id=c["id"],id_pica=str(c["id_pica"]),
                  cognome=str(c.get("cognome") or "").strip(),
                  nome=str(c.get("nome") or "").strip(),
@@ -219,7 +241,32 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
                 cached=_find_cached_for_candidate(db,bid,previous,model,
                     entry["id"],row["id"],LEGACY_RULES_VERSION)
                 historical=cached is not None
+        # Recupera anche le analisi effettuate con il modello di riserva
+        # della stessa coda, evitando esiti di modelli configurati altrove.
+        if not cached and entry["richiede_ai"]:
+            fallbacks=db.execute("""
+                SELECT DISTINCT j.modello_riserva
+                FROM ai_ente_lavori j JOIN ai_ente_lavori_elementi e
+                  ON e.lavoro_id=j.id
+                WHERE j.bando_id=? AND j.modello=? AND j.versione_regole=?
+                  AND j.istruzioni_prompt=? AND j.failover_attivo=1
+                  AND e.candidatura_id=? AND e.incarico_id=?
+                  AND j.modello_riserva<>''
+                ORDER BY j.id DESC
+            """,(bid,model,RULES_VERSION,guidance,entry["id"],row["id"])).fetchall()
+            for fallback in fallbacks:
+                alternate=fallback["modello_riserva"]
+                alternate_digest=_hash(payload,alternate,guidance)
+                cached=_find_cached_for_candidate(db,bid,alternate_digest,
+                    alternate,entry["id"],row["id"])
+                if cached:
+                    entry["modello_ai"]=alternate
+                    break
+        if cached and not entry.get("modello_ai"):
+            entry["modello_ai"]=model
         entry["ai"]=dict(cached) if cached else None
+        if entry["ai"] is not None:
+            entry["ai"]["modello"]=entry.get("modello_ai",model)
         if historical:
             entry["valutazione_storica"]=True
         technical=anomalies.get((entry["id"],row["id"]))
@@ -239,6 +286,16 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
                  "NON esaminati; rianalisi completa consigliata."
                  if historical else
                  " Il rapporto di lavoro personale resta da accertare."))
+        # Dati PICA per la sola UI Admin: i campi filtrati sono indicati
+        # separatamente dai valori originali; nulla di cio' viene inviato
+        # ad altri servizi da questa API.
+        entry["campi_pica_ai"]={
+            "Azienda/ente":payload.get("denominazione_ente_dichiarato"),
+            "Ateneo":payload.get("ateneo_dichiarato"),
+            "Occupazione":payload.get("occupazione_dichiarata"),
+            "Profilo professionale":payload.get("profilo_professionale_dichiarato"),
+            "Qualifica":payload.get("qualifica_dichiarata"),
+        }
         entry.pop("payload",None)
         out.append(entry)
     return out
@@ -246,7 +303,9 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
 
 def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
                candidates:list[dict],who:str,guidance:str,force:bool=False,
-               targeted:bool=False) -> dict:
+               targeted:bool=False, fallback_model:str="",
+               fallback_enabled:bool=False,
+               limits_by_model:dict|None=None) -> dict:
     now=_now()
     db.execute("BEGIN IMMEDIATE")
     # Una coda della versione precedente contiene payload a soli due campi:
@@ -266,13 +325,18 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
     if prior:
         db.commit()
         return {"id":prior["id"],"stato":prior["stato"],"gia_esistente":True}
+    reserve=fallback_model if fallback_enabled and fallback_model!=model else ""
+    if reserve and (not limits_by_model or reserve not in limits_by_model):
+        raise ValueError("Manca il profilo di quota del modello di riserva")
+    frozen=json.dumps(limits_by_model or {},sort_keys=True)
     cur=db.execute("""
         INSERT INTO ai_ente_lavori
-          (bando_id,codice,cds,sede,modello,versione_regole,istruzioni_prompt,
+          (bando_id,codice,cds,sede,modello,modello_attivo,modello_riserva,
+           failover_attivo,limiti_modelli_json,versione_regole,istruzioni_prompt,
            stato,forzato,mirato,creato_da,creato_il,aggiornato_il)
-        VALUES(?,?,?,?,?,?,?,'in_coda',?,?,?,?,?)
-    """,(bid,code,cds,sede,model,RULES_VERSION,guidance,int(force),
-         int(targeted),who,now,now))
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,'in_coda',?,?,?,?,?)
+    """,(bid,code,cds,sede,model,model,reserve,int(bool(reserve)),
+         frozen,RULES_VERSION,guidance,int(force),int(targeted),who,now,now))
     jobid=cur.lastrowid
     nlocal,ncached=0,0
     for candidate,entry in zip(candidates,classifications(candidates)):
@@ -282,6 +346,8 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
         payload=entry["payload"]
         digest=_hash(payload,model,guidance)
         cached=None if force else _find_cached(db,bid,digest,model)
+        if not cached and not force and reserve:
+            cached=_find_cached(db,bid,_hash(payload,reserve,guidance),reserve)
         if not entry["richiede_ai"]:
             status="locale"
             nlocal+=1
@@ -316,6 +382,7 @@ def progress(db,job):
     # Il prompt integrale e' disponibile solo nella pagina delle impostazioni,
     # non deve essere ripetuto in ogni chiamata di avanzamento.
     row.pop("istruzioni_prompt",None)
+    row.pop("limiti_modelli_json",None)
     try:
         row["quota_provider"]=json.loads(row.pop("quota_provider_json") or "{}")
     except (TypeError,ValueError):
@@ -462,15 +529,19 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
             db.commit()
             return True
         pending=dict(pending)
-        cached=_find_cached(db,job["bando_id"],pending["input_sha256"],
-                            job["modello"],job["id"] if job["forzato"] else None)
+        active_model=job.get("modello_attivo") or job["modello"]
+        active_digest=_hash(json.loads(pending["payload_json"]),active_model,
+                            job["istruzioni_prompt"])
+        cached=_find_cached(db,job["bando_id"],active_digest,
+                            active_model,job["id"] if job["forzato"] else None)
         if cached:
             # Evitare richieste duplicate anche per categorie identiche
             # incontrate DOPO l'avvio della coda, inclusa la rianalisi forzata.
             db.execute("""UPDATE ai_ente_lavori_elementi
-                SET stato='riutilizzato',esito_id=?
+                SET stato='riutilizzato',esito_id=?,input_sha256=?
                 WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?""",
-                (cached["id"],job["id"],pending["candidatura_id"],pending["incarico_id"]))
+                (cached["id"],active_digest,job["id"],pending["candidatura_id"],
+                 pending["incarico_id"]))
             db.execute("""UPDATE ai_ente_lavori SET
                 riutilizzati=riutilizzati+1,aggiornato_il=? WHERE id=?""",
                 (_now(),job["id"]))
@@ -500,7 +571,29 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
                 (job["id"],pending["candidatura_id"],pending["incarico_id"]))
             db.commit()
             return True
-        pause,stat=_quota_pause(db,job["modello"],limits,now)
+        try:
+            snapshots=json.loads(job.get("limiti_modelli_json") or "{}")
+        except (TypeError,ValueError):
+            snapshots={}
+        if not isinstance(snapshots,dict):
+            snapshots={}
+        # Per le code storiche usa i limiti correnti (comportamento preesistente).
+        # Le nuove code usano SEMPRE il profilo congelato alla creazione.
+        active_limits=snapshots.get(active_model) or (
+            limits(active_model) if callable(limits) else limits)
+        pause,stat=_quota_pause(db,active_model,active_limits,now)
+        reserve=job.get("modello_riserva") or ""
+        can_switch=bool(job.get("failover_attivo")) and reserve and active_model==job["modello"]
+        if pause and can_switch:
+            alt_limits=snapshots.get(reserve)
+            if alt_limits:
+                alt_pause,_=_quota_pause(db,reserve,alt_limits,now)
+                if not alt_pause:
+                    _set_status(db,job["id"],"in_coda",modello_attivo=reserve,
+                                ultimo_errore="Quota modello principale: attivata riserva "+reserve)
+                    db.commit()
+                    return True
+                pause=min(pause,alt_pause)
         if pause:
             _set_status(db,job["id"],"attesa_quota",prossimo_tentativo=pause,
                         ultimo_errore="Pausa preventiva per limiti locali di richieste/token")
@@ -514,9 +607,9 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
         eligible=next((c for c in current if int(c["id"])==pending["candidatura_id"]
                       and c["stato"]=="Attiva"),None)
         expected=json.loads(pending["payload_json"])
-        if not eligible or _hash(prepare_minimal_payload(eligible),job["modello"],job["istruzioni_prompt"])!=pending["input_sha256"]:
+        if not eligible or prepare_minimal_payload(eligible)!=expected:
             raise ValueError("Dati PICA modificati: annullare la coda e avviare una nuova analisi")
-        result=send(get_key(),job["modello"],expected,guidance=job["istruzioni_prompt"])
+        result=send(get_key(),active_model,expected,guidance=job["istruzioni_prompt"])
     except GroqLimit as exc:
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -525,10 +618,15 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
             if state and state["stato"]=="in_corso":
                 db.execute("""INSERT INTO ai_ente_quota_eventi
                               (eseguito_il,modello,token) VALUES(?,?,0)""",
-                           (time.time(),job["modello"]))
-                _set_status(db,job["id"],"attesa_quota",
-                    prossimo_tentativo=time.time()+max(10,min(exc.retry_after,MAX_RETRY_SECONDS)),
-                    ultimo_errore="Limite GroqCloud HTTP 429: ripresa automatica")
+                           (time.time(),active_model))
+                if can_switch:
+                    _set_status(db,job["id"],"in_coda",modello_attivo=reserve,
+                        prossimo_tentativo=None,
+                        ultimo_errore="HTTP 429 sul modello principale: tentativo con "+reserve)
+                else:
+                    _set_status(db,job["id"],"attesa_quota",
+                        prossimo_tentativo=time.time()+max(10,min(exc.retry_after,MAX_RETRY_SECONDS)),
+                        ultimo_errore="Limite GroqCloud HTTP 429: ripresa automatica")
             db.commit()
         return True
     except GroqInvalidResponse as exc:
@@ -554,7 +652,7 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
                      pending["incarico_id"])).fetchone()[0]
                 db.execute("""INSERT INTO ai_ente_quota_eventi
                     (eseguito_il,modello,token) VALUES(?,?,?)""",
-                    (time.time(),job["modello"],exc.tokens))
+                    (time.time(),active_model,exc.tokens))
                 rate=exc.rate if isinstance(exc.rate,dict) else {}
                 safe_rate={k:str(v)[:80] for k,v in rate.items()
                            if k.startswith("x-ratelimit-")
@@ -606,20 +704,21 @@ def process_one(connect,load_cases,send,get_key,limits:dict) -> bool:
         if origin=="groqcloud":
             db.execute("""INSERT INTO ai_ente_quota_eventi
                 (eseguito_il,modello,token) VALUES(?,?,?)""",
-                       (time.time(),job["modello"],token))
+                       (time.time(),active_model,token))
         cur=db.execute("""
             INSERT INTO ai_ente_ai_esiti
             (bando_id,candidatura_id,incarico_id,input_sha256,modello,
              versione_regole,indizio,motivo,verifiche,token,lavoro_id,registrato_il)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
         """,(job["bando_id"],pending["candidatura_id"],pending["incarico_id"],
-             pending["input_sha256"],job["modello"],RULES_VERSION,
+             active_digest,active_model,RULES_VERSION,
              str(result["indizio"])[:120],str(result["motivo"])[:440],
              str(result["verifiche"])[:440],token,job["id"],_now()))
         db.execute("""UPDATE ai_ente_lavori_elementi
-            SET stato='completato',esito_id=?
+            SET stato='completato',esito_id=?,input_sha256=?
             WHERE lavoro_id=? AND candidatura_id=? AND incarico_id=?""",
-            (cur.lastrowid,job["id"],pending["candidatura_id"],pending["incarico_id"]))
+            (cur.lastrowid,active_digest,job["id"],pending["candidatura_id"],
+             pending["incarico_id"]))
         rate=result.get("quota_provider") or {}
         if not isinstance(rate,dict):rate={}
         safe_rate={k:str(v)[:80] for k,v in rate.items()

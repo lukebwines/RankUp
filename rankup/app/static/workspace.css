@@ -458,3 +458,55 @@ html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
   .ru-workspace .ru-ai-stat strong{font-size:23px;}
   .ru-workspace .ru-ai-quotas{grid-template-columns:minmax(0,1fr);}
 }
+
+
+/* Verifica requisito ente v1.0.17 — tabella istruttoria a cinque campi. */
+.ru-workspace .ru-ai-review-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:12px}
+.ru-workspace .ru-ai-review-heading .section-heading{margin-bottom:4px;font-size:24px;letter-spacing:-.025em}
+.ru-workspace .ru-ai-review-heading .caption{margin:0;line-height:1.5}
+.ru-workspace .ru-ai-review-model{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 13px;background:var(--ru-surface-alt);border:1px solid var(--ru-stroke);border-radius:12px;font-size:12px}
+.ru-workspace .ru-ai-review-model strong{font-size:12px;padding:6px 9px;background:var(--ru-accent-soft);border:1px solid var(--ru-stroke);border-radius:9px;overflow-wrap:anywhere}
+.ru-workspace .ru-ai-stats{margin:22px 0 18px}
+.ru-workspace .ru-ai-stat{border-left-width:1px;min-height:92px;padding:15px 18px;gap:5px}
+.ru-workspace .ru-ai-stat.ru-ai-ok{background:linear-gradient(110deg,var(--ru-surface-alt),var(--ru-success-surface));border-color:var(--ru-success)}
+.ru-workspace .ru-ai-stat.ru-ai-review{background:linear-gradient(110deg,var(--ru-surface-alt),var(--ru-warning-surface));border-color:#a47730}
+.ru-workspace .ru-ai-stat.ru-ai-neutral{border-color:var(--ru-stroke)}
+.ru-workspace .ru-ai-stat strong{font-size:30px}
+.ru-workspace .ru-ai-table-wrap{margin-top:10px;border:1px solid var(--ru-stroke);border-radius:14px;overflow-x:auto;background:var(--ru-surface)}
+.ru-workspace .ru-ai-results-table{table-layout:fixed;min-width:1240px;width:100%;border-collapse:collapse}
+.ru-workspace .ru-ai-results-table thead th{padding:15px 12px;vertical-align:middle;font-size:12px;font-weight:800;background:var(--ru-surface-alt);border-bottom:1px solid var(--ru-stroke);color:var(--ru-ink)}
+.ru-workspace .ru-ai-results-table tbody td{padding:15px 12px;vertical-align:middle;line-height:1.5;border-bottom:1px solid var(--ru-stroke);overflow-wrap:anywhere}
+.ru-workspace .ru-ai-results-table tbody tr:last-child td{border-bottom:0}
+.ru-workspace .ru-ai-results-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--ru-surface-alt) 36%,transparent)}
+.ru-workspace .ru-ai-select-cell{text-align:center}
+.ru-workspace .ru-ai-select-cell input{width:18px;height:18px;accent-color:#4d94c5}
+.ru-workspace .ru-ai-candidate{display:block;font-size:14px;line-height:1.45;margin-bottom:8px}
+.ru-workspace .ru-ai-id{display:inline-block;padding:5px 9px;border:1px solid var(--ru-stroke);background:var(--ru-surface-alt);border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap}
+.ru-workspace .ru-ai-cds{font-size:12px;line-height:1.6}
+.ru-workspace .ru-ai-pica-card{border:1px solid var(--ru-stroke);border-radius:11px;overflow:hidden;font-size:11px;line-height:1.4;background:var(--ru-surface)}
+.ru-workspace .ru-ai-pica-header{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--ru-surface-alt);border-bottom:1px solid var(--ru-stroke)}
+.ru-workspace .ru-ai-pica-header>span{font-weight:750}
+.ru-workspace .ru-ai-pica-header strong{padding:4px 9px;border-radius:30px;background:#226a98;color:#fff;font-size:11px}
+.ru-workspace .ru-ai-field{display:grid;grid-template-columns:minmax(104px,35%) minmax(0,1fr) 22px;align-items:start;gap:7px;padding:7px 9px;border-bottom:1px solid var(--ru-stroke)}
+.ru-workspace .ru-ai-field:last-child{border-bottom:0}
+.ru-workspace .ru-ai-field-label{font-weight:750;font-size:10px}
+.ru-workspace .ru-ai-field-value{overflow-wrap:anywhere;word-break:normal;font-size:11px}
+.ru-workspace .ru-ai-field-value small{display:block;margin-top:4px;color:var(--ru-muted);font-size:10px;line-height:1.4}
+.ru-workspace .ru-ai-quiet{color:var(--ru-muted);font-style:italic}
+.ru-workspace .ru-ai-icon{display:inline-flex;width:17px;height:17px;border-radius:50%;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex:none}
+.ru-workspace .ru-ai-icon-ok{background:#38c977;color:#06351d}
+.ru-workspace .ru-ai-icon-missing{background:#a5b5c5;color:#233b50}
+.ru-workspace .ru-ai-icon-private{background:#718da9;color:white}
+.ru-workspace .ru-ai-icon-pending{background:#c5d6e7;color:#264d6e}
+.ru-workspace .ru-ai-results-table .ru-ai-pill{margin-bottom:9px;padding:6px 9px}
+.ru-workspace .ru-ai-result-title{display:block;margin:3px 0 8px;font-size:13px;line-height:1.35}
+.ru-workspace .ru-ai-reason{font-size:11.5px;line-height:1.6}
+.ru-workspace .ru-ai-model-note{font-size:10px;margin-top:8px;color:var(--ru-muted)}
+.ru-workspace .ru-ai-checks{font-size:12px;line-height:1.65}
+.ru-workspace .ru-ai-legend{display:flex;align-items:center;flex-wrap:wrap;gap:10px 22px;margin:13px 0 10px;padding:10px 2px;font-size:11px;color:var(--ru-muted)}
+.ru-workspace .ru-ai-legend span{display:inline-flex;align-items:center;gap:6px}
+.ru-workspace .ru-ai-switch{display:flex!important;flex-direction:row!important;align-items:center;gap:8px!important;max-width:250px;font-size:12px;line-height:1.3}
+.ru-workspace .ru-ai-switch input{width:18px;height:18px;flex:none}
+.ru-workspace #ai-model,.ru-workspace #ai-backup-model{max-width:270px;min-width:185px}
+@media(max-width:1050px){.ru-workspace .ru-ai-review-heading .section-heading{font-size:20px}.ru-workspace .ru-ai-results-table{min-width:1170px}}
+@media(max-width:690px){.ru-workspace .ru-ai-results-table{min-width:1100px}.ru-workspace .ru-ai-review-model{width:100%}.ru-workspace .ru-ai-pica-card{font-size:10px}}

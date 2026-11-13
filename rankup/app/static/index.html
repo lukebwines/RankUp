@@ -1792,8 +1792,11 @@
           'Azienda/ente, Ateneo, Occupazione, Profilo e Qualifica minimizzati e requisito; ID PICA, nominativi, '+
           'CF, documenti e dichiarazioni integrali rimangono locali. I singoli campi sospetti non sono inviati.</div>'+
           '<form id="ai-config" class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
-          '<label>Modello GroqCloud<input id="ai-model" maxlength="125" list="ai-models" '+
-          'placeholder="ID modello" required></label><datalist id="ai-models"></datalist>'+
+          '<label>Modello principale GroqCloud<select id="ai-model" required>'+
+          '<option value="">Caricamento modelli…</option></select></label>'+
+          '<label>Modello di riserva<select id="ai-backup-model"><option value="">Nessuno</option></select></label>'+
+          '<label class="ru-ai-switch"><input id="ai-failover" type="checkbox">'+
+          'Passaggio automatico alla riserva</label>'+
           '<label>Chiave API (per inserire o sostituire)<input id="ai-key" type="password" '+
           'maxlength="256" autocomplete="new-password" placeholder="Non viene mostrata dopo il salvataggio"></label>'+
           '<button type="submit" class="btn">Salva configurazione</button>'+
@@ -1802,11 +1805,12 @@
           '<button type="button" class="btn secondary" id="ai-clear-key">Elimina chiave</button></form>'+
           '<p id="ai-key-state" class="caption" aria-live="polite"></p></div>'+
           '<div class="card"><h3 class="section-heading">Limiti e margine di sicurezza della coda</h3>'+
-          '<p class="caption">Valori di partenza per openai/gpt-oss-120b: '+
+          '<p class="caption">Limiti per modello selezionato: <strong id="ai-limits-model">—</strong>. Valori di partenza per openai/gpt-oss-120b: '+
           '30 richieste/min, 8.000 token/min, 1.000 richieste/giorno e '+
           '200.000 token/giorno. Sono limiti da verificare nella propria console. '+
           'RankUP utilizza un margine prudenziale e i segnali HTTP 429. '+
           'Le stime locali non rappresentano il residuo ufficiale dell’account.</p>'+
+          '<p class="caption" id="ai-quota-profile-status"></p>'+
           '<form id="ai-quotas" class="ru-ai-quotas">'+
           '<label>Richieste/minuto<input id="ai-rpm" type="number" min="1" max="1000" required></label>'+
           '<label>Token/minuto<input id="ai-tpm" type="number" min="100" max="1000000" required></label>'+
@@ -1839,18 +1843,62 @@
                                       api("admin/ai/istruzioni")]);
           if(state.page!=="assistenteai")return;
           var cfg=data[0],lim=data[1].limiti||{};
+          var savedModel=cfg.model||"";
+          var savedReserve=cfg.fallback_model||"";
+          function fillModels(items){
+            var models=[...new Set([savedModel,savedReserve,...items].filter(Boolean))];
+            $("ai-model").innerHTML=models.map(function(m){
+              return '<option value="'+esc(m)+'">'+esc(m)+'</option>';
+            }).join("");
+            $("ai-backup-model").innerHTML='<option value="">Nessuno</option>'+
+              models.map(function(m){
+                return '<option value="'+esc(m)+'">'+esc(m)+'</option>';
+              }).join("");
+            $("ai-model").value=savedModel;
+            $("ai-backup-model").value=savedReserve;
+          }
+          fillModels([]);
+          $("ai-failover").checked=!!cfg.fallback_enabled;
+          async function loadModelLimits(model){
+            if(!model)return;
+            var info=await api("admin/ai/limiti?model="+encodeURIComponent(model));
+            if($("ai-model").value!==model)return;
+            var limits=info.limiti||{};
+            [["rpm","ai-rpm"],["tpm","ai-tpm"],["rpd","ai-rpd"],["tpd","ai-tpd"],
+             ["margine","ai-margine"],["stima_token","ai-stima"]].forEach(function(pair){
+              $(pair[1]).value=limits[pair[0]]==null?"":limits[pair[0]];
+            });
+            $("ai-limits-model").textContent=model;
+            $("ai-quota-profile-status").textContent=info.profilo_configurato?
+              "Profilo salvato per questo modello.":
+              "Profilo non ancora salvato: confronta i limiti con la console GroqCloud.";
+          }
+          $("ai-model").onchange=function(){
+            loadModelLimits(this.value).catch(function(err){note(err.message,true);});
+          };
+          $("ai-backup-model").onchange=function(){
+            if(this.value===$("ai-model").value && this.value){
+              $("ai-failover").checked=false;
+              note("Il modello di riserva deve essere diverso dal principale.",true);
+            }
+          };
           $("ai-guidance-text").value=data[2].testo||"";
           $("ai-guidance-reset").onclick=function(){
             $("ai-guidance-text").value=data[2].predefinito||"";
           };
-          $("ai-model").value=cfg.model||"";
+          $("ai-model").value=savedModel;
           $("ai-key-state").textContent=cfg.chiave_configurata?
             "Chiave API presente nel volume privato dell’add-on.":
             "Chiave API non configurata.";
-          [["rpm","ai-rpm"],["tpm","ai-tpm"],["rpd","ai-rpd"],["tpd","ai-tpd"],
-           ["margine","ai-margine"],["stima_token","ai-stima"]].forEach(function(pair){
-            $(pair[1]).value=lim[pair[0]]==null?"":lim[pair[0]];
-          });
+          await loadModelLimits(savedModel);
+          // Il select mostra sempre l'intero catalogo, non soltanto il testo
+          // che coincide con la selezione corrente (vecchio datalist).
+          try{
+            var items=(await api("admin/ai/modelli")).modelli||[];
+            fillModels(items);
+          }catch(err){
+            note("Catalogo GroqCloud non disponibile: "+err.message,true);
+          }
         }catch(err){note(err.message,true);}
         $("ai-config").onsubmit=async function(ev){
           ev.preventDefault();
@@ -1858,7 +1906,9 @@
             var key=$("ai-key").value.trim();
             await api("admin/ai/config",{method:"PUT",
               headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({model:$("ai-model").value.trim(),api_key:key||null})});
+              body:JSON.stringify({model:$("ai-model").value,api_key:key||null,
+                fallback_model:$("ai-backup-model").value,
+                fallback_enabled:$("ai-failover").checked})});
             $("ai-key").value="";
             note("Configurazione GroqCloud salvata.",false);
             renderAISettings();
@@ -1869,7 +1919,9 @@
           try{
             await api("admin/ai/config",{method:"PUT",
               headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({model:$("ai-model").value.trim(),elimina_chiave:true})});
+              body:JSON.stringify({model:$("ai-model").value,elimina_chiave:true,
+                fallback_model:$("ai-backup-model").value,
+                fallback_enabled:$("ai-failover").checked})});
             note("Chiave eliminata.",false);renderAISettings();
           }catch(err){note(err.message,true);}
         };
@@ -1877,10 +1929,10 @@
           var btn=this;btn.disabled=true;
           try{
             var items=(await api("admin/ai/modelli")).modelli||[];
-            $("ai-models").innerHTML=items.map(function(m){
-              return '<option value="'+esc(m)+'"></option>';
-            }).join("");
-            var chosen=$("ai-model").value.trim();
+            savedModel=$("ai-model").value;
+            savedReserve=$("ai-backup-model").value;
+            fillModels(items);
+            var chosen=$("ai-model").value;
             note("Collegamento verificato: "+items.length+" modelli. "+
               (items.includes(chosen)?"Il modello scelto è disponibile.":
               "Il modello scelto non compare nell’elenco."),false);
@@ -1912,9 +1964,11 @@
              margine:Number($("ai-margine").value),
              stima_token:Number($("ai-stima").value)};
           try{
-            await api("admin/ai/limiti",{method:"PUT",
+            var selected=$("ai-model").value;
+            await api("admin/ai/limiti?model="+encodeURIComponent(selected),{method:"PUT",
               headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-            note("Limiti della coda aggiornati. Il saldo del provider non è modificato.",false);
+            note("Limiti del modello "+selected+" salvati. Le code già avviate conservano il loro profilo.",false);
+            await loadModelLimits(selected);
           }catch(err){note(err.message,true);}
         };
       }
@@ -1931,25 +1985,32 @@
         var token=state.aiPollToken;
         var locations=[];
         var ENTE_OK="ENTE COERENTE", DA_VEDERE="DA APPROFONDIRE", NA="NON APPLICABILE";
-        html('<div class="card mb"><h3 class="section-heading">Verifica requisito ente · Bando '+esc(code)+'</h3>'+
-          '<p class="caption">Classificazione istruttoria delle dichiarazioni di occupazione, '+
-          'azienda/ente, ateneo, profilo professionale e qualifica PICA. '+
-          'La coerenza istituzionale non prova il rapporto di dipendenza e non determina idoneità.</p>'+
+        html('<div class="card mb ru-ai-review-screen">'+
+          '<div class="ru-ai-review-heading"><div><h3 class="section-heading">Verifica requisito ente</h3>'+
+          '<p class="caption">Controllo istruttorio delle dichiarazioni PICA con GroqCloud; '+
+          'non determina ammissione né idoneità.</p></div>'+
+          '<div class="ru-ai-review-model">Modello: <strong id="ai-model-label">Caricamento…</strong> '+
+          '<button type="button" class="btn secondary" id="ai-open-settings">⚙ Impostazioni AI</button></div></div>'+
           '<div class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
           '<label style="flex:3;min-width:210px">Corso di Studio<select id="ai-cds"><option value="">Tutti i CdS</option></select></label>'+
           '<label>Sede<select id="ai-sede"><option value="">Tutte le sedi</option></select></label></div>'+
           '<div class="ru-ai-stats" id="ai-stats" aria-label="Filtri per classificazione">'+
-          '<button type="button" class="ru-ai-stat" data-ai-filter=""><span>Tutti</span><strong>—</strong></button>'+
-          '<button type="button" class="ru-ai-stat ru-ai-neutral" data-ai-filter="'+NA+'"><span>Non applicabile</span><strong>—</strong></button>'+
-          '<button type="button" class="ru-ai-stat ru-ai-ok" data-ai-filter="'+ENTE_OK+'"><span>Ente coerente</span><strong>—</strong></button>'+
-          '<button type="button" class="ru-ai-stat ru-ai-review" data-ai-filter="'+DA_VEDERE+'"><span>⚠ Da approfondire</span><strong>—</strong></button></div>'+
+          '<button type="button" class="ru-ai-stat" data-ai-filter=""><span>▤ Candidature totali</span><strong>—</strong></button>'+
+          '<button type="button" class="ru-ai-stat ru-ai-ok" data-ai-filter="'+ENTE_OK+'"><span>✓ Ente coerente</span><strong>—</strong></button>'+
+          '<button type="button" class="ru-ai-stat ru-ai-review" data-ai-filter="'+DA_VEDERE+'"><span>⚠ Da approfondire</span><strong>—</strong></button>'+
+          '<button type="button" class="ru-ai-stat ru-ai-neutral" data-ai-filter="'+NA+'"><span>— Non applicabile</span><strong>—</strong></button></div>'+
           '<label class="ru-ai-filter-label">Filtro esito<select id="ai-esito"><option value="">Tutti</option>'+
           '<option>'+NA+'</option><option>'+ENTE_OK+'</option><option>'+DA_VEDERE+'</option></select></label>'+
           '<label class="ru-ai-filter-label">Motivo approfondimento<select id="ai-tipo">'+'<option value="">Tutti i motivi</option></select></label>'+
           '<label style="display:block;max-width:350px;margin:0 0 12px">Cerca candidato o ID PICA'+
           '<input id="ai-ricerca" type="search" placeholder="Cognome, nome o ID PICA" '+
           'autocomplete="off" style="width:100%"></label>'+
-          '<div class="tablebox" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
+          '<div class="tablebox ru-ai-table-wrap" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
+          '<div class="ru-ai-legend"><strong>Legenda:</strong>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-ok">✓</b> Valore trasmesso nell’analisi corrente</span>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-pending">•</b> Campo disponibile, non ancora analizzato</span>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-missing">−</b> Campo non dichiarato</span>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-private">◆</b> Campo escluso per riservatezza</span></div>'+
           '<p class="caption" id="ai-counts" aria-live="polite"></p>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px;margin:12px 0">'+'<button class="btn secondary" type="button" id="ai-select-visible">Seleziona righe visualizzate</button>'+'<button class="btn secondary" type="button" id="ai-clear-selection">Deseleziona tutte</button>'+'<span id="ai-selected-count" class="caption">0 candidature selezionate</span></div>'+
           '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
@@ -1976,6 +2037,13 @@
           '<progress id="ai-progressbar" max="100" value="0" style="width:100%;height:12px"></progress>'+
           '<p id="ai-quota-live" class="caption">Le quote mostrate distinguono '+
           'stime locali e valori restituiti dal provider.</p></div>');
+        api("admin/ai/config").then(function(cfg){
+          if($("ai-model-label"))$("ai-model-label").textContent=cfg.model||"Non configurato";
+        }).catch(function(){if($("ai-model-label"))$("ai-model-label").textContent="Non disponibile";});
+        $("ai-open-settings").onclick=function(){
+          state.page="assistenteai";
+          render();
+        };
         var selectedEsito="";
         var selectedIds=new Set();
         var queueActive=false;
@@ -2034,10 +2102,52 @@
             $("ai-counts").textContent=data.visualizzati+" candidature visualizzate su "+
               data.totale+" · Regole "+data.versione_regole+
               ". Nessun esito determina automaticamente l'idoneità.";
+            // I cinque dati PICA restano leggibili nella stessa colonna, distinguendo
+            // testo originale, valore minimizzato ed effettiva provenienza AI.
+            var picaFields=[
+              ["BB","Azienda/ente"],["BD","Ateneo"],["BM","Occupazione"],
+              ["BA","Profilo professionale"],["BO","Qualifica"]
+            ];
+            function fieldMarkup(row,item){
+              var code=item[0],name=item[1];
+              var originals=row.campi_pica_originali||{},minimized=row.campi_pica_ai||{};
+              var raw=String(originals[name]||"").trim();
+              var min=String(minimized[name]||"NON DICHIARATO");
+              var blocked=min==="DENOMINAZIONE NON TRASMETTIBILE";
+              var absent=!raw||min==="NON DICHIARATO";
+              var sent=!!row.ai&&!row.valutazione_storica&&!blocked&&!absent&&
+                       (row.fonti_pica||[]).includes(name);
+              var title=blocked?"Escluso dai dati AI per prudenza sulla riservatezza":
+                        absent?"Non dichiarato nel PICA":
+                        sent?"Campo utilizzato nell'analisi AI corrente":
+                        "Valore PICA disponibile, senza analisi AI corrente";
+              var symbol=blocked?"◆":absent?"−":sent?"✓":"•";
+              var klass=blocked?"private":absent?"missing":sent?"ok":"pending";
+              var originalText=raw||"Non dichiarato";
+              var note=blocked?"Non trasmesso all’AI per riservatezza":
+                !absent&&min.trim().toUpperCase()!==raw.replace(/\s+/g," ").toUpperCase()?
+                "Testo inviabile: "+min:"";
+              return '<div class="ru-ai-field"><span class="ru-ai-field-label">'+
+                esc(code+" · "+name)+'</span><span class="ru-ai-field-value">'+
+                '<span class="'+(absent?"ru-ai-quiet":"")+'">'+esc(originalText)+'</span>'+
+                (note?'<small>'+esc(note)+'</small>':"")+'</span>'+
+                '<span class="ru-ai-icon ru-ai-icon-'+klass+'" title="'+esc(title)+'" aria-label="'+esc(title)+'">'+
+                symbol+'</span></div>';
+            }
+            function picaCard(row){
+              return '<div class="ru-ai-pica-card"><div class="ru-ai-pica-header">'+
+                 '<span>Requisito del bando:</span><strong>'+esc(row.requisito)+'</strong></div>'+
+                 picaFields.map(function(field){return fieldMarkup(row,field);}).join("")+
+                 '</div>';
+            }
             $("ai-results").innerHTML=data.casi.length?
-              '<table><thead><tr><th>Selez.</th><th>ID PICA</th><th>Candidato</th><th>CdS / sede</th><th>Requisito</th>'+
-              '<th>Ente dichiarato</th><th>Rapporto dichiarato</th><th>Esito</th><th>Motivo</th>'+
-              '<th>Verifiche</th><th>Nota AI, se presente</th></tr></thead><tbody>'+
+              '<table class="ru-ai-results-table"><colgroup>'+
+              '<col style="width:3.5%"><col style="width:13%"><col style="width:13.5%">'+
+              '<col style="width:34%"><col style="width:16%"><col style="width:20%"></colgroup>'+
+              '<thead><tr><th title="Seleziona candidature">Selez.</th>'+
+              '<th>Candidato / ID PICA</th><th>CdS / sede</th>'+
+              '<th>Requisito del bando e dichiarazioni PICA</th>'+
+              '<th>Esito AI / motivo</th><th>Verifiche e suggerimenti</th></tr></thead><tbody>'+
               data.casi.map(function(row){
                 var klass=row.valutazione_storica?"ru-ai-pill--na":
                   row.esito===ENTE_OK?"ru-ai-pill--ok":
@@ -2052,16 +2162,19 @@
                   esc(row.id_pica)+'" data-ai-select="'+Number(row.id)+'" '+
                   (canSelect?'':'disabled title="Dati non inviabili all’AI"')+
                   (selectedIds.has(Number(row.id))?' checked':'')+'>';
-                return '<tr><td>'+check+'</td><td>'+esc(row.id_pica)+'</td>'+
-                  '<td>'+esc(candidato||'[DA VERIFICARE]')+'</td>'+
-                  '<td>'+esc(row.cds+' · '+row.sede)+'</td>'+
-                  '<td>'+esc(row.requisito)+'</td>'+
-                  '<td>'+esc(row.categoria_ente)+(row.fonti_pica&&row.fonti_pica.length?'<div class="caption">Campi: '+esc(row.fonti_pica.join(', '))+'</div>':'')+'</td>'+
-                  '<td>'+esc(row.categoria_rapporto)+'</td>'+
-                  '<td><span class="ru-ai-pill '+klass+'">'+esc(label)+'</span></td>'+
-                  '<td>'+esc(row.tipo_approfondimento||'—')+'</td>'+
-                  '<td>'+esc(row.verifiche)+'</td>'+
-                  '<td>'+esc(ai.motivo||"—")+'</td></tr>';
+                var explanation=ai.motivo||row.motivo||"";
+                var modelLabel=ai.modello?'<div class="ru-ai-model-note">Modello: '+esc(ai.modello)+'</div>':
+                  '<div class="ru-ai-model-note">Verifica locale / AI non eseguita</div>';
+                return '<tr><td class="ru-ai-select-cell">'+check+'</td>'+
+                  '<td><strong class="ru-ai-candidate">'+esc(candidato||'[DA VERIFICARE]')+
+                  '</strong><span class="ru-ai-id">ID PICA: '+esc(row.id_pica)+'</span></td>'+
+                  '<td class="ru-ai-cds">'+esc(row.cds+' · '+row.sede)+'</td>'+
+                  '<td>'+picaCard(row)+'</td>'+
+                  '<td><span class="ru-ai-pill '+klass+'">'+esc(label)+'</span>'+
+                  '<strong class="ru-ai-result-title">'+esc(row.tipo_approfondimento||'—')+'</strong>'+
+                  (explanation?'<div class="ru-ai-reason">'+esc(explanation)+'</div>':'')+
+                  modelLabel+'</td>'+
+                  '<td class="ru-ai-checks">'+esc(row.verifiche)+'</td></tr>';
               }).join("")+'</tbody></table>':
               '<p class="caption">Nessuna candidatura per il filtro selezionato.</p>';
             filtraCandidati();
@@ -2075,7 +2188,7 @@
             // Ricerca esclusivamente nel nome e nell'ID PICA: nessun dato
             // identificativo e' trasmesso al server durante la digitazione.
             var cells=tr.querySelectorAll("td");
-            var searchText=(cells[1]?.textContent||"")+" "+(cells[2]?.textContent||"");
+            var searchText=cells[1]?.textContent||"";
             tr.hidden=!!term&&!searchText.toLocaleLowerCase("it").includes(term);
           });
         }
@@ -2128,6 +2241,8 @@
               if(job.stato==="attesa_quota")
                 message+=" Pausa per quota: ripresa automatica fra circa "+
                   (job.riprende_tra||0)+" secondi.";
+              if(job.modello_attivo)message+=" Modello attivo: "+job.modello_attivo+
+                (job.failover_attivo?" · Riserva: "+job.modello_riserva:"")+".";
               if(job.ultimo_errore)message+=" "+job.ultimo_errore;
               $("ai-job-status").textContent=message;
             }else $("ai-job-status").textContent="Nessuna coda attivata per questo CdS/sede.";
