@@ -1792,8 +1792,11 @@
           'Azienda/ente, Ateneo, Occupazione, Profilo e Qualifica minimizzati e requisito; ID PICA, nominativi, '+
           'CF, documenti e dichiarazioni integrali rimangono locali. I singoli campi sospetti non sono inviati.</div>'+
           '<form id="ai-config" class="actions" style="align-items:end;flex-wrap:wrap;gap:12px">'+
-          '<label>Modello GroqCloud<input id="ai-model" maxlength="125" list="ai-models" '+
-          'placeholder="ID modello" required></label><datalist id="ai-models"></datalist>'+
+          '<label>Modello principale GroqCloud<select id="ai-model" required>'+
+          '<option value="">Caricamento modelli…</option></select></label>'+
+          '<label>Modello di riserva<select id="ai-backup-model"><option value="">Nessuno</option></select></label>'+
+          '<label class="ru-ai-switch"><input id="ai-failover" type="checkbox">'+
+          'Passaggio automatico alla riserva</label>'+
           '<label>Chiave API (per inserire o sostituire)<input id="ai-key" type="password" '+
           'maxlength="256" autocomplete="new-password" placeholder="Non viene mostrata dopo il salvataggio"></label>'+
           '<button type="submit" class="btn">Salva configurazione</button>'+
@@ -1802,11 +1805,12 @@
           '<button type="button" class="btn secondary" id="ai-clear-key">Elimina chiave</button></form>'+
           '<p id="ai-key-state" class="caption" aria-live="polite"></p></div>'+
           '<div class="card"><h3 class="section-heading">Limiti e margine di sicurezza della coda</h3>'+
-          '<p class="caption">Valori di partenza per openai/gpt-oss-120b: '+
+          '<p class="caption">Limiti per modello selezionato: <strong id="ai-limits-model">—</strong>. Valori di partenza per openai/gpt-oss-120b: '+
           '30 richieste/min, 8.000 token/min, 1.000 richieste/giorno e '+
           '200.000 token/giorno. Sono limiti da verificare nella propria console. '+
           'RankUP utilizza un margine prudenziale e i segnali HTTP 429. '+
           'Le stime locali non rappresentano il residuo ufficiale dell’account.</p>'+
+          '<p class="caption" id="ai-quota-profile-status"></p>'+
           '<form id="ai-quotas" class="ru-ai-quotas">'+
           '<label>Richieste/minuto<input id="ai-rpm" type="number" min="1" max="1000" required></label>'+
           '<label>Token/minuto<input id="ai-tpm" type="number" min="100" max="1000000" required></label>'+
@@ -1839,18 +1843,62 @@
                                       api("admin/ai/istruzioni")]);
           if(state.page!=="assistenteai")return;
           var cfg=data[0],lim=data[1].limiti||{};
+          var savedModel=cfg.model||"";
+          var savedReserve=cfg.fallback_model||"";
+          function fillModels(items){
+            var models=[...new Set([savedModel,savedReserve,...items].filter(Boolean))];
+            $("ai-model").innerHTML=models.map(function(m){
+              return '<option value="'+esc(m)+'">'+esc(m)+'</option>';
+            }).join("");
+            $("ai-backup-model").innerHTML='<option value="">Nessuno</option>'+
+              models.map(function(m){
+                return '<option value="'+esc(m)+'">'+esc(m)+'</option>';
+              }).join("");
+            $("ai-model").value=savedModel;
+            $("ai-backup-model").value=savedReserve;
+          }
+          fillModels([]);
+          $("ai-failover").checked=!!cfg.fallback_enabled;
+          async function loadModelLimits(model){
+            if(!model)return;
+            var info=await api("admin/ai/limiti?model="+encodeURIComponent(model));
+            if($("ai-model").value!==model)return;
+            var limits=info.limiti||{};
+            [["rpm","ai-rpm"],["tpm","ai-tpm"],["rpd","ai-rpd"],["tpd","ai-tpd"],
+             ["margine","ai-margine"],["stima_token","ai-stima"]].forEach(function(pair){
+              $(pair[1]).value=limits[pair[0]]==null?"":limits[pair[0]];
+            });
+            $("ai-limits-model").textContent=model;
+            $("ai-quota-profile-status").textContent=info.profilo_configurato?
+              "Profilo salvato per questo modello.":
+              "Profilo non ancora salvato: confronta i limiti con la console GroqCloud.";
+          }
+          $("ai-model").onchange=function(){
+            loadModelLimits(this.value).catch(function(err){note(err.message,true);});
+          };
+          $("ai-backup-model").onchange=function(){
+            if(this.value===$("ai-model").value && this.value){
+              $("ai-failover").checked=false;
+              note("Il modello di riserva deve essere diverso dal principale.",true);
+            }
+          };
           $("ai-guidance-text").value=data[2].testo||"";
           $("ai-guidance-reset").onclick=function(){
             $("ai-guidance-text").value=data[2].predefinito||"";
           };
-          $("ai-model").value=cfg.model||"";
+          $("ai-model").value=savedModel;
           $("ai-key-state").textContent=cfg.chiave_configurata?
             "Chiave API presente nel volume privato dell’add-on.":
             "Chiave API non configurata.";
-          [["rpm","ai-rpm"],["tpm","ai-tpm"],["rpd","ai-rpd"],["tpd","ai-tpd"],
-           ["margine","ai-margine"],["stima_token","ai-stima"]].forEach(function(pair){
-            $(pair[1]).value=lim[pair[0]]==null?"":lim[pair[0]];
-          });
+          await loadModelLimits(savedModel);
+          // Il select mostra sempre l'intero catalogo, non soltanto il testo
+          // che coincide con la selezione corrente (vecchio datalist).
+          try{
+            var items=(await api("admin/ai/modelli")).modelli||[];
+            fillModels(items);
+          }catch(err){
+            note("Catalogo GroqCloud non disponibile: "+err.message,true);
+          }
         }catch(err){note(err.message,true);}
         $("ai-config").onsubmit=async function(ev){
           ev.preventDefault();
@@ -1858,7 +1906,9 @@
             var key=$("ai-key").value.trim();
             await api("admin/ai/config",{method:"PUT",
               headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({model:$("ai-model").value.trim(),api_key:key||null})});
+              body:JSON.stringify({model:$("ai-model").value,api_key:key||null,
+                fallback_model:$("ai-backup-model").value,
+                fallback_enabled:$("ai-failover").checked})});
             $("ai-key").value="";
             note("Configurazione GroqCloud salvata.",false);
             renderAISettings();
@@ -1869,7 +1919,9 @@
           try{
             await api("admin/ai/config",{method:"PUT",
               headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({model:$("ai-model").value.trim(),elimina_chiave:true})});
+              body:JSON.stringify({model:$("ai-model").value,elimina_chiave:true,
+                fallback_model:$("ai-backup-model").value,
+                fallback_enabled:$("ai-failover").checked})});
             note("Chiave eliminata.",false);renderAISettings();
           }catch(err){note(err.message,true);}
         };
@@ -1877,10 +1929,10 @@
           var btn=this;btn.disabled=true;
           try{
             var items=(await api("admin/ai/modelli")).modelli||[];
-            $("ai-models").innerHTML=items.map(function(m){
-              return '<option value="'+esc(m)+'"></option>';
-            }).join("");
-            var chosen=$("ai-model").value.trim();
+            savedModel=$("ai-model").value;
+            savedReserve=$("ai-backup-model").value;
+            fillModels(items);
+            var chosen=$("ai-model").value;
             note("Collegamento verificato: "+items.length+" modelli. "+
               (items.includes(chosen)?"Il modello scelto è disponibile.":
               "Il modello scelto non compare nell’elenco."),false);
@@ -1912,9 +1964,11 @@
              margine:Number($("ai-margine").value),
              stima_token:Number($("ai-stima").value)};
           try{
-            await api("admin/ai/limiti",{method:"PUT",
+            var selected=$("ai-model").value;
+            await api("admin/ai/limiti?model="+encodeURIComponent(selected),{method:"PUT",
               headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-            note("Limiti della coda aggiornati. Il saldo del provider non è modificato.",false);
+            note("Limiti del modello "+selected+" salvati. Le code già avviate conservano il loro profilo.",false);
+            await loadModelLimits(selected);
           }catch(err){note(err.message,true);}
         };
       }
