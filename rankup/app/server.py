@@ -36,6 +36,7 @@ from ente_check import evaluate_ente
 from ai_groq import (DEFAULT_GUIDANCE, REVISED_GUIDANCE, GroqSecrets, GroqLimit, role_category, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
 from ai_ente_report import render_ente_report_pdf
+from ai_commission_status import enrich_commission_status, STATO_GRADUATORIA_FILTRI
 from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
                            DA_APPROFONDIRE, RULES_VERSION)
 from ai_ente_queue import (ensure_schema as ai_queue_schema, create_job as ai_create_job,
@@ -3246,16 +3247,19 @@ def salva_limiti_ai(body:AIQuotaConfig,request:Request,model:str=""):
 
 
 @app.get("/api/admin/ai/verifiche")
-def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str="",tipo:str=""):
+def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str="",tipo:str="",graduatoria:str=""):
     """Tutte le candidature PICA, anche quelle mai inviate all'AI."""
     require_admin(request)
     if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
         fail("Filtro esito non valido",400)
     if len(tipo)>90:
         fail("Filtro tipo troppo lungo",400)
+    if graduatoria not in STATO_GRADUATORIA_FILTRI:
+        fail("Filtro stato graduatoria non valido",400)
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
         rows=ai_cases(db,bid,candidates,GROQ.model(),GROQ.guidance())
+        enrich_commission_status(db,bid,rows)
     counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
     tipi={}
     for entry in rows:
@@ -3266,6 +3270,9 @@ def verifiche_ai_bando(request:Request,code:str,cds:str="",sede:str="",esito:str
         rows=[r for r in rows if r["esito"]==esito]
     if tipo:
         rows=[r for r in rows if r.get("tipo_approfondimento")==tipo]
+    if graduatoria:
+        rows=[r for r in rows
+              if r["commissione"]["stato_graduatoria"]==graduatoria]
     return {"casi":rows,"totale":len(candidates),"visualizzati":len(rows),
             "conteggi":counts,"conteggi_tipo":tipi,"versione_regole":RULES_VERSION,
             "avvertenza":"La coerenza istituzionale dell'ente non prova il "
@@ -3409,15 +3416,18 @@ def arresta_worker_ai():
 
 @app.get("/api/admin/ai/report.pdf")
 def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
-                  esito: str="",tipo: str=""):
+                  esito: str="",tipo: str="",graduatoria: str=""):
     """Report per CdS/sede: solo Admin, nessuna chiamata GroqCloud."""
     require_admin(request)
     if esito not in ("",NON_APPLICABILE,ENTE_COERENTE,DA_APPROFONDIRE):
         fail("Filtro esito non valido",400)
+    if graduatoria not in STATO_GRADUATORIA_FILTRI:
+        fail("Filtro stato graduatoria non valido",400)
     code=valid_code(code)
     with connect() as db:
         bid,candidates=_ai_scope(db,code,cds,sede)
         results=ai_cases(db,bid,candidates,GROQ.model(),GROQ.guidance())
+        enrich_commission_status(db,bid,results)
     counts={NON_APPLICABILE:0,ENTE_COERENTE:0,DA_APPROFONDIRE:0}
     for item in results:
         counts[item["esito"]]+=1
@@ -3425,10 +3435,13 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
         fail("Filtro tipo troppo lungo",400)
     included=[item for item in results
               if (not esito or item["esito"]==esito)
-              and (not tipo or item.get("tipo_approfondimento")==tipo)]
+              and (not tipo or item.get("tipo_approfondimento")==tipo)
+              and (not graduatoria or
+                   item["commissione"]["stato_graduatoria"]==graduatoria)]
     payload=render_ente_report_pdf(
         code,cds or "Tutti i CdS",sede or "Tutte le sedi",
-        included,counts,filter_text=" / ".join(x for x in (esito,tipo) if x))
+        included,counts,filter_text=" / ".join(x for x in (esito,tipo,
+            "Graduatoria: "+graduatoria if graduatoria else "") if x))
     # Nome leggibile anche quando si scaricano report di CdS differenti:
     # sostituzione conservativa per sistemi Windows.
     def part(value):
@@ -3437,10 +3450,11 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
                       "ascii","ignore").decode("ascii").upper()).strip("_")
         return (normal or "TUTTI")[:24].rstrip("_")
     label="_".join([part(code),part(cds),part(sede),
-                    part(esito or "TUTTI"),part(tipo or "TUTTI")])
+                    part(esito or "TUTTI"),part(tipo or "TUTTI"),
+                    part(graduatoria or "TUTTI")])
     # Digest del filtro originale per evitare collisioni fra CdS molto lunghi.
     unique=hashlib.sha256(
-        json.dumps([code,cds,sede,esito,tipo],ensure_ascii=False).encode("utf-8")
+        json.dumps([code,cds,sede,esito,tipo,graduatoria],ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:6].upper()
     filename="RANKUP_ENTE_"+label[:55].rstrip("_")+"_"+unique+".pdf"
     return Response(content=payload,media_type="application/pdf",headers={
