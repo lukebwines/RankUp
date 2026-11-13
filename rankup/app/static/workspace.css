@@ -510,3 +510,67 @@ html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
 .ru-workspace #ai-model,.ru-workspace #ai-backup-model{max-width:270px;min-width:185px}
 @media(max-width:1050px){.ru-workspace .ru-ai-review-heading .section-heading{font-size:20px}.ru-workspace .ru-ai-results-table{min-width:1170px}}
 @media(max-width:690px){.ru-workspace .ru-ai-results-table{min-width:1100px}.ru-workspace .ru-ai-review-model{width:100%}.ru-workspace .ru-ai-pica-card{font-size:10px}}
+
+
+/* RankUP 1.0.18 — filtri allineati ed esito Commissione fedele al dato ufficiale. */
+.ru-workspace .ru-ai-filters{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  align-items:end;gap:16px;margin:20px 0 22px;
+  border:1px solid var(--ru-stroke);border-radius:12px;
+  background:var(--ru-surface-alt);padding:14px 16px;
+}
+.ru-workspace .ru-ai-filters .ru-ai-filter-label{
+  display:flex;flex-direction:column;align-items:stretch;
+  gap:7px;max-width:none;width:100%;min-width:0;margin:0;
+  color:var(--ru-ink);font-size:12px;font-weight:750;
+}
+.ru-workspace .ru-ai-filters select,
+.ru-workspace .ru-ai-filters input{
+  width:100%;max-width:100%;min-width:0;min-height:43px;margin:0;
+  padding:9px 12px;border:1px solid var(--ru-stroke);
+  border-radius:9px;background:var(--ru-surface);
+  color:var(--ru-ink);font-size:13px;font-weight:600;
+  box-sizing:border-box;
+}
+.ru-workspace .ru-ai-filters select:focus-visible,
+.ru-workspace .ru-ai-filters input:focus-visible{outline:2px solid var(--ru-accent);outline-offset:2px}
+.ru-workspace .ru-ai-results-table{min-width:1320px}
+.ru-workspace .ru-ai-results-table thead th:first-child{font-size:11px;text-align:center;white-space:normal}
+.ru-workspace .ru-ai-select-cell{padding:10px 5px!important;text-align:center}
+.ru-workspace .ru-ai-select-cell input[type="checkbox"]{
+  position:static!important;display:block;float:none!important;
+  width:19px;height:19px;min-width:19px;min-height:19px;
+  margin:0 auto!important;padding:0!important;
+  transform:none!important;vertical-align:middle;accent-color:#62b5ef;
+}
+.ru-workspace .ru-ai-results-table .ru-ai-candidate{overflow-wrap:anywhere}
+.ru-workspace .ru-ai-results-table .ru-ai-id{white-space:normal;overflow-wrap:anywhere}
+.ru-workspace .ru-ai-commission-cell{font-size:12px;line-height:1.6}
+.ru-workspace .ru-ai-commission-pill{
+  display:inline-flex;align-items:center;gap:7px;max-width:100%;
+  padding:9px 11px;border-radius:10px;font-weight:800;font-size:12px;
+  line-height:1.35;border:1px solid var(--ru-stroke);white-space:normal;
+}
+.ru-workspace .ru-ai-commission-final{
+  background:#11613e;color:white;border-color:#50b985;
+}
+.ru-workspace .ru-ai-commission-provisional{
+  background:var(--ru-success-surface);color:var(--ru-success);
+  border-color:var(--ru-success);
+}
+.ru-workspace .ru-ai-commission-pending{
+  background:var(--ru-surface-alt);color:var(--ru-muted);border-color:var(--ru-stroke);
+}
+.ru-workspace .ru-ai-commission-rejected{
+  background:var(--ru-danger-surface);color:var(--ru-danger);border-color:var(--ru-danger);
+}
+.ru-workspace .ru-ai-rank-detail{font-size:11px;margin:8px 0 0 3px;color:var(--ru-ink)}
+.ru-workspace .ru-ai-icon-commission-ok{background:#11613e;color:#fff}
+.ru-workspace .ru-ai-icon-commission-no{background:var(--ru-danger);color:#fff}
+@media(max-width:1100px){
+  .ru-workspace .ru-ai-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:690px){
+  .ru-workspace .ru-ai-filters{grid-template-columns:1fr;gap:10px;padding:12px}
+  .ru-workspace .ru-ai-results-table{min-width:1150px}
+}
