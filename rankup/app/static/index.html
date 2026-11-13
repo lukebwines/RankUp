@@ -2205,9 +2205,9 @@
             }
             $("ai-results").innerHTML=data.casi.length?
               '<table class="ru-ai-results-table"><colgroup>'+
-              '<col style="width:4.5%"><col style="width:13%"><col style="width:13%">'+
+              '<col style="width:68px"><col style="width:13%"><col style="width:13%">'+
               '<col style="width:34%"><col style="width:20%"><col style="width:15.5%"></colgroup>'+
-              '<thead><tr><th title="Seleziona candidature">Selez.</th>'+
+              '<thead><tr><th class="ru-ai-select-head" title="Seleziona candidature">Selez.</th>'+
               '<th>Candidato / ID PICA</th><th>CdS / sede</th>'+
               '<th>Requisito del bando e dichiarazioni PICA</th>'+
               '<th>Esito AI / motivo</th><th>Esito Commissione</th></tr></thead><tbody>'+
@@ -2250,7 +2250,7 @@
                       '</div>';
                   }
                 }
-                return '<tr><td class="ru-ai-select-cell">'+check+'</td>'+
+                return '<tr><td class="ru-ai-select-cell"><span class="ru-ai-select-inner">'+check+'</span></td>'+
                   '<td><strong class="ru-ai-candidate">'+esc(candidato||'[DA VERIFICARE]')+
                   '</strong><span class="ru-ai-id">ID PICA: '+esc(row.id_pica)+'</span></td>'+
                   '<td class="ru-ai-cds">'+esc(row.cds+' · '+row.sede)+'</td>'+
