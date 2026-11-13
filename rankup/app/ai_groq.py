@@ -597,6 +597,14 @@ class GroqSecrets:
             raise ValueError("Il modello di riserva deve essere diverso dal principale")
         if enabled and reserve not in self.configured_models():
             raise ValueError("Salvare prima i limiti del modello di riserva")
+        # Prima di cambiare il modello, associa il vecchio file quota singolo
+        # al modello cui apparteneva. Non spostare involontariamente i limiti.
+        old_quotas=self._quota_document()
+        previous=self.model()
+        if previous and old_quotas and "profiles" not in old_quotas and previous!=model:
+            self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
+            _atomic_secret(self.quota_file,json.dumps({
+                "profiles":{previous:old_quotas}},sort_keys=True))
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
         if key:
             _atomic_secret(self.file,key)
