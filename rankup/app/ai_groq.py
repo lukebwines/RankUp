@@ -29,7 +29,7 @@ API_CHAT = "https://api.groq.com/openai/v1/chat/completions"
 API_MODELS = "https://api.groq.com/openai/v1/models"
 # Identificazione esplicita del client: Python-urllib/3.12 provoca un
 # blocco Cloudflare 1010 nell'ambiente Home Assistant testato.
-GROQ_USER_AGENT = "RankUP/1.0.16"
+GROQ_USER_AGENT = "RankUP/1.0.17"
 DEFAULT_QUOTA = {"rpm":30,"tpm":8000,"rpd":1000,"tpd":200000,
                  "margine":80,"stima_token":950}
 _ALLOWED_RESULTS = {"INDIZI COERENTI", "POSSIBILE DISALLINEAMENTO", "DATI INSUFFICIENTI"}
@@ -510,19 +510,58 @@ class GroqSecrets:
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
         _atomic_secret(self.guidance_file,value)
 
-    def limits(self) -> dict:
+    def failover(self) -> dict:
+        """Configurazione dei modelli; la coda ne acquisisce una copia all'avvio."""
         try:
-            doc=json.loads(self.quota_file.read_text("utf-8"))
-            if not isinstance(doc,dict):
-                return dict(DEFAULT_QUOTA)
-            values={k:int(doc.get(k,v)) for k,v in DEFAULT_QUOTA.items()}
-            if values["margine"]<50 or values["margine"]>95:
+            doc=json.loads(self.model_file.read_text("utf-8"))
+        except (OSError,ValueError,TypeError):
+            doc={}
+        if not isinstance(doc,dict):
+            doc={}
+        primary=self.model()
+        reserve=str(doc.get("fallback_model") or "")
+        if not MODEL_RE.fullmatch(reserve) or reserve==primary:
+            reserve=""
+        return {"fallback_model":reserve,
+                "fallback_enabled":bool(doc.get("fallback_enabled")) and bool(reserve)}
+
+    def _quota_document(self) -> dict:
+        try:
+            data=json.loads(self.quota_file.read_text("utf-8"))
+            return data if isinstance(data,dict) else {}
+        except (OSError,ValueError,TypeError):
+            return {}
+
+    def configured_models(self) -> list[str]:
+        """Solo i profili esplicitamente configurati sono usabili come riserva."""
+        doc=self._quota_document()
+        if isinstance(doc.get("profiles"),dict):
+            return sorted(m for m in doc["profiles"] if MODEL_RE.fullmatch(m))
+        return [self.model()] if doc else []
+
+    def limits(self,model: str|None=None) -> dict:
+        selected=model or self.model()
+        doc=self._quota_document()
+        if isinstance(doc.get("profiles"),dict):
+            source=doc["profiles"].get(selected,DEFAULT_QUOTA)
+        else:
+            # Migrazione trasparente del precedente file singolo:
+            # le quote personalizzate restano assegnate al modello attuale.
+            source=doc if selected==self.model() else DEFAULT_QUOTA
+        if not isinstance(source,dict):
+            source=DEFAULT_QUOTA
+        try:
+            values={k:int(source.get(k,v)) for k,v in DEFAULT_QUOTA.items()}
+            if not 50<=values["margine"]<=95 or any(v<1 for v in values.values()):
                 return dict(DEFAULT_QUOTA)
             return values
-        except (OSError,ValueError,TypeError):
+        except (ValueError,TypeError,OverflowError):
             return dict(DEFAULT_QUOTA)
 
-    def save_limits(self,values:dict) -> None:
+    def save_limits(self,values:dict,model: str|None=None) -> None:
+        selected=model or self.model()
+        if not selected or not MODEL_RE.fullmatch(selected):
+            raise ValueError("Selezionare un modello prima dei limiti")
         if set(values)!=set(DEFAULT_QUOTA):
             raise ValueError("Parametri della quota non validi")
         for key,value in values.items():
@@ -532,21 +571,40 @@ class GroqSecrets:
             raise ValueError("Margine ammesso: 50-95 per cento")
         if values["stima_token"]>values["tpm"]*values["margine"]//100:
             raise ValueError("La stima per richiesta supera il budget TPM")
+        old=self._quota_document()
+        if isinstance(old.get("profiles"),dict):
+            profiles=dict(old["profiles"])
+        else:
+            profiles={self.model():old} if old and self.model() else {}
+        profiles[selected]=dict(values)
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
-        _atomic_secret(self.quota_file,json.dumps(values,sort_keys=True))
+        _atomic_secret(self.quota_file,json.dumps({"profiles":profiles},sort_keys=True))
 
-    def save(self,key: str|None,model: str) -> None:
+    def save(self,key: str|None,model: str,
+             fallback_model: str|None=None,
+             fallback_enabled: bool|None=None) -> None:
         if model and not MODEL_RE.fullmatch(model):
             raise ValueError("Identificativo modello non valido")
         if key is not None and key:
             if len(key)<12 or len(key)>256 or any(c.isspace() for c in key):
                 raise ValueError("Chiave API non valida")
+        current=self.failover()
+        reserve=current["fallback_model"] if fallback_model is None else fallback_model.strip()
+        enabled=current["fallback_enabled"] if fallback_enabled is None else bool(fallback_enabled)
+        if reserve and not MODEL_RE.fullmatch(reserve):
+            raise ValueError("Identificativo modello di riserva non valido")
+        if enabled and (not reserve or reserve==model):
+            raise ValueError("Il modello di riserva deve essere diverso dal principale")
+        if enabled and reserve not in self.configured_models():
+            raise ValueError("Salvare prima i limiti del modello di riserva")
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
         if key:
             _atomic_secret(self.file,key)
         elif key=="":
             self.file.unlink(missing_ok=True)
-        _atomic_secret(self.model_file,json.dumps({"model":model}))
+        _atomic_secret(self.model_file,json.dumps({
+            "model":model,"fallback_model":reserve,
+            "fallback_enabled":enabled},sort_keys=True))
 
 
 def _atomic_secret(path:Path,value:str)->None:
