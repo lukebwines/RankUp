@@ -1999,18 +1999,26 @@
           '<button type="button" class="ru-ai-stat ru-ai-ok" data-ai-filter="'+ENTE_OK+'"><span>✓ Ente coerente</span><strong>—</strong></button>'+
           '<button type="button" class="ru-ai-stat ru-ai-review" data-ai-filter="'+DA_VEDERE+'"><span>⚠ Da approfondire</span><strong>—</strong></button>'+
           '<button type="button" class="ru-ai-stat ru-ai-neutral" data-ai-filter="'+NA+'"><span>— Non applicabile</span><strong>—</strong></button></div>'+
+          '<div class="ru-ai-filters">'+
           '<label class="ru-ai-filter-label">Filtro esito<select id="ai-esito"><option value="">Tutti</option>'+
           '<option>'+NA+'</option><option>'+ENTE_OK+'</option><option>'+DA_VEDERE+'</option></select></label>'+
-          '<label class="ru-ai-filter-label">Motivo approfondimento<select id="ai-tipo">'+'<option value="">Tutti i motivi</option></select></label>'+
-          '<label style="display:block;max-width:350px;margin:0 0 12px">Cerca candidato o ID PICA'+
+          '<label class="ru-ai-filter-label">Motivo approfondimento<select id="ai-tipo"><option value="">Tutti i motivi</option></select></label>'+
+          '<label class="ru-ai-filter-label">Stato graduatoria<select id="ai-graduatoria">'+
+          '<option value="">Tutti</option><option value="inserito">Inserito in graduatoria</option>'+
+          '<option value="non_inserito">Non inserito in graduatoria</option>'+
+          '<option value="da_valutare">Da valutare</option></select></label>'+
+          '<label class="ru-ai-filter-label">Cerca candidato o ID PICA'+
           '<input id="ai-ricerca" type="search" placeholder="Cognome, nome o ID PICA" '+
-          'autocomplete="off" style="width:100%"></label>'+
+          'autocomplete="off"></label></div>'+
           '<div class="tablebox ru-ai-table-wrap" id="ai-results"><p class="caption">Caricamento dei dati PICA…</p></div>'+
           '<div class="ru-ai-legend"><strong>Legenda:</strong>'+
           '<span><b class="ru-ai-icon ru-ai-icon-ok">✓</b> Valore trasmesso nell’analisi corrente</span>'+
           '<span><b class="ru-ai-icon ru-ai-icon-pending">•</b> Campo disponibile, non ancora analizzato</span>'+
           '<span><b class="ru-ai-icon ru-ai-icon-missing">−</b> Campo non dichiarato</span>'+
-          '<span><b class="ru-ai-icon ru-ai-icon-private">◆</b> Campo escluso per riservatezza</span></div>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-private">◆</b> Campo escluso per riservatezza</span>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-commission-ok">✓</b> Ammesso in graduatoria definitiva</span>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-pending">◷</b> Da valutare / graduatoria provvisoria</span>'+
+          '<span><b class="ru-ai-icon ru-ai-icon-commission-no">×</b> Non idoneo / escluso</span></div>'+
           '<p class="caption" id="ai-counts" aria-live="polite"></p>'+
           '<div class="actions" style="flex-wrap:wrap;gap:8px;margin:12px 0">'+'<button class="btn secondary" type="button" id="ai-select-visible">Seleziona righe visualizzate</button>'+'<button class="btn secondary" type="button" id="ai-clear-selection">Deseleziona tutte</button>'+'<span id="ai-selected-count" class="caption">0 candidature selezionate</span></div>'+
           '<a id="ai-report" class="btn secondary" href="#" target="_blank" rel="noopener">Report PDF per CdS / filtro</a></div>'+
@@ -2060,6 +2068,7 @@
           if($("ai-sede").value)p.set("sede",$("ai-sede").value);
           if(includeFilter && $("ai-esito").value)p.set("esito",$("ai-esito").value);
           if(includeFilter && $("ai-tipo").value)p.set("tipo",$("ai-tipo").value);
+          if(includeFilter && $("ai-graduatoria").value)p.set("graduatoria",$("ai-graduatoria").value);
           return p;
         }
         function updateReport(){
@@ -2142,12 +2151,12 @@
             }
             $("ai-results").innerHTML=data.casi.length?
               '<table class="ru-ai-results-table"><colgroup>'+
-              '<col style="width:3.5%"><col style="width:13%"><col style="width:13.5%">'+
-              '<col style="width:34%"><col style="width:16%"><col style="width:20%"></colgroup>'+
+              '<col style="width:4.5%"><col style="width:13%"><col style="width:13%">'+
+              '<col style="width:34%"><col style="width:20%"><col style="width:15.5%"></colgroup>'+
               '<thead><tr><th title="Seleziona candidature">Selez.</th>'+
               '<th>Candidato / ID PICA</th><th>CdS / sede</th>'+
               '<th>Requisito del bando e dichiarazioni PICA</th>'+
-              '<th>Esito AI / motivo</th><th>Verifiche e suggerimenti</th></tr></thead><tbody>'+
+              '<th>Esito AI / motivo</th><th>Esito Commissione</th></tr></thead><tbody>'+
               data.casi.map(function(row){
                 var klass=row.valutazione_storica?"ru-ai-pill--na":
                   row.esito===ENTE_OK?"ru-ai-pill--ok":
@@ -2165,6 +2174,28 @@
                 var explanation=ai.motivo||row.motivo||"";
                 var modelLabel=ai.modello?'<div class="ru-ai-model-note">Modello: '+esc(ai.modello)+'</div>':
                   '<div class="ru-ai-model-note">Verifica locale / AI non eseguita</div>';
+                var commission=row.commissione||{};
+                var cmState=commission.stato_graduatoria||"da_valutare";
+                var cmStatus=commission.stato_commissione||"Da valutare";
+                var cmClass=cmState==="inserito"?
+                  (commission.graduatoria_definitiva?"ru-ai-commission-final":"ru-ai-commission-provisional"):
+                  cmState==="non_inserito"?"ru-ai-commission-rejected":"ru-ai-commission-pending";
+                var cmIcon=cmState==="inserito"?"✓":cmState==="non_inserito"?"×":"◷";
+                var cmDetails="";
+                if(commission.posizione!=null && Number.isInteger(Number(commission.posizione)) &&
+                   Number(commission.posizione)>0){
+                  cmDetails+='<div class="ru-ai-rank-detail">⚑ '+
+                    (commission.graduatoria_definitiva?"Posizione":"Posizione provvisoria")+
+                    ': '+esc(commission.posizione)+'</div>';
+                }
+                if(commission.punteggio!=null && String(commission.punteggio).trim()){
+                  var points=Number(commission.punteggio);
+                  if(Number.isFinite(points)){
+                    cmDetails+='<div class="ru-ai-rank-detail">▥ Punteggio: '+
+                      points.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})+
+                      '</div>';
+                  }
+                }
                 return '<tr><td class="ru-ai-select-cell">'+check+'</td>'+
                   '<td><strong class="ru-ai-candidate">'+esc(candidato||'[DA VERIFICARE]')+
                   '</strong><span class="ru-ai-id">ID PICA: '+esc(row.id_pica)+'</span></td>'+
@@ -2174,7 +2205,9 @@
                   '<strong class="ru-ai-result-title">'+esc(row.tipo_approfondimento||'—')+'</strong>'+
                   (explanation?'<div class="ru-ai-reason">'+esc(explanation)+'</div>':'')+
                   modelLabel+'</td>'+
-                  '<td class="ru-ai-checks">'+esc(row.verifiche)+'</td></tr>';
+                  '<td class="ru-ai-commission-cell"><span class="ru-ai-commission-pill '+cmClass+'">'+
+                  '<span aria-hidden="true">'+cmIcon+'</span> '+esc(cmStatus)+'</span>'+
+                  cmDetails+'</td></tr>';
               }).join("")+'</tbody></table>':
               '<p class="caption">Nessuna candidatura per il filtro selezionato.</p>';
             filtraCandidati();
@@ -2296,6 +2329,7 @@
         $("ai-sede").onchange=function(){selectedIds.clear();updateSelectionButtons();loadResults();poll();updateReport();};
         $("ai-esito").onchange=function(){updateReport();loadResults();};
         $("ai-tipo").onchange=function(){updateReport();loadResults();};
+        $("ai-graduatoria").onchange=function(){updateReport();loadResults();};
         document.querySelectorAll("[data-ai-filter]").forEach(function(btn){
           btn.onclick=function(){setEsito(this.dataset.aiFilter);};
         });
