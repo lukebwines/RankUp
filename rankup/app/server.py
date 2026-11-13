@@ -36,6 +36,7 @@ from ente_check import evaluate_ente
 from ai_groq import (DEFAULT_GUIDANCE, REVISED_GUIDANCE, GroqSecrets, GroqLimit, role_category, prepare_minimal_payload, source_hash as groq_source_hash,
                      analyze as groq_analyze, models as groq_models, report_pdf as groq_report_pdf)
 from ai_ente_report import render_ente_report_pdf
+from ai_ente_excel import render_ente_report_xlsx, MIME_XLSX
 from ai_commission_status import enrich_commission_status, STATO_GRADUATORIA_FILTRI
 from ai_ente_rules import (classifica_ente, NON_APPLICABILE, ENTE_COERENTE,
                            DA_APPROFONDIRE, RULES_VERSION)
@@ -3460,6 +3461,40 @@ def report_ai_pdf(request: Request,code: str,cds: str="",sede: str="",
     return Response(content=payload,media_type="application/pdf",headers={
         "Content-Disposition":'attachment; filename="'+filename+'"',
         "Cache-Control":"no-store"})
+
+
+def _filtra_ricerca_candidati(rows:list[dict],ricerca:str) -> list[dict]:
+    """Il filtro testuale utilizza solo nominativo e ID PICA, come nella UI."""
+    if len(ricerca)>120:
+        fail("Ricerca candidato troppo lunga",400)
+    term=ricerca.strip().casefold()
+    if not term:
+        return rows
+    return [r for r in rows if term in " ".join(
+        str(r.get(k) or "") for k in ("cognome","nome","id_pica")
+    ).casefold()]
+
+
+@app.get("/api/admin/ai/report.xlsx")
+def report_ai_xlsx(request:Request,code:str,cds:str="",sede:str="",
+                   esito:str="",tipo:str="",graduatoria:str="",ricerca:str=""):
+    """Excel istruttorio (Admin); le stesse selezioni della pagina e del PDF."""
+    require_admin(request)
+    # Fonte unica: la stessa API di classificazione e filtro usata dalla tabella.
+    view=verifiche_ai_bando(request,code,cds,sede,esito,tipo,graduatoria)
+    rows=_filtra_ricerca_candidati(view["casi"],ricerca)
+    validated=valid_code(code)
+    payload=render_ente_report_xlsx(validated,cds,sede,rows,{
+        "esito":esito,"tipo":tipo,"graduatoria":graduatoria,"ricerca":ricerca.strip()})
+    # Nome derivato dal bando e dai filtri, senza dati personali.
+    digest=hashlib.sha256(json.dumps(
+        [validated,cds,sede,esito,tipo,graduatoria,ricerca.strip()],
+        ensure_ascii=False).encode("utf-8")).hexdigest()[:8].upper()
+    name="RANKUP_ENTE_"+validated+"_"+digest+".xlsx"
+    return Response(content=payload,media_type=MIME_XLSX,headers={
+        "Content-Disposition":'attachment; filename="'+name+'"',
+        "Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+
 
 # === Restituzione delle schede PDF: anteprima e conferma separata ===
 class ConfermaValutazioni(BaseModel):
