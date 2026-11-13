@@ -35,6 +35,10 @@ def ensure_schema(db):
             cds TEXT NOT NULL DEFAULT '',
             sede TEXT NOT NULL DEFAULT '',
             modello TEXT NOT NULL,
+            modello_attivo TEXT NOT NULL DEFAULT '',
+            modello_riserva TEXT NOT NULL DEFAULT '',
+            failover_attivo INTEGER NOT NULL DEFAULT 0 CHECK(failover_attivo IN (0,1)),
+            limiti_modelli_json TEXT NOT NULL DEFAULT '{}',
             versione_regole TEXT NOT NULL,
             istruzioni_prompt TEXT NOT NULL,
             stato TEXT NOT NULL CHECK(stato IN
@@ -110,6 +114,17 @@ def ensure_schema(db):
     columns={r["name"] for r in db.execute("PRAGMA table_info(ai_ente_lavori)")}
     if "mirato" not in columns:
         db.execute("ALTER TABLE ai_ente_lavori ADD COLUMN mirato INTEGER NOT NULL DEFAULT 0 CHECK(mirato IN (0,1))")
+    # La configurazione di fallback e le quote delle code esistenti non cambiano:
+    # per gli archivi storici il failover e' sempre disabilitato.
+    additions={
+        "modello_attivo":"TEXT NOT NULL DEFAULT ''",
+        "modello_riserva":"TEXT NOT NULL DEFAULT ''",
+        "failover_attivo":"INTEGER NOT NULL DEFAULT 0 CHECK(failover_attivo IN (0,1))",
+        "limiti_modelli_json":"TEXT NOT NULL DEFAULT '{}'",
+    }
+    for name,sql_type in additions.items():
+        if name not in columns:
+            db.execute("ALTER TABLE ai_ente_lavori ADD COLUMN "+name+" "+sql_type)
 
 
 def _now() -> str:
@@ -179,6 +194,13 @@ def _find_cached_for_candidate(db,bid:int,digest:str,model:str,
 def classifications(candidates: list[dict]) -> list[dict]:
     """Gli esiti istituzionali non dipendono dalla risposta del modello AI."""
     return [dict(classifica_ente(c),
+                 campi_pica_originali={
+                     "Azienda/ente":str(c.get("azienda_ente") or ""),
+                     "Ateneo":str(c.get("ateneo") or ""),
+                     "Occupazione":str(c.get("occupazione") or ""),
+                     "Profilo professionale":str(c.get("profilo_professionale") or ""),
+                     "Qualifica":str(c.get("qualifica") or ""),
+                 },
                  id=c["id"],id_pica=str(c["id_pica"]),
                  cognome=str(c.get("cognome") or "").strip(),
                  nome=str(c.get("nome") or "").strip(),
@@ -219,7 +241,32 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
                 cached=_find_cached_for_candidate(db,bid,previous,model,
                     entry["id"],row["id"],LEGACY_RULES_VERSION)
                 historical=cached is not None
+        # Recupera anche le analisi effettuate con il modello di riserva
+        # della stessa coda, evitando esiti di modelli configurati altrove.
+        if not cached and entry["richiede_ai"]:
+            fallbacks=db.execute("""
+                SELECT DISTINCT j.modello_riserva
+                FROM ai_ente_lavori j JOIN ai_ente_lavori_elementi e
+                  ON e.lavoro_id=j.id
+                WHERE j.bando_id=? AND j.modello=? AND j.versione_regole=?
+                  AND j.istruzioni_prompt=? AND j.failover_attivo=1
+                  AND e.candidatura_id=? AND e.incarico_id=?
+                  AND j.modello_riserva<>''
+                ORDER BY j.id DESC
+            """,(bid,model,RULES_VERSION,guidance,entry["id"],row["id"])).fetchall()
+            for fallback in fallbacks:
+                alternate=fallback["modello_riserva"]
+                alternate_digest=_hash(payload,alternate,guidance)
+                cached=_find_cached_for_candidate(db,bid,alternate_digest,
+                    alternate,entry["id"],row["id"])
+                if cached:
+                    entry["modello_ai"]=alternate
+                    break
+        if cached and not entry.get("modello_ai"):
+            entry["modello_ai"]=model
         entry["ai"]=dict(cached) if cached else None
+        if entry["ai"] is not None:
+            entry["ai"]["modello"]=entry.get("modello_ai",model)
         if historical:
             entry["valutazione_storica"]=True
         technical=anomalies.get((entry["id"],row["id"]))
@@ -239,6 +286,16 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
                  "NON esaminati; rianalisi completa consigliata."
                  if historical else
                  " Il rapporto di lavoro personale resta da accertare."))
+        # Dati PICA per la sola UI Admin: i campi filtrati sono indicati
+        # separatamente dai valori originali; nulla di cio' viene inviato
+        # ad altri servizi da questa API.
+        entry["campi_pica_ai"]={
+            "Azienda/ente":payload.get("denominazione_ente_dichiarato"),
+            "Ateneo":payload.get("ateneo_dichiarato"),
+            "Occupazione":payload.get("occupazione_dichiarata"),
+            "Profilo professionale":payload.get("profilo_professionale_dichiarato"),
+            "Qualifica":payload.get("qualifica_dichiarata"),
+        }
         entry.pop("payload",None)
         out.append(entry)
     return out
@@ -246,7 +303,9 @@ def cases_with_ai(db,bid:int,candidates:list[dict],model:str,guidance:str) -> li
 
 def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
                candidates:list[dict],who:str,guidance:str,force:bool=False,
-               targeted:bool=False) -> dict:
+               targeted:bool=False, fallback_model:str="",
+               fallback_enabled:bool=False,
+               limits_by_model:dict|None=None) -> dict:
     now=_now()
     db.execute("BEGIN IMMEDIATE")
     # Una coda della versione precedente contiene payload a soli due campi:
@@ -266,13 +325,18 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
     if prior:
         db.commit()
         return {"id":prior["id"],"stato":prior["stato"],"gia_esistente":True}
+    reserve=fallback_model if fallback_enabled and fallback_model!=model else ""
+    if reserve and (not limits_by_model or reserve not in limits_by_model):
+        raise ValueError("Manca il profilo di quota del modello di riserva")
+    frozen=json.dumps(limits_by_model or {},sort_keys=True)
     cur=db.execute("""
         INSERT INTO ai_ente_lavori
-          (bando_id,codice,cds,sede,modello,versione_regole,istruzioni_prompt,
+          (bando_id,codice,cds,sede,modello,modello_attivo,modello_riserva,
+           failover_attivo,limiti_modelli_json,versione_regole,istruzioni_prompt,
            stato,forzato,mirato,creato_da,creato_il,aggiornato_il)
-        VALUES(?,?,?,?,?,?,?,'in_coda',?,?,?,?,?)
-    """,(bid,code,cds,sede,model,RULES_VERSION,guidance,int(force),
-         int(targeted),who,now,now))
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,'in_coda',?,?,?,?,?)
+    """,(bid,code,cds,sede,model,model,reserve,int(bool(reserve)),
+         frozen,RULES_VERSION,guidance,int(force),int(targeted),who,now,now))
     jobid=cur.lastrowid
     nlocal,ncached=0,0
     for candidate,entry in zip(candidates,classifications(candidates)):
@@ -282,6 +346,8 @@ def create_job(db,bid:int,code:str,cds:str,sede:str,model:str,
         payload=entry["payload"]
         digest=_hash(payload,model,guidance)
         cached=None if force else _find_cached(db,bid,digest,model)
+        if not cached and not force and reserve:
+            cached=_find_cached(db,bid,_hash(payload,reserve,guidance),reserve)
         if not entry["richiede_ai"]:
             status="locale"
             nlocal+=1
@@ -316,6 +382,7 @@ def progress(db,job):
     # Il prompt integrale e' disponibile solo nella pagina delle impostazioni,
     # non deve essere ripetuto in ogni chiamata di avanzamento.
     row.pop("istruzioni_prompt",None)
+    row.pop("limiti_modelli_json",None)
     try:
         row["quota_provider"]=json.loads(row.pop("quota_provider_json") or "{}")
     except (TypeError,ValueError):
