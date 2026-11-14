@@ -11,7 +11,7 @@ CSS = ROOT / "rankup" / "app" / "static" / "workspace.css"
 def test_css_cache_key_matches_addon_version():
     html = INDEX.read_text(encoding="utf-8")
     config = CONFIG.read_text(encoding="utf-8")
-    version = re.search(r'^version:\\s*"([^"]+)"', config, flags=re.M)
+    version = re.search(r'^version:\s*"([^"]+)"', config, flags=re.M)
     assert version
     assert f'href="static/workspace.css?v={version.group(1)}"' in html
 
