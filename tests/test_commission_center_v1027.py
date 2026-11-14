@@ -82,9 +82,9 @@ def test_unified_ui_pica_warning_and_version():
     assert 'id="cm-unified-rows"' in html
     assert 'id="cm-manage-panel"' in html
     assert 'id="cm-catalog-verified"' in html
-    assert '"/commissioni/suggerimenti"' in server
-    assert '"/commissioni/import/anteprima"' in server
-    assert "Nessuna associazione automatica." in html
+    assert '@app.get("/api/bandi/{code}/commissioni/suggerimenti")' in server
+    assert '@app.post("/api/bandi/{code}/commissioni/import/anteprima")' in server
+    assert "nessuna associazione automatica." in html
     assert 'id="pica-cm-open"' in html
     assert 'id="cm-preview-import"' in html
     assert 'id="cm-import-confirm-check"' in html
