@@ -2779,7 +2779,37 @@
             body:JSON.stringify({token:state.preview.token,tipologie:mapped,
               anno_accademico:state.preview.anno_accademico})});
           await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
-          updateHeader();render();note("Bando "+result.codice_bando+" importato con dizionario PICA.",false);
+          updateHeader();render();
+          // Il PICA resta importato anche se la verifica accessoria delle
+          // commissioni fallisce. Nessuna associazione automatica.
+          try{
+            var commissions=await api("bandi/"+encodeURIComponent(result.codice_bando)+
+              "/commissioni/associazioni");
+            if(state.active===result.codice_bando){
+              var outstanding=Number(commissions.mancanti||0)+
+                Number(commissions.ambigue||0)+Number(commissions.incomplete||0);
+              if(outstanding){
+                $("notification").innerHTML='<div class="notice ru-pica-cm-notice">'+
+                  '<strong>Importazione PICA completata.</strong> '+
+                  esc(outstanding)+' CdS/sedi richiedono una commissione da associare o verificare. '+
+                  'Le candidature sono state acquisite e non sono state create nomine automatiche. '+
+                  '<button type="button" class="btn secondary" id="pica-cm-open">Gestisci commissioni</button>'+
+                  '</div>';
+                $("pica-cm-open").onclick=function(){
+                  state.cmFilter=Number(commissions.mancanti||0)?"mancante":"verifica";
+                  go("commissioni");
+                };
+              }else{
+                note("Bando "+result.codice_bando+
+                  " importato. Tutti i CdS/sedi hanno una commissione associata.",false);
+              }
+            }
+          }catch(checkError){
+            if(state.active===result.codice_bando){
+              note("Bando "+result.codice_bando+
+                " importato. Verifica le associazioni delle commissioni nella relativa sezione.",false);
+            }
+          }
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
       function renderIncarichi(rows,code,acquisition){
