@@ -20,7 +20,7 @@ def _commission_snapshot(server):
         """).fetchall()]
 
 
-def test_catalog_suggestions_are_only_readable_by_admin_and_do_not_assign(tmp_path, monkeypatch):
+def test_catalog_suggestions_are_available_to_authenticated_operators_without_auto_association(tmp_path, monkeypatch):
     server, client, _ = _setup(tmp_path, monkeypatch)
     with client:
         original = _commission_snapshot(server)
@@ -41,7 +41,15 @@ def test_catalog_suggestions_are_only_readable_by_admin_and_do_not_assign(tmp_pa
             assert _post(user, "/api/auth/login", json={
                 "username": "test-operatore", "password": "PasswordDiTest123!"
             }).status_code == 200
-            assert user.get("/api/bandi/26-02/commissioni/suggerimenti").status_code == 403
+            available = user.get("/api/bandi/26-02/commissioni/suggerimenti")
+            assert available.status_code == 200, available.text
+            registry = user.get("/api/commissioni/anagrafica")
+            assert registry.status_code == 200, registry.text
+            assert registry.json()["commissioni"]
+            # L'API storica /admin resta chiusa agli operatori.
+            assert user.get("/api/admin/commissioni-globali").status_code == 403
+            # La lettura non deve modificare alcuna associazione.
+            assert _commission_snapshot(server) == original
         assert client.get("/api/bandi/CODICE-NON-ESISTENTE/commissioni/suggerimenti").status_code == 404
 
 
