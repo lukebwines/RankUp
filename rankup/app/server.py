@@ -940,7 +940,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.26", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.27", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1364,7 +1364,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.26", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.27", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2505,6 +2505,60 @@ def archivio_commissioni_generali(request: Request):
 class RecuperaCommissioniGlobali(BaseModel):
     ids: list[int] = Field(min_length=1,max_length=100)
     conferma_verifica: bool
+
+
+@app.get("/api/bandi/{code}/commissioni/suggerimenti")
+def suggerimenti_commissioni_per_bando(code: str, request: Request):
+    """Corrispondenze verificabili dall'anagrafica, MAI associate automaticamente.
+
+    Mostra esclusivamente composizioni globali con stessa sede e CdS
+    (normalizzazione deterministica già usata nel procedimento).
+    La validità degli atti resta subordinata a conferma documentale
+    sull'endpoint di recupero, riservato all'amministratore.
+    """
+    require_admin(request)
+    code = valid_code(code)
+    with connect() as db:
+        bando = db.execute(
+            "SELECT id FROM bandi WHERE codice=?", (code,)
+        ).fetchone()
+        if bando is None:
+            fail("Bando non trovato", 404)
+        anno = db.execute(
+            "SELECT anno_accademico FROM bandi_riferimenti WHERE bando_id=?",
+            (bando["id"],)
+        ).fetchone()
+        anno_bando = (anno["anno_accademico"] or "").strip() if anno else ""
+        groups = db.execute("""
+            SELECT DISTINCT cds,sede FROM incarichi WHERE bando_id=?
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE
+        """, (bando["id"],)).fetchall()
+        catalogo = db.execute("""
+            SELECT id,cds,sede,presidente,componenti,requisiti,anno,fonte_bando
+            FROM commissioni_catalogo
+            ORDER BY id DESC
+        """).fetchall()
+    by_key = {}
+    for r in catalogo:
+        key = (course_key(r["cds"]), seat_key(r["sede"]))
+        by_key.setdefault(key, []).append({
+            **dict(r),
+            "anno_compatibile": not (
+                anno_bando and r["anno"]
+                and anno_bando.casefold() != r["anno"].strip().casefold()
+            )
+        })
+    return {
+        "suggerimenti": [
+            {
+                "cds": r["cds"], "sede": r["sede"],
+                "candidati": by_key.get(
+                    (course_key(r["cds"]), seat_key(r["sede"])), []
+                )
+            }
+            for r in groups
+        ]
+    }
 
 
 @app.post("/api/bandi/{code}/commissioni/recupera-globali")
