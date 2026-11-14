@@ -3149,7 +3149,10 @@
               '<div class="notice" role="alert"><strong>Verifica codice bando</strong><p>Il PICA riporta '+esc(result.codice_bando)+
               ' ma esistono procedure in preparazione nello stesso A.A.: '+
               esc(result.bandi_preparati_diversi.join(", "))+'. Verifica la fonte ufficiale: nessun dato sarà spostato o associato automaticamente.</p>'+
-              '<label><input id="pica-confirm-separate" type="checkbox"> Ho verificato che questo file deve essere importato come bando distinto.</label></div>':'')+
+              '<label><input id="pica-confirm-separate" type="checkbox"> Ho verificato che questo file deve essere importato come bando distinto.</label>'+
+              '<div class="actions">'+(result.bandi_preparati_diversi||[]).map(function(code){
+                return '<button type="button" class="btn secondary" data-pica-review="'+esc(code)+
+                  '">Verifica riferimenti '+esc(code)+'</button>';}).join("")+'</div></div>':'')+
             ((result.possibili_duplicati||[]).length?
               '<div class="notice"><strong>Possibile sovrapposizione con altri bandi</strong><p>'+
               'Alcuni ID PICA risultano già presenti in altre procedure: '+
@@ -3164,8 +3167,22 @@
               '</td><td>'+esc(t.incarichi)+'</td><td><select data-tipo="'+i+'">'+options(t)+
               '</select></td><td><input data-tipo-motivo="'+i+'" maxlength="500" placeholder="Motivazione, se rettificato"></td></tr>';}).join('')+
             '</tbody></table></div>'+
-            '<p><button class="btn" id="commit-btn">Conferma dizionario e importa</button></p>';
+            '<p class="actions"><button class="btn" id="commit-btn">Conferma dizionario e importa</button>'+
+            '<button type="button" class="btn secondary" id="pica-abort">Annulla importazione</button></p>';
           $("commit-btn").onclick=commit;
+          $("pica-abort").onclick=function(){
+            state.preview=null;$("preview-result").innerHTML="";
+            note("Anteprima annullata. Nessun dato PICA importato.",false);
+          };
+          document.querySelectorAll("[data-pica-review]").forEach(function(button){
+            button.onclick=function(){
+              var preparedCode=button.dataset.picaReview;
+              if(!bandiAnno().some(function(b){return b.codice===preparedCode;})){
+                note("Il bando da verificare non appartiene all'A.A. selezionato.",true);return;
+              }
+              state.preview=null;state.page="riferimenti";setActive(preparedCode);
+            };
+          });
         }catch(error){note(error.message,true);}
         finally{btn.disabled=false;btn.textContent="Analizza file";}
       }
