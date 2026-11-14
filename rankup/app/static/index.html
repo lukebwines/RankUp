@@ -3361,8 +3361,9 @@
             (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica composizione</button>':
               p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>':'')+
             '<button type="button" class="btn secondary" id="cm-ticket-pair">Segnalazioni</button>'+
-            '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button></div>'+
-            choices;
+            '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button>'+
+            (state.role==="admin"?'<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>':'')+
+            '</div>'+choices;
           $("cm-side-close").onclick=closeManagement;
           if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){openEditor(cm,index);};
           if($("cm-create-pair"))$("cm-create-pair").onclick=function(){openEditor(null,index);};
@@ -3370,6 +3371,7 @@
           $("cm-verbali-pair").onclick=function(){
             state.verbaliCds=p.cds;state.verbaliSede=p.sede;go("verbali");
           };
+          if($("cm-global-archive"))$("cm-global-archive").onclick=function(){go("commissioniarchivio");};
           if($("cm-catalog-associate"))$("cm-catalog-associate").onclick=async function(){
             var choice=document.querySelector('input[name="cm-catalog-choice"]:checked');
             if(!choice){note("Seleziona una composizione dall’anagrafica.",true);return;}
