@@ -102,7 +102,7 @@ def test_admin_e_generazione_schede_non_perdono_funzionalita():
     for item in (
         "renderUtenti","renderSSDGenerali","renderCommissioniGlobali",
         'id="new-user-form"','id="global-ssd-form"',
-        'id="global-commission-reuse"','id="reset-ack"',
+        'id="cm-catalog-associate"','id="reset-ack"',
         'id="commission-import"','id="cm-manual-form"',
         'id="sheet-download"','id="refs-form"','id="pica-file"',
         'id="preview-btn"','id="pdf-eval-preview"',
