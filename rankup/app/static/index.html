@@ -1109,7 +1109,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica e registro",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -1124,6 +1124,8 @@
                             "schede","valutazioni","verbali","graduatorie","verificaenteai"].includes(state.page)){
           return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
         }
+        if(state.page==="diagnostica")return state.role==="admin"?renderDiagnostica():
+          html(panel("Accesso riservato","La diagnostica è riservata all'Admin."));
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
           html(panel("Accesso riservato","La configurazione SSD è riservata all’Admin."));
         if(state.page==="commissioniarchivio")return renderCommissioniGlobali();
