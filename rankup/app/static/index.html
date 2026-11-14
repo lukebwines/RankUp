@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.25">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.26">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -239,7 +239,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.25<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.26<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -676,7 +676,7 @@
           candidature:{title:"Candidature PICA",field:"candidature",page:"candidature",icon:"ri-users"},
           incarichi:{title:"Incarichi",field:"incarichi",page:"incarichi",icon:"ri-book"},
           valutazioni:{title:"Candidature valutate",field:"valutazioni_acquisite",page:"valutazioni",icon:"ri-clipboard"},
-          commissioni:{title:"Commissioni in lavorazione",field:"cds_in_lavorazione",page:"commissioni",icon:"ri-users"}
+          commissioni:{title:"Commissioni in lavorazione",field:"cds_in_lavorazione",page:"verbali",icon:"ri-users"}
         }[metric];
       }
       function dashboardOpenProcedures(){
@@ -697,7 +697,7 @@
       }
       function cards(){
         var general=!cur(),selectedYear=!!state.year;
-        var metrics=["bandi","candidature","incarichi","valutazioni","commissioni"];
+        var metrics=["bandi","incarichi","candidature","valutazioni","commissioni"];
         return '<div class="grid ru-dashboard-metrics" aria-label="Indicatori e collegamenti dashboard">'+
           metrics.map(function(metric){
             var def=dashboardMetricDefinition(metric),value=selectedYear?
@@ -758,7 +758,7 @@
         }
         if(code){
           state.page=def.page;
-          state.commissioniInLavorazioneOnly=metric==="commissioni";
+          state.commissioniInLavorazioneOnly=false;
           setActive(code);
           return;
         }
@@ -770,7 +770,7 @@
           if(detail)detail.scrollIntoView({block:"nearest"});
           return;
         }
-        state.commissioniInLavorazioneOnly=metric==="commissioni";
+        state.commissioniInLavorazioneOnly=false;
         go(def.page);
       }
       function bindDashboardMetrics(){
