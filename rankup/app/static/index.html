@@ -3168,6 +3168,7 @@
           return [JSON.stringify([p.cds,p.sede]),p.candidati||[]];
         }));
         var filter=state.cmFilter||"tutte",query=state.cmSearch||"";
+        var archived=!!(cur()&&cur().stato==="Archiviato");
         function pairKey(p){return JSON.stringify([p.cds,p.sede]);}
         function rowForPair(p){
           if(!p.cds_commissione||!p.sede_commissione)return null;
@@ -3249,13 +3250,14 @@
           '<div><h3 class="section-heading">Elenco CdS e sedi</h3>'+
           '<p class="caption" id="cm-roster-count">'+esc(pairs.length)+
           ' posizioni presenti negli incarichi PICA</p></div>'+
-          '<button type="button" class="btn secondary" id="cm-new"'+(missing?'':' disabled')+'>Nuova commissione</button></div>'+
+          '<button type="button" class="btn secondary" id="cm-new"'+(missing&&!archived?'':' disabled')+'>Nuova commissione</button></div>'+
           '<div class="tablebox ru-cm-tablebox" data-ru-search-ready="1"><table>'+
           '<thead><tr><th>Corso di Studio e sede</th><th>Associazione commissione</th>'+
           '<th>Procedimento</th><th>Azioni</th></tr></thead>'+
           '<tbody id="cm-unified-rows"></tbody></table></div></section>';
         var advanced='<details class="card ru-cm-advanced"><summary>Strumenti avanzati · Importazione Excel</summary>'+
-          '<p class="caption">L’importazione Excel è facoltativa. Non associa automaticamente composizioni provenienti da altri bandi.</p>'+
+          '<p class="caption">'+(archived?'Bando archiviato: importazione e modifiche non disponibili.':
+            'L’importazione Excel è facoltativa. Non associa automaticamente composizioni provenienti da altri bandi.')+'</p>'+
           upload.replace('class="card"','class="ru-cm-import"')+
           (orphans.length?'<div class="notice"><strong>'+esc(orphans.length)+
             ' composizioni registrate non corrispondono univocamente ai CdS/sedi PICA.</strong>'+
@@ -3293,7 +3295,7 @@
               '<td><span class="ru-cm-badge ru-cm-badge--'+badge+'">'+
               esc(associationLabel(st))+'</span></td>'+
               '<td><span class="ru-cm-badge '+(isPending?'ru-cm-badge--pending':'ru-cm-badge--ok')+'">'+
-              (isPending?'In lavorazione':'Graduatoria definitiva / chiusa')+'</span></td>'+
+              (archived?'Bando archiviato':isPending?'In lavorazione':'Graduatoria definitiva')+'</span></td>'+
               '<td><button type="button" class="btn secondary" data-cm-manage="'+item.index+
               '">Gestisci</button></td></tr>';
           }).join(''):'<tr><td colspan="4">Nessun CdS/sede corrispondente al filtro.</td></tr>';
@@ -3318,7 +3320,7 @@
           var cm=rowForPair(p),pendingGroup=pendingKeys.has(pairKey(p));
           var options=proposals.get(pairKey(p))||[];
           var isMissing=p.stato==="mancante";
-          var choices=state.role==="admin"&&isMissing?
+          var choices=state.role==="admin"&&isMissing&&!archived?
             '<div class="ru-cm-proposals"><h4>Composizioni nell’anagrafica generale</h4>'+
             '<p class="caption">Solo corrispondenze esatte per CdS normalizzato e sede. Nessuna nomina è valida automaticamente per il nuovo bando.</p>'+
             (options.length?options.map(function(c){
@@ -3348,7 +3350,7 @@
               (p.stato==="associata"?"ok":p.stato==="mancante"?"missing":"review")+'">'+
               esc(associationLabel(p.stato))+'</span> '+
               '<span class="ru-cm-badge '+(pendingGroup?'ru-cm-badge--pending':'ru-cm-badge--ok')+'">'+
-              (pendingGroup?'Verbale / graduatoria da completare':'Graduatoria definitiva / chiusa')+'</span></p>'+
+              (archived?'Bando archiviato':pendingGroup?'Verbale / graduatoria da completare':'Graduatoria definitiva')+'</span></p>'+
             (cm?'<div class="ru-cm-composition">'+
               '<p><strong>Presidente</strong> '+esc(cm.presidente)+'</p>'+
               '<p><strong>Componenti</strong> '+esc(cm.componenti||"Da verificare")+'</p>'+
@@ -3356,8 +3358,8 @@
               '<p><strong>Requisiti</strong> '+esc(cm.requisiti||"Non indicati")+'</p>'+
               '</div>':'<p class="caption">Non è presente una commissione associata con certezza a questo CdS/sede.</p>')+
             '<div class="ru-cm-panel-actions">'+
-            (cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica composizione</button>':
-              '<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>')+
+            (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica composizione</button>':
+              p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>':'')+
             '<button type="button" class="btn secondary" id="cm-ticket-pair">Segnalazioni</button>'+
             '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button></div>'+
             choices;
@@ -3464,6 +3466,7 @@
         $("commission-file").onchange=resetCommissionPreview;
         $("cm-import-mode").onchange=resetCommissionPreview;
         $("cm-preview-import").onclick=async function(){
+          if(archived){note("Bando archiviato: importazione non consentita.",true);return;}
           var file=$("commission-file").files[0];
           if(!file){note("Seleziona prima un file Excel delle commissioni.",true);return;}
           var mode=$("cm-import-mode").value;
