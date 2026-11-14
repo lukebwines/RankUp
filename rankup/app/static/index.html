@@ -3217,7 +3217,7 @@
           '<div><h3 class="section-heading">Elenco CdS e sedi</h3>'+
           '<p class="caption" id="cm-roster-count">'+esc(pairs.length)+
           ' posizioni presenti negli incarichi PICA</p></div>'+
-          '<button type="button" class="btn secondary" id="cm-new">Nuova commissione</button></div>'+
+          '<button type="button" class="btn secondary" id="cm-new"'+(missing?'':' disabled')+'>Nuova commissione</button></div>'+
           '<div class="tablebox ru-cm-tablebox" data-ru-search-ready="1"><table>'+
           '<thead><tr><th>Corso di Studio e sede</th><th>Associazione commissione</th>'+
           '<th>Procedimento</th><th>Azioni</th></tr></thead>'+
@@ -3368,7 +3368,11 @@
               return p.cds_commissione===row.cds && p.sede_commissione===row.sede;
             });
           }
-          if(found<0)found=typeof pairIndex==="number"?pairIndex:(unmatched.length?unmatched[0].index:0);
+          if(found<0)found=typeof pairIndex==="number"?pairIndex:pairs.findIndex(function(p){return p.stato==="mancante";});
+          if(found<0){note("Nessuna commissione mancante da inserire.",true);return;}
+          selectedPairIndex=found;
+          $("cm-manage-panel").hidden=false;
+          $("cm-detail-panel").hidden=true;
           $("cm-pair").value=String(found);
           $("cm-presidente").value=row?row.presidente||"":"";
           $("cm-componenti").value=row?row.componenti||"":"";
@@ -3379,25 +3383,7 @@
           $("commission-editor").scrollIntoView({behavior:"smooth",block:"start"});
         }
         $("cm-new").onclick=function(){openEditor(null);};
-        document.querySelectorAll(".cm-add-missing").forEach(function(button){
-          button.onclick=function(){openEditor(null,Number(button.dataset.pair));};
-        });
-        document.querySelectorAll(".cm-edit-incomplete").forEach(function(button){
-          button.onclick=function(){
-            var index=Number(button.dataset.pair),p=pairs[index];
-            var existing=rows.find(function(r){
-              return r.cds===p.cds_commissione && r.sede===p.sede_commissione;
-            });
-            if(existing)openEditor(existing,index);
-          };
-        });
-        document.querySelectorAll(".cm-edit").forEach(function(button){
-          button.onclick=function(){openEditor(rows.find(function(r){return String(r.id)===button.dataset.id;}));};
-        });
-        document.querySelectorAll(".cm-tickets").forEach(function(button){
-          button.onclick=function(){apriSegnalazioni(button.dataset.id);};
-        });
-        $("cm-cancel").onclick=function(){$("commission-editor").style.display="none";selected=null;};
+        $("cm-cancel").onclick=function(){selected=null;if(selectedPairIndex!==null)openManagement(selectedPairIndex);else closeManagement();};
         $("cm-manual-form").onsubmit=async function(event){
           event.preventDefault();
           var pair=pairs[Number($("cm-pair").value)];
