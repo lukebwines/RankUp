@@ -1,0 +1,105 @@
+/* RankUP V3 - Dashboard operativa, tonalita' leggere e compatibilita' dark */
+.ru-ops{--op-blue:#216acc;--op-ink:#163656;--op-border:#e3ebf6;--op-muted:#6d8197;--op-soft:#f4f8fd;color:var(--op-ink)}
+.ru-ops *{box-sizing:border-box}
+.ru-ops .ru-ops-hero{position:relative;display:flex;align-items:center;justify-content:space-between;gap:18px;overflow:hidden;padding:26px 30px;margin:0 0 20px;border-radius:19px;background:linear-gradient(115deg,#143e72 0%,#206bb5 64%,#2e8cce 100%);color:#fff;box-shadow:0 14px 30px #14436d20}
+.ru-ops .ru-ops-hero:before{content:"";position:absolute;width:340px;height:340px;right:-115px;top:-240px;border:80px solid #ffffff12;border-radius:50%;pointer-events:none}
+.ru-ops .ru-ops-hero h3{margin:4px 0 5px;font-size:clamp(21px,2vw,29px);color:#fff;letter-spacing:-.03em}
+.ru-ops .ru-ops-hero p{margin:0;color:#dceefd;font-size:13px}
+.ru-ops .ru-ops-eyebrow{text-transform:uppercase;letter-spacing:.14em;color:#abd5fa;font-size:10px;font-weight:800}
+.ru-ops .ru-ops-hero .btn{background:#ffffff;color:#1c5487;z-index:1;box-shadow:0 4px 18px #0c305331}
+.ru-ops .ru-dashboard-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0 0 20px}
+.ru-ops .ru-kpi{position:relative;text-align:left;border:1px solid #dce8f4;border-radius:17px;padding:18px 17px;background:linear-gradient(145deg,#fff,#f4f9ff);min-height:118px;box-shadow:0 7px 25px #213e6710;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
+.ru-ops .ru-kpi:hover{transform:translateY(-2px);border-color:#a4cbee;box-shadow:0 12px 24px #1d538320}
+.ru-ops .ru-kpi:focus-visible{outline:3px solid #6eaee8;outline-offset:2px}
+.ru-ops .ru-kpi:nth-child(2){background:linear-gradient(140deg,#fff,#f0faf9)}
+.ru-ops .ru-kpi:nth-child(3){background:linear-gradient(140deg,#fff,#f9f4ff)}
+.ru-ops .ru-kpi:nth-child(4){background:linear-gradient(140deg,#fff,#f4fcf7)}
+.ru-ops .ru-kpi:nth-child(5){background:linear-gradient(140deg,#fff,#fff9ef)}
+.ru-ops .ru-kpi strong{color:#123b68;font-size:29px;letter-spacing:-.04em}
+.ru-ops .ru-kpi .ru-kpi-icon{color:#2576cb}
+.ru-ops .ru-ops-main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,1fr);gap:18px;align-items:start}
+.ru-ops .ru-ops-col{display:flex;flex-direction:column;gap:17px;min-width:0}
+.ru-ops .ru-ops-card{border:1px solid var(--op-border);border-radius:17px;background:#fff;box-shadow:0 9px 24px #163b6610;padding:20px;min-width:0}
+.ru-ops .ru-ops-card-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:15px}
+.ru-ops .ru-ops-card-header h3{display:flex;align-items:center;gap:9px;font-size:16px;letter-spacing:-.015em;color:var(--op-ink);margin:0}
+.ru-ops .ru-ops-count{display:inline-flex;background:#fff0f2;color:#a92a48;padding:5px 10px;border-radius:30px;font-size:11px;font-weight:800}
+.ru-ops .ru-ops-more{display:inline-flex;gap:5px;align-items:center;color:#236bb7;border:1px solid #d8e7f8;background:#f5faff;border-radius:9px;font-weight:750;padding:7px 11px;font-size:12px}
+.ru-ops .ru-ops-more:hover{background:#e8f3ff}
+.ru-ops .ru-ops-filters{display:flex;align-items:end;flex-wrap:wrap;gap:9px;margin:0 0 13px}
+.ru-ops .ru-ops-filters label{font-size:11px;font-weight:750;color:var(--op-muted);display:flex;flex-direction:column;gap:5px;flex:1;min-width:120px}
+.ru-ops .ru-ops-filters input,.ru-ops .ru-ops-filters select{border:1px solid #d7e4f1;border-radius:9px;font-size:12px;padding:8px;background:#fbfdff;color:#2d506f;width:100%}
+.ru-ops .ru-ops-task-list{display:flex;flex-direction:column;gap:7px}
+.ru-ops .ru-ops-task{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid #e7eef5;border-radius:11px;padding:11px;transition:background .12s,border-color .12s}
+.ru-ops .ru-ops-task:hover{background:#f5faff;border-color:#9fc6eb}
+.ru-ops .ru-ops-task-icon{flex:none;width:35px;height:35px;display:grid;place-items:center;border-radius:12px;background:#e7f2ff;color:#2578ca;font-size:17px;font-weight:900}
+.ru-ops .ru-ops-task--high .ru-ops-task-icon{background:#ffecef;color:#d84763}
+.ru-ops .ru-ops-task--mid .ru-ops-task-icon{background:#fff4df;color:#be7a16}
+.ru-ops .ru-ops-task-info{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.ru-ops .ru-ops-task-info strong{font-size:12px;color:#1d4064;overflow-wrap:anywhere}
+.ru-ops .ru-ops-task-info small{font-size:11px;color:#68819a;overflow-wrap:anywhere}
+.ru-ops .ru-ops-task-badge{font-size:10px;font-weight:800;border-radius:30px;padding:5px 7px;background:#ffe7eb;color:#b52647;white-space:nowrap}
+.ru-ops .ru-ops-task--mid .ru-ops-task-badge{background:#fff2dd;color:#915f11}
+.ru-ops .ru-ops-task--low .ru-ops-task-badge{background:#e7f1fc;color:#2169a8}
+.ru-ops .ru-ops-empty{padding:22px 12px;text-align:center;color:var(--op-muted);font-size:13px;background:var(--op-soft);border-radius:12px}
+.ru-ops .ru-ops-footnote{font-size:11px;color:var(--op-muted);line-height:1.5;margin:10px 0 0}
+.ru-ops .ru-ops-phase{padding:13px 0;border-top:1px solid #edf2f8;display:grid;gap:8px}
+.ru-ops .ru-ops-phase:first-of-type{border-top:0;padding-top:2px}
+.ru-ops .ru-ops-phase-line{display:flex;justify-content:space-between;gap:10px;font-size:12px;font-weight:700}
+.ru-ops .ru-ops-phase-line strong{color:#256bb9;font-variant-numeric:tabular-nums}
+.ru-ops .ru-ops-track{height:7px;background:#e9f0fa;border-radius:50px;overflow:hidden}
+.ru-ops .ru-ops-fill{height:100%;background:linear-gradient(90deg,#1f82d3,#4cbbcc);border-radius:50px;max-width:100%}
+.ru-ops .ru-ops-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 16px}
+.ru-ops .ru-ops-tabs button{background:#eff5fc;color:#2b628f;border-radius:25px;padding:8px 13px;font-size:12px;font-weight:750}
+.ru-ops .ru-ops-tabs button[aria-pressed=true]{background:#226bb6;color:white}
+.ru-ops .ru-ops-activity{display:flex;align-items:start;gap:10px;padding:10px 0;border-top:1px solid #edf2f8;font-size:12px}
+.ru-ops .ru-ops-activity:first-child{border-top:0}
+.ru-ops .ru-ops-activity-dot{width:9px;height:9px;border-radius:100%;background:#4b9fe3;margin-top:6px;flex:none}
+.ru-ops .ru-ops-activity-main{flex:1;min-width:0;line-height:1.45}
+.ru-ops .ru-ops-activity-main strong{display:block;color:#244967}
+.ru-ops .ru-ops-activity-main small{display:block;color:var(--op-muted);font-size:11px}
+.ru-ops .ru-ops-quick-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ru-ops .ru-ops-quick{border:1px solid #dce8f6;border-radius:13px;background:#f7fbff;text-align:left;padding:15px;min-height:88px;display:flex;flex-direction:column;justify-content:center;gap:5px;color:#215583}
+.ru-ops .ru-ops-quick:hover{background:#eaf4ff;border-color:#a4c7e9}
+.ru-ops .ru-ops-quick strong{font-size:12px;color:#25496e}
+.ru-ops .ru-ops-quick small{font-size:11px;color:#7087a0}
+.ru-ops .ru-ops-procedures{display:flex;flex-direction:column}
+.ru-ops .ru-ops-procedures .band-row{padding:12px 0}
+.ru-ops .ru-ops-import summary{font-weight:800;color:#1b5e9c;cursor:pointer;font-size:13px}
+.ru-ops .ru-ops-import details{margin-top:11px;border:1px solid #e4edf6;padding:13px;border-radius:12px}
+.ru-ops .ru-ops-checks{margin-top:10px;padding:15px;border-radius:12px;background:#f1f7fd;font-size:12px;line-height:1.5}
+.ru-ops .ru-ops-checks ul{padding-left:20px;margin:8px 0}
+.ru-ops .ru-ops-checks li{margin:5px 0}
+.ru-ops .ru-ops-diagnostic table{font-size:12px}
+.ru-ops .ru-ops-diagnostic td{overflow-wrap:anywhere}
+html[data-theme="dark"] .ru-ops{--op-ink:#e7f3ff;--op-muted:#b2c5da;--op-border:#35516c;--op-soft:#19334e;color:#e7f3ff}
+html[data-theme="dark"] .ru-ops .ru-ops-card,html[data-theme="dark"] .ru-ops .ru-ops-task{background:#15283e;border-color:#35516c;color:#e7f3ff}
+html[data-theme="dark"] .ru-ops .ru-kpi{background:linear-gradient(145deg,#18304a,#203c57);border-color:#35516c}
+html[data-theme="dark"] .ru-ops .ru-kpi strong,
+html[data-theme="dark"] .ru-ops .ru-ops-task-info strong,
+html[data-theme="dark"] .ru-ops .ru-ops-activity-main strong,
+html[data-theme="dark"] .ru-ops .ru-ops-quick strong{color:#e9f5ff}
+html[data-theme="dark"] .ru-ops .ru-ops-task-info small,
+html[data-theme="dark"] .ru-ops .ru-ops-activity-main small{color:#afc7de}
+html[data-theme="dark"] .ru-ops .ru-ops-task:hover{background:#1c3a56}
+html[data-theme="dark"] .ru-ops .ru-ops-more,html[data-theme="dark"] .ru-ops .ru-ops-quick,
+html[data-theme="dark"] .ru-ops .ru-ops-checks{background:#1b3854;color:#d9ebff;border-color:#466887}
+html[data-theme="dark"] .ru-ops .ru-ops-phase,html[data-theme="dark"] .ru-ops .ru-ops-activity{border-color:#35516c}
+html[data-theme="dark"] .ru-ops .ru-ops-track{background:#304863}
+html[data-theme="dark"] .ru-ops .ru-ops-import details{border-color:#35516c}
+@media(max-width:1190px){.ru-ops .ru-ops-main{grid-template-columns:1fr}.ru-ops .ru-ops-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:920px){.ru-ops .ru-dashboard-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:660px){.ru-ops .ru-dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ru-ops .ru-ops-hero{padding:20px;flex-wrap:wrap}.ru-ops .ru-ops-card{padding:15px}.ru-ops .ru-ops-task-badge{display:none}.ru-ops .ru-ops-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.ru-ops .ru-ops-task-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ru-ops .ru-ops-task-wrap .ru-ops-task{flex:1;min-width:min(100%,250px)}
+.ru-ops .ru-ops-verify{border:1px solid #c5dced;color:#256ca8;background:#f1f8ff;padding:9px 12px;border-radius:9px;font-size:11px;font-weight:800}
+.ru-ops .ru-ops-verify:hover{background:#e1f0ff}
+html[data-theme="dark"] .ru-ops .ru-ops-verify{background:#244c70;border-color:#477ba9;color:#e5f3ff}
+
+/* Override mirati ai KPI storici: mantenere navigazione e colori per metrica. */
+.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0 0 20px}
+.ru-workspace .ru-ops .card.ru-kpi{min-height:138px;border-radius:17px;padding:15px 17px}
+.ru-workspace .ru-ops .card.ru-kpi strong{font-size:28px}
+@media(max-width:1250px){.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:750px){.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:440px){.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:1fr}}
