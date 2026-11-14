@@ -940,7 +940,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.27", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.28", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1364,7 +1364,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.27", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.28", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2487,10 +2487,20 @@ def edit_commissione(code: str, commission_id: int, body: CommissioneInput):
 
 
 
-@app.get("/api/admin/commissioni-globali")
-def archivio_commissioni_generali(request: Request):
-    """Composizioni conservate a livello applicativo, indipendenti dai bandi."""
-    require_admin(request)
+def require_gestore_commissioni(request: Request) -> dict:
+    """Admin e operatori autenticati gestiscono le commissioni.
+
+    Utenti e credenziali restano di competenza esclusiva dell'Admin.
+    Il middleware valida già la sessione; controllo esplicito anche
+    per i percorsi chiamati direttamente dai test o da altro codice.
+    """
+    principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal or principal["role"] not in ("admin", "user"):
+        fail("Accesso alla gestione commissioni riservato agli utenti autenticati", 403)
+    return principal
+
+
+def _elenco_commissioni_catalogo():
     with connect() as db:
         rows=db.execute("""
             SELECT id,cds,sede,presidente,componenti,requisiti,anno,
@@ -2500,6 +2510,20 @@ def archivio_commissioni_generali(request: Request):
                      anno DESC,id DESC
         """).fetchall()
     return {"commissioni":[dict(row) for row in rows]}
+
+
+@app.get("/api/commissioni/anagrafica")
+def archivio_commissioni_condiviso(request: Request):
+    """Anagrafica operativa condivisa tra Admin e operatori autenticati."""
+    require_gestore_commissioni(request)
+    return _elenco_commissioni_catalogo()
+
+
+@app.get("/api/admin/commissioni-globali")
+def archivio_commissioni_generali(request: Request):
+    """Compatibilità: la vecchia API /admin conserva il permesso originario."""
+    require_admin(request)
+    return _elenco_commissioni_catalogo()
 
 
 class RecuperaCommissioniGlobali(BaseModel):
@@ -2514,9 +2538,9 @@ def suggerimenti_commissioni_per_bando(code: str, request: Request):
     Mostra esclusivamente composizioni globali con stessa sede e CdS
     (normalizzazione deterministica già usata nel procedimento).
     La validità degli atti resta subordinata a conferma documentale
-    sull'endpoint di recupero, riservato all'amministratore.
+    sull'endpoint di recupero, riservato agli utenti autenticati.
     """
-    require_admin(request)
+    require_gestore_commissioni(request)
     code = valid_code(code)
     with connect() as db:
         bando = db.execute(
@@ -2565,7 +2589,7 @@ def suggerimenti_commissioni_per_bando(code: str, request: Request):
 def recupera_commissioni_globali(code: str,body: RecuperaCommissioniGlobali,
                                  request: Request):
     """Solo associazione esplicita e verificata; mai ereditare nomine automaticamente."""
-    require_admin(request)
+    require_gestore_commissioni(request)
     code=valid_code(code)
     if not body.conferma_verifica:
         fail("Confermare la verifica dell'atto e della validita' della composizione",400)
