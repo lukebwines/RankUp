@@ -196,7 +196,7 @@ def _recent_activity(db, ids, by_code, limit=30):
             events.append({"tipo":"Bandi","azione":(
                 "Preparazione bando" if r["stato"]=="In preparazione"
                 else "Registrazione/importazione PICA"),
-                "quando":r["import_at"],"autore":"sistema",
+                "quando":r["import_at"],"autore":"non registrato",
                 "bando":by_code[r["id"]]["codice"]})
     if "segnalazioni" in available:
         for r in db.execute(f"""SELECT bando_id,creata_il,autore FROM segnalazioni
@@ -292,3 +292,23 @@ def report_diagnostico(db: sqlite3.Connection, backups_dir=None):
                         any(c["esito"]=="attenzione" for c in results["controlli"])
                         else "ok")
     return results
+
+def global_registry_activity(db: sqlite3.Connection, limit=40):
+    """Eventi dell'anagrafica non attribuibili a uno specifico bando."""
+    tables={r[0] for r in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    events=[]
+    if "commissioni_catalogo_eventi" in tables:
+        for r in db.execute("""SELECT azione,autore,quando
+              FROM commissioni_catalogo_eventi ORDER BY id DESC LIMIT ?""",(limit,)):
+            events.append({"tipo":"Anagrafica commissioni","azione":r["azione"],
+                           "quando":r["quando"],"autore":r["autore"],
+                           "bando":"Anagrafica"})
+    if "commissioni_catalogo_rettifiche" in tables:
+        for r in db.execute("""SELECT autore,quando
+              FROM commissioni_catalogo_rettifiche ORDER BY id DESC LIMIT ?""",(limit,)):
+            events.append({"tipo":"Anagrafica commissioni",
+                           "azione":"Rettifica errore materiale",
+                           "quando":r["quando"],"autore":r["autore"],
+                           "bando":"Anagrafica"})
+    return sorted(events,key=lambda x:x["quando"],reverse=True)[:limit]
