@@ -60,6 +60,7 @@ from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf a
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
+from operational import report_operativo, report_diagnostico, _recent_activity, _scope
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -1444,6 +1445,65 @@ def list_bandi():
     return {"bandi": [dict(x) for x in rows]}
 
 
+@app.get("/api/dashboard/operativo")
+def dashboard_operativo(request: Request, anno_accademico: str="", codice: str=""):
+    principal=require_gestore_commissioni(request)
+    anno=(anno_accademico or "").strip()
+    if anno and anno!="__non_associato__":
+        anno=valid_anno_accademico(anno)
+    code=valid_code(codice) if codice else ""
+    with connect() as db:
+        db.execute("BEGIN")
+        return report_operativo(db,anno,code,principal["username"])
+
+
+@app.get("/api/admin/diagnostica")
+def diagnostica_database_admin(request: Request):
+    require_admin(request)
+    with connect() as db:
+        db.execute("BEGIN")
+        return report_diagnostico(db,BASE / "schema_backups")
+
+
+@app.get("/api/admin/registro-attivita")
+def registro_attivita_admin(request: Request, anno_accademico: str="", codice: str=""):
+    require_admin(request)
+    anno=(anno_accademico or "").strip()
+    if anno and anno!="__non_associato__":
+        anno=valid_anno_accademico(anno)
+    code=valid_code(codice) if codice else ""
+    with connect() as db:
+        db.execute("BEGIN")
+        bandi=_scope(db,anno,code)
+        if not bandi:return {"attivita":[]}
+        return {"attivita":_recent_activity(
+            db,[b["id"] for b in bandi],{b["id"]:b for b in bandi},limit=100)}
+
+
+@app.get("/api/bandi/{code}/verifiche-cds")
+def verifiche_cds(code: str, request: Request, cds: str="", sede: str=""):
+    require_gestore_commissioni(request)
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if b is None:fail("Bando non trovato",404)
+        places=db.execute("""
+            SELECT DISTINCT cds,sede FROM incarichi WHERE bando_id=?
+            ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE""",(b["id"],)).fetchall()
+        selected=[r for r in places if (not cds or r["cds"]==cds)
+                  and (not sede or r["sede"]==sede)]
+        if (cds or sede) and not selected:fail("CdS o sede non presenti nel bando",404)
+        return {"verifiche":[{
+            "cds":r["cds"],"sede":r["sede"],
+            **{k:status[k] for k in (
+                "stato","criticita","schede_da_risolvere",
+                "schede_validate","totale_candidature","verbale_generabile",
+                "pdf_definitivo_presente")}
+        } for r in selected
+        for status in [_graduatoria_status(db,b["id"],r["cds"],r["sede"])]]}
+
+
 @app.get("/api/bandi/{code}")
 def detail_bando(code: str):
     code = valid_code(code)
@@ -2198,7 +2258,8 @@ def list_candidature(code: str):
 
 
 @app.post("/api/pica/preview")
-async def preview_pica(request: Request, file: UploadFile = File(...)):
+async def preview_pica(request: Request, file: UploadFile = File(...),
+                       anno_accademico: str = Form("")):
     require_admin(request)
     filename = (file.filename or "").split("/")[-1].split("\\")[-1]
     if not filename.lower().endswith((".xls", ".xlsx")):
@@ -2211,8 +2272,18 @@ async def preview_pica(request: Request, file: UploadFile = File(...)):
             fail(str(error))
         # Evitare di esporre a browser dettagli di parser/file.
         fail("Impossibile leggere il file PICA: verifica che sia un Excel valido")
+    anno=valid_anno_accademico(anno_accademico)
+    digest=hashlib.sha256(content).hexdigest()
     with connect() as db:
         exists = db.execute("SELECT stato FROM bandi WHERE codice=?", (parsed["code"],)).fetchone()
+        duplicated=db.execute("""SELECT codice FROM bandi
+            WHERE source_hash=? AND codice<>? AND stato!='In preparazione'
+            LIMIT 1""",(digest,parsed["code"])).fetchone()
+        prepared=(db.execute("""SELECT b.codice FROM bandi b
+            JOIN bandi_riferimenti r ON r.bando_id=b.id
+            WHERE b.stato='In preparazione' AND r.anno_accademico=?
+              AND b.codice<>? ORDER BY b.codice""",
+            (anno,parsed["code"])).fetchall() if anno else [])
         dictionary = _dizionario(db)
     distinct = _tipologie(parsed)
     typelist = [
@@ -2223,19 +2294,25 @@ async def preview_pica(request: Request, file: UploadFile = File(...)):
         for key, info in sorted(distinct.items())]
     if exists and exists["stato"]!="In preparazione":
         fail("Il bando " + parsed["code"] + " è già stato importato. Nessuna sovrascrittura automatica.", 409)
+    if duplicated:
+        fail("File PICA identico già importato nel bando "+duplicated["codice"]+
+             ": nessun nuovo bando creato.",409)
     token = secrets.token_urlsafe(24)
-    metadata = {"parsed": parsed, "filename": filename, "sha256": hashlib.sha256(content).hexdigest()}
+    metadata = {"parsed": parsed, "filename": filename, "sha256": digest,
+                "anno_accademico": anno}
     (PENDING / (token + ".json")).write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
     (PENDING / (token + ".input")).write_bytes(content)
     return {"token": token, "codice_bando": parsed["code"],
             "titolo_pica": parsed["source_title"], "riepilogo": parsed["summary"],
-            "file": filename, "gia_presente": False, "tipologie": typelist}
+            "file": filename, "gia_presente": False, "tipologie": typelist,
+            "bandi_preparati_diversi":[r["codice"] for r in prepared]}
 
 
 class CommitRequest(BaseModel):
     token: str
     tipologie: list[VocePICA] = Field(default_factory=list)
     anno_accademico: str = Field(default="",max_length=20)
+    conferma_bando_distinto: bool = False
 
 
 @app.post("/api/pica/commit")
@@ -2256,10 +2333,26 @@ def commit_pica(body: CommitRequest, request: Request):
     parsed = meta["parsed"]
     code = valid_code(parsed["code"])
     anno = valid_anno_accademico(body.anno_accademico)
+    if meta.get("anno_accademico") and meta["anno_accademico"]!=anno:
+        fail("Anno accademico cambiato dopo l'anteprima: ripetere l'analisi PICA",409)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as db:
         try:
             db.execute("BEGIN IMMEDIATE")
+            same_file=db.execute("""SELECT codice FROM bandi
+                WHERE source_hash=? AND codice<>? AND stato!='In preparazione' LIMIT 1""",
+                (meta["sha256"],code)).fetchone()
+            if same_file:
+                fail("File PICA identico già acquisito nel bando "+same_file["codice"],409)
+            others=(db.execute("""SELECT b.codice FROM bandi b
+                JOIN bandi_riferimenti r ON r.bando_id=b.id
+                WHERE b.stato='In preparazione' AND b.codice<>?
+                  AND r.anno_accademico=? ORDER BY b.codice""",
+                (code,anno)).fetchall() if anno else [])
+            if others and not body.conferma_bando_distinto:
+                fail("Esistono bandi in preparazione nell'A.A. selezionato: "+
+                     ", ".join(r["codice"] for r in others[:8])+
+                     ". Verifica il codice e conferma esplicitamente l'importazione separata.",409)
             mapping = _dizionario(db)
             distinct = _tipologie(parsed)
             supplied = {}
