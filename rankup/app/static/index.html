@@ -3145,6 +3145,12 @@
               ' ma esistono procedure in preparazione nello stesso A.A.: '+
               esc(result.bandi_preparati_diversi.join(", "))+'. Verifica la fonte ufficiale: nessun dato sarà spostato o associato automaticamente.</p>'+
               '<label><input id="pica-confirm-separate" type="checkbox"> Ho verificato che questo file deve essere importato come bando distinto.</label></div>':'')+
+            ((result.possibili_duplicati||[]).length?
+              '<div class="notice"><strong>Possibile sovrapposizione con altri bandi</strong><p>'+
+              'Alcuni ID PICA risultano già presenti in altre procedure: '+
+              (result.possibili_duplicati||[]).map(function(d){return esc(d.codice)+
+                ' ('+esc(d.id_pica_in_comune)+' su '+esc(d.id_pica_del_file)+' ID PICA)';}).join("; ")+
+              '. Verifica il contenuto prima della conferma: la sola corrispondenza degli ID non dimostra una duplicazione.</p></div>':'')+
             '<h3>Dizionario colonna L (Tipo CDS)</h3>'+
             '<p class="caption">Classifica ogni dicitura nuova prima dell’importazione. Le corrispondenze note sono precompilate. Modificarle richiede una motivazione e aggiorna il dizionario comune. Nessuna IA o lettura PDF.</p>'+
             '<div class="tablebox"><table><thead><tr><th>Dicitura originale</th><th>Incarichi</th><th>Requisito</th><th>Motivo rettifica (se cambia)</th></tr></thead><tbody>'+
