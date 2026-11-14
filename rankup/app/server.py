@@ -1454,7 +1454,7 @@ def dashboard_operativo(request: Request, anno_accademico: str="", codice: str="
     code=valid_code(codice) if codice else ""
     with connect() as db:
         db.execute("BEGIN")
-        return report_operativo(db,anno,code,principal["username"])
+        return report_operativo(db,anno,code,principal["username"],_graduatoria_status)
 
 
 @app.get("/api/admin/diagnostica")
