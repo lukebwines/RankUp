@@ -2519,7 +2519,15 @@ def _elenco_commissioni_catalogo():
             ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE,
                      anno DESC,id DESC
         """).fetchall()
-    return {"commissioni":[dict(row) for row in rows]}
+    records=[dict(row) for row in rows]
+    latest={}
+    for item in records:
+        key=(course_key(item["cds"]),seat_key(item["sede"]))
+        latest[key]=max(latest.get(key,0),item["id"])
+    for item in records:
+        key=(course_key(item["cds"]),seat_key(item["sede"]))
+        item["corrente"]=item["id"]==latest[key]
+    return {"commissioni":records}
 
 
 def _salva_versione_catalogo(db, values: dict, precedente_id: int | None = None) -> dict:
