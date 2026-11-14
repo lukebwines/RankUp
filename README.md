@@ -546,3 +546,42 @@ oppure bando archiviato).
 La presenza di una commissione e la conclusione del verbale restano
 indipendenti: **Commissioni** gestisce le composizioni, **Verbali**
 gestisce le valutazioni e gli atti relativi.
+
+## Anagrafica commissioni condivisa — v1.0.28
+
+La gestione ordinaria delle composizioni non è riservata all'Admin:
+**Admin e operatori autenticati** possono aprire l'Anagrafica, registrare
+nuove commissioni, creare versioni successive della composizione,
+consultare i suggerimenti e associare una composizione al bando
+**solo dalla sezione Commissioni del bando**.
+
+- **Anagrafica generale:** accessibile sotto **Gestione generale**. Comprende
+  l'inserimento di una composizione e la creazione di una **nuova versione**
+  senza sovrascrivere la precedente. Non contiene il comando
+  «Associa al bando», selezioni multiple o collegamenti impliciti ai bandi.
+- **Commissioni del bando:** i pulsanti «Crea nell'Anagrafica» e
+  «Modifica in Anagrafica» aprono il catalogo centrale con CdS/sede
+  preimpostati. Dopo il salvataggio la composizione diventa disponibile
+  per il **recupero verificato**, che richiede una distinta conferma
+  documentale e la coincidenza di CdS/sede e anno quando indicato.
+  Nessuna candidatura, graduatoria, commissione già associata o
+  verbale viene modificato automaticamente.
+- **Permessi:** gli operatori autenticati possono consultare il catalogo
+  e associare una composizione dopo conferma, ma rimangono esclusi da
+  gestione utenti, classificazioni SSD, configurazione AI e azzeramento.
+  Il vecchio URL `/api/admin/commissioni-globali` mantiene il
+  controllo Admin per compatibilità; il nuovo endpoint condiviso è
+  `/api/commissioni/anagrafica`.
+- **Versionamento:** le revisioni sono nuove righe immutabili.
+  `commissioni_catalogo_eventi` registra autore, data, azione e
+  precedente versione. Non si modifica una versione storica quando
+  esiste una composizione successiva per lo stesso CdS/sede.
+  Lo schema passa alla **v12**; RankUP esegue il backup SQLite prima
+  della migrazione e preserva il registro anche durante l'azzeramento.
+- **Limite attuale:** la gestione documentale dei PDF degli atti di
+  nomina e delle rettifiche richiede una distinta funzione di
+  acquisizione/conservazione; questa versione non archivia ancora
+  gli allegati né attribuisce loro protocolli o date per supposizione.
+
+Le operazioni sul catalogo non costituiscono nomine e non alterano
+automaticamente le commissioni già impiegate nei bandi.
