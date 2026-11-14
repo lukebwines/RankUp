@@ -83,6 +83,11 @@ def test_pica_other_code_requires_explicit_admin_confirmation(tmp_path, monkeypa
             "conferma_bando_distinto":True})
         assert imported.status_code==200,imported.text
         assert imported.json()["codice_bando"]=="26-04"
+        with server.connect() as db:
+            event=db.execute("""SELECT autore,codice_pica FROM pica_import_eventi
+                WHERE bando_id=(SELECT id FROM bandi WHERE codice='26-04')""").fetchone()
+            assert event and event["autore"]=="test-admin"
+            assert event["codice_pica"]=="26-04"
         assert next(x for x in admin.get("/api/bandi").json()["bandi"]
                     if x["codice"]=="26-03")["candidature"]==0
         repeated=_post(admin,"/api/pica/preview",files={
