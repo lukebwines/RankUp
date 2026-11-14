@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.24">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.25">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -617,6 +617,7 @@
           return;
         }
         state.active=code;
+        state.dashboardMetric="";
         state.preview=null;
         state.valFilter={cds:"",sede:""};
         state.incarichiFilter={cds:"",sede:""};
@@ -627,6 +628,7 @@
       };
       function setAcademicYear(year){
         state.year=year;state.active="";state.preview=null;
+        state.dashboardMetric="";state.commissioniInLavorazioneOnly=false;
         state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};
         state.incarichiQuery="";
         state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
@@ -668,34 +670,119 @@
         $("add-academic-year").textContent="+ Seleziona un nuovo A.A.";
       }
       function panel(title,text){return '<div class="card"><h3 class="section-heading">'+esc(title)+'</h3><p class="muted">'+esc(text)+'</p></div>';}
+      function dashboardMetricDefinition(metric){
+        return {
+          bandi:{title:"Bandi aperti nell'A.A.",field:"",page:"incarichi",icon:"ri-folders"},
+          candidature:{title:"Candidature PICA",field:"candidature",page:"candidature",icon:"ri-users"},
+          incarichi:{title:"Incarichi",field:"incarichi",page:"incarichi",icon:"ri-book"},
+          valutazioni:{title:"Candidature valutate",field:"valutazioni_acquisite",page:"valutazioni",icon:"ri-clipboard"},
+          commissioni:{title:"Commissioni in lavorazione",field:"cds_in_lavorazione",page:"commissioni",icon:"ri-users"}
+        }[metric];
+      }
+      function dashboardOpenProcedures(){
+        return bandiAnno().filter(function(b){return b.stato!=="Archiviato";});
+      }
+      function dashboardValue(metric,bando){
+        if(metric==="bandi")return 1;
+        if(metric==="commissioni"&&bando.stato==="Archiviato")return 0;
+        var field=dashboardMetricDefinition(metric).field;
+        return Number(bando[field])||0;
+      }
+      function dashboardTotal(metric){
+        var scope=metric==="bandi"||metric==="commissioni"?
+          dashboardOpenProcedures():(cur()?[cur()]:bandiAnno());
+        if(metric==="bandi")return scope.length;
+        return scope.reduce(function(total,b){return total+dashboardValue(metric,b);},0);
+      }
       function cards(){
-        var selected=cur(),scoped=bandiAnno();
-        var open=scoped.filter(function(b){return b.stato!=="Archiviato";}).length;
-        var shown=selected?[selected]:scoped;
-        function count(field){
-          return shown.reduce(function(total,b){return total+(Number(b[field])||0);},0);
+        var general=!cur(),selectedYear=!!state.year;
+        var metrics=["bandi","candidature","incarichi","valutazioni","commissioni"];
+        return '<div class="grid ru-dashboard-metrics" aria-label="Indicatori e collegamenti dashboard">'+
+          metrics.map(function(metric){
+            var def=dashboardMetricDefinition(metric),value=selectedYear?
+              dashboardTotal(metric):"Seleziona A.A.";
+            var label=def.title;
+            if(general && metric==="candidature")label="Candidature PICA nell’A.A.";
+            if(general && metric==="incarichi")label="Incarichi nell’A.A.";
+            if(general && metric==="valutazioni")label="Candidature valutate nell’A.A.";
+            var isOpen=state.dashboardMetric===metric;
+            return '<button class="card kpi ru-kpi ru-kpi--'+metric+
+              (isOpen?' ru-kpi--active':'')+'" type="button" data-dashboard-metric="'+metric+
+              '" aria-label="'+esc(label+': '+value+'. Apri il dettaglio')+'"'+
+              (isOpen?' aria-expanded="true"':'')+'>'+
+              '<span class="ru-kpi-icon"><svg class="navicon" aria-hidden="true"><use href="#'+
+              def.icon+'"></use></svg></span>'+
+              '<strong>'+esc(value)+'</strong><span>'+esc(label)+'</span>'+
+              '<span class="ru-kpi-hint" aria-hidden="true">Visualizza dettaglio</span></button>';
+          }).join('')+'</div>';
+      }
+      function dashboardMetricPanel(){
+        var metric=state.dashboardMetric,def=dashboardMetricDefinition(metric);
+        if(!metric||!def||!state.year)return "";
+        var scope=metric==="bandi"||metric==="commissioni"?
+          dashboardOpenProcedures():bandiAnno();
+        if(metric==="commissioni")scope=scope.filter(function(b){
+          return dashboardValue(metric,b)>0;
+        });
+        var heading=metric==="bandi"?"Bandi aperti dell’anno accademico":
+          def.title+" · riepilogo per bando";
+        return '<section class="card ru-dashboard-detail mb" id="dashboard-detail" aria-label="'+esc(heading)+'">'+
+          '<div class="ru-dashboard-detail-heading"><div><h3 class="section-heading">'+esc(heading)+'</h3>'+
+          '<p class="caption">A.A. '+esc(annoLabel())+
+          (metric==="commissioni"?' · CdS/sedi senza graduatoria definitiva nei soli bandi non archiviati.':
+            ' · Dati effettivi delle procedure di questo anno accademico.')+
+          '</p></div><button class="btn secondary" type="button" id="dashboard-detail-close">Chiudi</button></div>'+
+          (scope.length?
+            '<div class="ru-dashboard-detail-list">'+scope.map(function(b){
+              var count=dashboardValue(metric,b),label=metric==="bandi"?"Bando aperto":
+                count+" "+(metric==="commissioni"?"CdS/sedi da completare":
+                metric==="valutazioni"?"candidature valutate":
+                metric==="candidature"?"candidature PICA":"incarichi");
+              return '<div class="ru-dashboard-detail-row"><div><strong>'+esc(b.codice)+'</strong>'+
+                '<span class="caption">'+esc(label)+'</span></div>'+
+                '<button type="button" class="btn secondary" data-dashboard-open="'+
+                esc(b.codice)+'" data-dashboard-open-metric="'+metric+
+                '" aria-label="Apri '+esc(def.title)+' per il bando '+esc(b.codice)+'">Apri</button></div>';
+            }).join('')+'</div>':
+            '<p class="caption">Nessuna procedura con dati corrispondenti nell’anno accademico selezionato.</p>')+
+          '</section>';
+      }
+      function openDashboardMetric(metric,code){
+        var def=dashboardMetricDefinition(metric);
+        if(!def)return;
+        if(!state.year){
+          note("Seleziona prima un anno accademico.",true);
+          $("academic-year-select").focus();
+          return;
         }
-        var general=!selected;
-        var metrics=[
-          [open,"Bandi aperti nell'A.A."],
-          [count("candidature"),general?"Candidature PICA nell’A.A.":"Candidature PICA del bando"],
-          [count("incarichi"),general?"Incarichi nell’A.A.":"Incarichi nel bando"],
-          [count("valutazioni_acquisite"),general?"Candidature valutate nell’A.A.":"Candidature valutate"]
-        ];
-        // Conservare le 4 icone originali, nella stessa posizione.
-        var icons=['ri-folders','ri-users','ri-book','ri-clipboard'];
-        return '<div class="grid">'+metrics.map(function(m,i){
-          return '<div class="card kpi"><svg class="navicon" aria-hidden="true" '+
-            'style="color:#397fb9;margin-bottom:10px"><use href="#'+icons[i]+'"></use></svg>'+
-            '<strong>'+esc(m[0])+'</strong><span>'+esc(m[1])+'</span></div>';
-        }).join('')+'</div>'+
-          '<div class="card dashboard-work-status"><strong>CdS/sedi ancora in lavorazione: '+
-          esc(count("cds_in_lavorazione"))+'</strong>'+
-          '<span>'+(selected?'Riferito al bando '+esc(selected.codice)+
-          '; conteggio per CdS e sede senza verbale definitivo.':
-          'Totale dei CdS/sedi ancora aperti nei bandi dell’A.A.; '+
-          'lo stesso CdS in bandi diversi conta una volta per procedura.')+
-          '</span></div>';
+        if(code){
+          state.page=def.page;
+          state.commissioniInLavorazioneOnly=metric==="commissioni";
+          setActive(code);
+          return;
+        }
+        if(metric==="bandi"||!cur()){
+          state.dashboardMetric=metric;
+          state.page="dashboard";
+          render();
+          var detail=$("dashboard-detail");
+          if(detail)detail.scrollIntoView({block:"nearest"});
+          return;
+        }
+        state.commissioniInLavorazioneOnly=metric==="commissioni";
+        go(def.page);
+      }
+      function bindDashboardMetrics(){
+        document.querySelectorAll("[data-dashboard-metric]").forEach(function(button){
+          button.onclick=function(){openDashboardMetric(button.dataset.dashboardMetric);};
+        });
+        document.querySelectorAll("[data-dashboard-open]").forEach(function(button){
+          button.onclick=function(){
+            openDashboardMetric(button.dataset.dashboardOpenMetric,button.dataset.dashboardOpen);
+          };
+        });
+        var close=$("dashboard-detail-close");
+        if(close)close.onclick=function(){state.dashboardMetric="";render();};
       }
       function row(b){
         return '<div class="band-row"><div><strong>'+esc(b.codice)+'</strong><small>'+esc(b.candidature)+' candidature · '+esc(b.incarichi)+' incarichi · '+esc(b.cds)+' CdS</small></div>'+
@@ -706,7 +793,7 @@
         var scoped=bandiAnno(),validYear=annoValido(state.year);
         html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Anno accademico: '+esc(annoLabel())+
           (cur()?' · Bando '+esc(state.active):' · Totali di tutti i bandi dell’A.A.')+
-          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+
+          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+dashboardMetricPanel()+
           (cur()?'<div class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(state.active)+'</h3><div class="actions"><button id="dashboard-tickets" class="btn secondary">Tutte le segnalazioni</button><button id="dashboard-my-tickets" class="btn secondary">Assegnate a me</button></div></div>':'')+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
           (scoped.length?scoped.map(row).join(''):'<div class="empty"><strong>Nessun bando per questo anno accademico</strong>Seleziona o registra l’A.A. corretto; i bandi preesistenti senza anno sono consultabili in «Da associare».</div>')+
           '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit"'+(validYear?'':' disabled')+'>Prepara bando</button></form>'+
@@ -715,7 +802,7 @@
           '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
           ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione','Archivio finale ZIP e chiusura del bando'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
           '</div><p class="caption">Graduatorie CdS, PDF e approvazioni parziali ora disponibili nelle relative sezioni.</p></div></div>');
-        bindBandButtons();$("preview-btn").onclick=preview;
+        bindBandButtons();bindDashboardMetrics();$("preview-btn").onclick=preview;
         if($("dashboard-tickets")){
           $("dashboard-tickets").onclick=function(){apriSegnalazioni("");};
           $("dashboard-my-tickets").onclick=function(){
@@ -3967,7 +4054,7 @@
         clearNote();setAcademicYear(value);
       };
       $("band-select").onchange=function(){setActive(this.value);};
-      document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){if(b.dataset.page==="segnalazioni")apriSegnalazioni("");else go(b.dataset.page);};});
+      document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){if(b.dataset.page==="segnalazioni")apriSegnalazioni("");else {state.commissioniInLavorazioneOnly=false;go(b.dataset.page);}};});
       checkAuthentication();
     })();
   </script>
