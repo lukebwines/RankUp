@@ -60,7 +60,7 @@ from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf a
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
-from operational import report_operativo, report_diagnostico, _recent_activity, _scope
+from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
@@ -1476,9 +1476,13 @@ def registro_attivita_admin(request: Request, anno_accademico: str="", codice: s
     with connect() as db:
         db.execute("BEGIN")
         bandi=_scope(db,anno,code)
-        if not bandi:return {"attivita":[]}
-        return {"attivita":_recent_activity(
-            db,[b["id"] for b in bandi],{b["id"]:b for b in bandi},limit=100)}
+        activities=(_recent_activity(
+            db,[b["id"] for b in bandi],{b["id"]:b for b in bandi},limit=100)
+            if bandi else [])
+        if not code:
+            activities.extend(global_registry_activity(db,limit=40))
+        return {"attivita":sorted(activities,
+                                 key=lambda x:x["quando"],reverse=True)[:100]}
 
 
 @app.get("/api/bandi/{code}/verifiche-cds")
