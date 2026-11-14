@@ -8,6 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.31">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -223,6 +224,7 @@
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
+        <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica e registro</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
@@ -404,6 +406,7 @@
         $("account-info").textContent="Accesso protetto";
         $("admin-users-link").style.display="none";
         $("admin-ssd-link").style.display="none";
+        $("admin-diagnostica-link").style.display="none";
         $("admin-commissioni-link").style.display="none";
         $("add-academic-year").style.display="none";
         $("admin-ai-link").style.display="none";
@@ -422,6 +425,7 @@
         $("account-info").textContent=(state.role==="admin"?"Admin":"Utente")+" · "+state.username;
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-diagnostica-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-commissioni-link").style.display="flex";
         $("add-academic-year").style.display=state.role==="admin"?"block":"none";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
@@ -429,7 +433,7 @@
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","diagnostica","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -2838,7 +2842,7 @@
         var file=$("pica-file").files[0];if(!file){note("Seleziona prima un file Excel.",true);return;}
         clearNote();var btn=$("preview-btn");btn.disabled=true;btn.textContent="Analisi...";
         try{
-          var fd=new FormData();fd.append("file",file);
+          var fd=new FormData();fd.append("file",file);fd.append("anno_accademico",state.year);
           var result=await api("pica/preview",{method:"POST",body:fd});
           state.preview=result;state.preview.anno_accademico=state.year;var x=result.riepilogo;
           var types=result.tipologie||[];
@@ -2852,6 +2856,11 @@
             esc(x.candidature)+' candidature · '+esc(x.incarichi)+' incarichi · '+esc(x.cds)+' CdS<br>'+
             '<small>'+esc(result.file)+'</small></div>'+
             (x.avvisi.length?'<p class="caption">'+esc(x.avvisi.length)+' avvisi da controllare</p>':'')+
+            ((result.bandi_preparati_diversi||[]).length?
+              '<div class="notice" role="alert"><strong>Verifica codice bando</strong><p>Il PICA riporta '+esc(result.codice_bando)+
+              ' ma esistono procedure in preparazione nello stesso A.A.: '+
+              esc(result.bandi_preparati_diversi.join(", "))+'. Verifica la fonte ufficiale: nessun dato sarà spostato o associato automaticamente.</p>'+
+              '<label><input id="pica-confirm-separate" type="checkbox"> Ho verificato che questo file deve essere importato come bando distinto.</label></div>':'')+
             '<h3>Dizionario colonna L (Tipo CDS)</h3>'+
             '<p class="caption">Classifica ogni dicitura nuova prima dell’importazione. Le corrispondenze note sono precompilate. Modificarle richiede una motivazione e aggiorna il dizionario comune. Nessuna IA o lettura PDF.</p>'+
             '<div class="tablebox"><table><thead><tr><th>Dicitura originale</th><th>Incarichi</th><th>Requisito</th><th>Motivo rettifica (se cambia)</th></tr></thead><tbody>'+
@@ -2882,9 +2891,15 @@
             }
             mapped.push({chiave:t.chiave,requisito:requirement,motivo:reason.trim()});
           }
+          var different=(state.preview.bandi_preparati_diversi||[]).length>0;
+          var confirmed=$("pica-confirm-separate");
+          if(different&&(!confirmed||!confirmed.checked)){
+            throw new Error("Conferma la verifica del codice bando prima di importare PICA.");
+          }
           var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({token:state.preview.token,tipologie:mapped,
-              anno_accademico:state.preview.anno_accademico})});
+              anno_accademico:state.preview.anno_accademico,
+              conferma_bando_distinto:!!(confirmed&&confirmed.checked)})});
           await reload();state.page="incarichi";state.active=result.codice_bando;
           state.cmFilter="tutte";state.cmSearch="";localStorage.setItem("rankup_active",state.active);
           updateHeader();render();
