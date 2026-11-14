@@ -564,7 +564,7 @@
           return;
         }
         $("content").innerHTML='<div class="ru-workspace ru-page-'+
-          esc(state.page)+'">'+rankupWorkspaceGuide()+content+'</div>';
+          esc(state.page)+'">'+(state.page==="dashboard"?"":rankupWorkspaceGuide())+content+'</div>';
         enhanceWorkspaceTables();
       };
       document.addEventListener("click",function(event){
