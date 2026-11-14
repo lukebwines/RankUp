@@ -689,8 +689,9 @@
         return Number(bando[field])||0;
       }
       function dashboardTotal(metric){
-        var scope=metric==="bandi"||metric==="commissioni"?
-          dashboardOpenProcedures():(cur()?[cur()]:bandiAnno());
+        var scope=metric==="bandi"?dashboardOpenProcedures():
+          metric==="commissioni"?(cur()?(cur().stato==="Archiviato"?[]:[cur()]):dashboardOpenProcedures()):
+          (cur()?[cur()]:bandiAnno());
         if(metric==="bandi")return scope.length;
         return scope.reduce(function(total,b){return total+dashboardValue(metric,b);},0);
       }
@@ -3121,10 +3122,36 @@
         }catch(error){note(error.message,true);html('');}
       }
       async function renderCommissioni(rows,code){
-        var report=await api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni");
+        var responses=await Promise.all([
+          api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni"),
+          api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione")
+        ]);
         if(state.page!=="commissioni"||state.active!==code)return;
+        var report=responses[0],pending=responses[1].commissioni||[];
+        var onlyPending=!!state.commissioniInLavorazioneOnly;
+        function pairKey(cds,sede){return JSON.stringify([cds,sede]);}
+        var pendingKeys=new Set(pending.map(function(p){return pairKey(p.cds,p.sede);}));
         var pairs=report.associazioni||[];
-        var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){return x.item.stato!=="associata";});
+        var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){
+          return x.item.stato!=="associata"&&
+            (!onlyPending||pendingKeys.has(pairKey(x.item.cds,x.item.sede)));
+        });
+        var shownRows=onlyPending?rows.filter(function(r){
+          return pendingKeys.has(pairKey(r.cds,r.sede));
+        }):rows;
+        var pendingFilter='<div class="card mb ru-cm-pending-filter">'+
+          '<div class="ru-dashboard-detail-heading"><div><h3 class="section-heading">Commissioni in lavorazione</h3>'+
+          '<p class="caption">'+esc(pending.length)+' CdS/sedi non ancora definitivi nel bando '+esc(code)+
+          '. Include quelli con commissione non ancora inserita; i bandi archiviati sono esclusi dal conteggio.</p></div>'+
+          '<button class="btn secondary" id="cm-only-pending" type="button" aria-pressed="'+onlyPending+'">'+
+          (onlyPending?'Mostra tutte le commissioni':'Mostra solo in lavorazione')+'</button></div>'+
+          (onlyPending?(pending.length?
+            '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th><th>Commissione</th></tr></thead><tbody>'+
+            pending.map(function(p){return '<tr><td>'+esc(p.cds)+'</td><td>'+esc(p.sede)+
+              '</td><td>'+esc(p.commissione_registrata?'Registrata':'Non ancora registrata')+
+              '</td></tr>';}).join('')+'</tbody></table></div>':
+            '<p class="caption">Nessuna commissione in lavorazione per questo bando.</p>'):'')+
+          '<p class="caption">La conclusione si determina dalla graduatoria CdS definitiva non regredita, nella sezione Verbali.</p></div>';
         var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
           '<div class="ru-quick-stats">'+
           '<span class="ru-status-pill ru-status-pill--good">'+esc(report.associate)+' / '+esc(report.totale)+' CdS/sedi associati</span>'+
@@ -3175,15 +3202,16 @@
           '<button class="btn secondary" id="cm-cancel" type="button">Annulla</button></div></form></div>';
 
         var listing='<div class="card"><h3 class="section-heading">Commissioni del bando · '+esc(code)+'</h3>'+
-          '<p class="caption">'+rows.length+' commissioni registrate. Ogni modifica resta circoscritta a questo bando e richiede la rigenerazione dei PDF interessati.</p>'+
+          '<p class="caption">'+shownRows.length+(onlyPending?' commissioni registrate fra i CdS/sedi in lavorazione.':' commissioni registrate.')+' Ogni modifica resta circoscritta a questo bando e richiede la rigenerazione dei PDF interessati.</p>'+
           '<button class="btn" type="button" id="cm-new" style="margin-bottom:14px">Nuova commissione</button>'+
           '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Presidente</th><th>Componenti</th><th>Anno accademico</th><th></th></tr></thead><tbody>'+
-          rows.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td><td>'+esc(r.presidente)+
+          (shownRows.length?shownRows.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td><td>'+esc(r.presidente)+
              '</td><td>'+esc(r.componenti)+'</td><td>'+esc(r.anno)+'</td><td><button type="button" class="btn secondary cm-edit" data-id="'+
              esc(r.id)+'">Modifica</button> <button type="button" class="btn secondary cm-tickets" data-id="'+
-             esc(r.id)+'">Segnalazioni</button></td></tr>';}).join('')+
+             esc(r.id)+'">Segnalazioni</button></td></tr>';}).join(''):'<tr><td colspan="6">Nessuna commissione registrata in questa selezione.</td></tr>')+
           '</tbody></table></div></div>';
-        html(summary+upload+editor+listing);
+        html(pendingFilter+summary+upload+editor+listing);
+        $("cm-only-pending").onclick=function(){state.commissioniInLavorazioneOnly=!onlyPending;renderCommissioni(rows,code);};
 
         var selected=null;
         function openEditor(row, pairIndex){
