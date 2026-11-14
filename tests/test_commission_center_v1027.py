@@ -1,0 +1,91 @@
+"""RankUP 1.0.27 — Centro Commissioni e importazione PICA.
+
+Dati sintetici, senza nomine o candidature reali.
+"""
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from test_pdf_import import _setup, _post
+from test_import import commissioni_fixture
+
+ROOT = Path(__file__).resolve().parents[1]
+HEADERS = {"X-RankUp-Request": "1"}
+
+
+def _commission_snapshot(server):
+    with server.connect() as db:
+        return [tuple(row) for row in db.execute("""
+            SELECT id,bando_id,cds,sede,presidente,componenti,requisiti,anno,updated_at
+            FROM commissioni ORDER BY id
+        """).fetchall()]
+
+
+def test_catalog_suggestions_are_only_readable_by_admin_and_do_not_assign(tmp_path, monkeypatch):
+    server, client, _ = _setup(tmp_path, monkeypatch)
+    with client:
+        original = _commission_snapshot(server)
+        response = client.get("/api/bandi/26-02/commissioni/suggerimenti")
+        assert response.status_code == 200, response.text
+        groups = response.json()["suggerimenti"]
+        assert groups
+        assert any(g["candidati"] for g in groups)
+        assert all("anno_compatibile" in proposal
+                   for g in groups for proposal in g["candidati"])
+        assert _commission_snapshot(server) == original
+
+        created = _post(client, "/api/utenti", json={
+            "username": "test-operatore", "password": "PasswordDiTest123!"
+        })
+        assert created.status_code == 200, created.text
+        with TestClient(server.app) as user:
+            assert _post(user, "/api/auth/login", json={
+                "username": "test-operatore", "password": "PasswordDiTest123!"
+            }).status_code == 200
+            assert user.get("/api/bandi/26-02/commissioni/suggerimenti").status_code == 403
+        assert client.get("/api/bandi/CODICE-NON-ESISTENTE/commissioni/suggerimenti").status_code == 404
+
+
+def test_excel_preview_keeps_commissions_and_catalog_unchanged(tmp_path, monkeypatch):
+    server, client, _ = _setup(tmp_path, monkeypatch)
+    with client:
+        before = _commission_snapshot(server)
+        with server.connect() as db:
+            global_before = db.execute("SELECT COUNT(*) FROM commissioni_catalogo").fetchone()[0]
+        filedata = commissioni_fixture()
+        for mode in ("solo_nuove", "aggiorna"):
+            response = _post(client,
+                "/api/bandi/26-02/commissioni/import/anteprima",
+                files={"file": ("commissioni.xlsx", filedata,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                data={"mode": mode})
+            assert response.status_code == 200, response.text
+            result = response.json()
+            assert result["aggiunte"] >= 0
+            assert result["aggiornate"] >= 0
+            assert result["inalterate"] >= 0
+            assert result["aggiunte"] + result["aggiornate"] + result["inalterate"] == len(result["anteprima"])
+            assert _commission_snapshot(server) == before
+            with server.connect() as db:
+                assert db.execute("SELECT COUNT(*) FROM commissioni_catalogo").fetchone()[0] == global_before
+
+
+def test_unified_ui_pica_warning_and_version():
+    html = (ROOT / "rankup/app/static/index.html").read_text(encoding="utf-8")
+    css = (ROOT / "rankup/app/static/workspace.css").read_text(encoding="utf-8")
+    server = (ROOT / "rankup/app/server.py").read_text(encoding="utf-8")
+    config = (ROOT / "rankup/config.yaml").read_text(encoding="utf-8")
+    assert 'version: "1.0.27"' in config
+    assert 'version="1.0.27"' in server
+    assert 'workspace.css?v=1.0.27' in html
+    assert 'RANKUP · v1.0.27' in html
+    assert 'Centro gestione Commissioni' in html
+    assert 'id="cm-unified-rows"' in html
+    assert 'id="cm-manage-panel"' in html
+    assert 'id="cm-catalog-verified"' in html
+    assert '"/commissioni/suggerimenti"' in server
+    assert '"/commissioni/import/anteprima"' in server
+    assert "Nessuna associazione automatica." in html
+    assert 'id="pica-cm-open"' in html
+    assert 'id="cm-preview-import"' in html
+    assert 'id="cm-import-confirm-check"' in html
+    assert '.ru-workspace .ru-cm-layout{' in css
