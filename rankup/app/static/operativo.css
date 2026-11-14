@@ -95,3 +95,11 @@ html[data-theme="dark"] .ru-ops .ru-ops-import details{border-color:#35516c}
 .ru-ops .ru-ops-verify{border:1px solid #c5dced;color:#256ca8;background:#f1f8ff;padding:9px 12px;border-radius:9px;font-size:11px;font-weight:800}
 .ru-ops .ru-ops-verify:hover{background:#e1f0ff}
 html[data-theme="dark"] .ru-ops .ru-ops-verify{background:#244c70;border-color:#477ba9;color:#e5f3ff}
+
+/* Override mirati ai KPI storici: mantenere navigazione e colori per metrica. */
+.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0 0 20px}
+.ru-workspace .ru-ops .card.ru-kpi{min-height:138px;border-radius:17px;padding:15px 17px}
+.ru-workspace .ru-ops .card.ru-kpi strong{font-size:28px}
+@media(max-width:1250px){.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:750px){.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:440px){.ru-workspace .ru-ops .grid.ru-dashboard-metrics{grid-template-columns:1fr}}
