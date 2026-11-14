@@ -488,3 +488,28 @@ In caso di 403, RankUP distingue un'eventuale pagina Cloudflare 1010 dal normale
 La funzione **Procedimento del bando → Verifica requisito ente → Report PDF per CdS / filtro** produce un documento istruttorio in formato A4 orizzontale. La prima sezione contiene il riepilogo della selezione (ambito totale, posizioni esportate, non applicabili, enti coerenti e da approfondire), distinguendo i contatori del bando dalle sole posizioni del filtro. Seguono tabelle raggruppate per **CdS e sede** con ID PICA, **cognome e nome**, insegnamento, requisito/ente, rapporto dichiarato ed esito. Un'ulteriore sezione contiene **soltanto le posizioni da approfondire**, con motivo e controllo suggerito senza ripetere meccanicamente le stesse note AI. Ogni pagina ha intestazione, codice bando e numero di pagina.
 
 Il report è accessibile **solo all'Admin** e i dati personali rimangono in RankUP. Non invia informazioni a GroqCloud, non ricalcola automaticamente i giudizi dell'AI e non modifica schede o graduatorie. Se manca un nominativo o un CdS compare **[DA VERIFICARE]**: il PDF non inventa dati. Il file ha nome compatto identificabile per bando/CdS/sede/filtro con suffisso univoco, evitando collisioni fra denominazioni lunghe. La vecchia funzione di calcolo degli esiti non è stata modificata.
+
+## Dashboard v1.0.25 — indicatori navigabili
+
+La Dashboard presenta cinque riquadri colorati e cliccabili: **Bandi aperti nell'A.A.**,
+**Candidature PICA**, **Incarichi**, **Candidature valutate** e
+**Commissioni in lavorazione**. I dati provengono esclusivamente da RankUP.
+
+- **Bando attivo:** le candidature, gli incarichi e le valutazioni aprono la
+  sezione del bando; le commissioni aprono **Commissioni** con filtro
+  **solo in lavorazione**. Il riquadro dei bandi apre sempre l'elenco
+  dei bandi non archiviati nell'A.A.
+- **Nessun bando attivo:** i riquadri aprono un riepilogo per bando nel
+  medesimo A.A.; il pulsante **Apri** imposta il bando e apre la sezione
+  coerente. Le candidature, gli incarichi e le valutazioni includono
+  anche le procedure archiviate per la consultazione storica.
+- **Commissioni in lavorazione:** il contatore riguarda i **CdS/sedi**
+  presenti negli incarichi PICA senza graduatoria CdS definitiva o
+  approvata attualmente valida. Include anche i CdS/sedi per cui la
+  commissione non è stata registrata; esclude i bandi archiviati e
+  considera nuovamente in lavorazione una graduatoria regredita.
+- **Nessun A.A.:** i riquadri mostrano **Seleziona A.A.** e non un falso zero.
+
+Il conteggio è solo un indicatore istruttorio: non attribuisce decisioni
+alle commissioni e non altera le posizioni, gli esiti o i verbali.
+L'aggiornamento non modifica lo schema SQLite e non reimporta i dati PICA.

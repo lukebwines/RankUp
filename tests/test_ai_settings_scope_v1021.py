@@ -32,4 +32,6 @@ def test_ai_settings_helpers_are_visible_to_handlers_after_try():
 
 def test_addon_version_tracks_frontend_fix():
     config = (UI.parents[2] / "config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.21"' in config
+    import re
+    match = re.search(r'^version:\s*"(\d+)\.(\d+)\.(\d+)"', config, re.M)
+    assert match and tuple(map(int,match.groups())) >= (1,0,21)

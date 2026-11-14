@@ -16,7 +16,7 @@ def test_version_and_css_cache_are_synchronized():
     version = re.search(r'^version:\s*"([^"]+)"', config, re.M)
     assert version
     v = version.group(1)
-    assert v == "1.0.24"
+    assert tuple(map(int,v.split("."))) >= (1,0,24)
     html = INDEX.read_text(encoding="utf-8")
     server = SERVER.read_text(encoding="utf-8")
     groq = GROQ.read_text(encoding="utf-8")
