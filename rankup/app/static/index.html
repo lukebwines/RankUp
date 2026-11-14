@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.28">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.29">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -211,7 +211,7 @@
           <div class="side-title">ANNO ACCADEMICO</div>
           <strong id="side-year">Da selezionare</strong>
           <select id="academic-year-select" aria-label="Seleziona anno accademico"></select>
-          <button id="add-academic-year" class="add-year" type="button">+ Seleziona un nuovo A.A.</button>
+          <button id="add-academic-year" class="add-year" type="button" style="display:none">+ Seleziona un nuovo A.A.</button>
         </div>
         <div class="side-title">BANDO ATTIVO</div>
         <strong id="side-code">Nessuno</strong>
@@ -239,7 +239,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.28<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.29<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -405,6 +405,7 @@
         $("admin-users-link").style.display="none";
         $("admin-ssd-link").style.display="none";
         $("admin-commissioni-link").style.display="none";
+        $("add-academic-year").style.display="none";
         $("admin-ai-link").style.display="none";
         $("band-ai-link").style.display="none";
         $("admin-reset-link").style.display="none";
@@ -422,6 +423,7 @@
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-commissioni-link").style.display="flex";
+        $("add-academic-year").style.display=state.role==="admin"?"block":"none";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("band-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
@@ -580,9 +582,15 @@
         return years[1]===years[0]+1;
       }
       var cur=function(){return state.bandi.find(function(b){return b.codice===state.active;});};
+      function anniRegistrati(){
+        return [...new Set(state.bandi.map(function(b){return b.anno_accademico||"";})
+          .filter(annoValido))].sort().reverse();
+      }
       function anniDisponibili(){
-        var all=state.bandi.map(function(b){return b.anno_accademico||"";}).filter(Boolean);
-        if(annoValido(state.year))all.push(state.year);
+        var all=anniRegistrati();
+        // Un nuovo anno è una selezione temporanea disponibile soltanto all'Admin,
+        // finché viene associato esplicitamente a un bando.
+        if(state.role==="admin"&&annoValido(state.year))all.push(state.year);
         return [...new Set(all)].sort().reverse();
       }
       function bandiAnno(){
@@ -600,6 +608,10 @@
       }
       function syncAcademicSelection(){
         var current=cur(),years=anniDisponibili();
+        // Ignora un A.A. nuovo salvato localmente da un account precedente.
+        // Gli operatori possono selezionare solo anni già registrati nei bandi.
+        if(state.role!=="admin"&&state.year!==NO_AA&&
+            !anniRegistrati().includes(state.year))state.year="";
         if(!state.year || (state.year!==NO_AA&&!annoValido(state.year))){
           state.year=current?(current.anno_accademico||NO_AA):
             years.length?years[0]:state.bandi.length?NO_AA:"";
@@ -628,6 +640,11 @@
         persistSelection();updateHeader();render();
       };
       function setAcademicYear(year){
+        if(state.role!=="admin"&&year!==NO_AA&&!anniRegistrati().includes(year)){
+          note("La creazione di nuovi anni accademici è riservata all’Admin.",true);
+          updateHeader();
+          return;
+        }
         state.year=year;state.active="";state.preview=null;
         state.dashboardMetric="";state.commissioniInLavorazioneOnly=false;
         state.valFilter={cds:"",sede:""};state.incarichiFilter={cds:"",sede:""};
@@ -670,6 +687,7 @@
         });
         sel.value=state.active||"";
         $("add-academic-year").textContent="+ Seleziona un nuovo A.A.";
+        $("add-academic-year").style.display=state.role==="admin"?"block":"none";
       }
       function panel(title,text){return '<div class="card"><h3 class="section-heading">'+esc(title)+'</h3><p class="muted">'+esc(text)+'</p></div>';}
       function dashboardMetricDefinition(metric){
@@ -4363,6 +4381,10 @@
       }
       $("academic-year-select").onchange=function(){setAcademicYear(this.value);};
       $("add-academic-year").onclick=function(){
+        if(state.role!=="admin"){
+          note("Solo l’Admin può creare un nuovo anno accademico.",true);
+          return;
+        }
         var value=prompt("Indica l’anno accademico verificato (AAAA-AAAA):","");
         if(value===null)return;
         value=value.trim();
