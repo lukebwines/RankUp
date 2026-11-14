@@ -50,6 +50,7 @@ BUSINESS_TABLES = (
     "ssd_import_migrations",
     "incarichi_metadata_audit",
     "incarichi_metadata_migrations",
+    "pica_import_eventi",
     "commissioni_eventi",
     "bandi_riferimenti_eventi",
     "pica_tipo_cds_eventi",
