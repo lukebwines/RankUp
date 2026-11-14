@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.27">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.28">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -220,10 +220,10 @@
       <nav id="nav">
         <div class="nav-separator">GESTIONE GENERALE</div>
         <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
+        <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
-        <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
@@ -239,7 +239,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.27<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.28<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -421,13 +421,13 @@
         $("account-info").textContent=(state.role==="admin"?"Admin":"Utente")+" · "+state.username;
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
-        $("admin-commissioni-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-commissioni-link").style.display="flex";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("band-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","commissioniarchivio","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -850,8 +850,7 @@
         }
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
           html(panel("Accesso riservato","La configurazione SSD è riservata all’Admin."));
-        if(state.page==="commissioniarchivio")return state.role==="admin"?renderCommissioniGlobali():
-          html(panel("Accesso riservato","L’anagrafica commissioni è riservata all’Admin."));
+        if(state.page==="commissioniarchivio")return renderCommissioniGlobali();
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="azzeramento")return state.role==="admin"?renderAzzeramento():html(panel("Accesso riservato","Azzeramento dati riservato all\u0027Admin."));
@@ -1731,10 +1730,9 @@
       }
 
       async function renderCommissioniGlobali(){
-        if(state.role!=="admin")return;
         html(panel("Anagrafica commissioni","Lettura composizioni conservate..."));
         try{
-          var data=await api("admin/commissioni-globali");
+          var data=await api("commissioni/anagrafica");
           if(state.page!=="commissioniarchivio")return;
           var records=data.commissioni||[];
           var content='<div class="card mb"><h3 class="section-heading">Commissioni conservate</h3>'+
@@ -3158,10 +3156,8 @@
         var responses=await Promise.all([
           api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni"),
           api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione"),
-          state.role==="admin"?
-            api("bandi/"+encodeURIComponent(code)+"/commissioni/suggerimenti")
-              .catch(function(){return {suggerimenti:[],non_disponibili:true};}):
-            Promise.resolve({suggerimenti:[]})
+          api("bandi/"+encodeURIComponent(code)+"/commissioni/suggerimenti")
+            .catch(function(){return {suggerimenti:[],non_disponibili:true};})
         ]);
         if(state.page!=="commissioni"||state.active!==code)return;
         var report=responses[0],pending=responses[1].commissioni||[],catalog=responses[2];
@@ -3323,7 +3319,7 @@
           var cm=rowForPair(p),pendingGroup=pendingKeys.has(pairKey(p));
           var options=proposals.get(pairKey(p))||[];
           var isMissing=p.stato==="mancante";
-          var choices=state.role==="admin"&&isMissing&&!archived?
+          var choices=isMissing&&!archived?
             '<div class="ru-cm-proposals"><h4>Composizioni nell’anagrafica generale</h4>'+
             '<p class="caption">Solo corrispondenze esatte per CdS normalizzato e sede. Nessuna nomina è valida automaticamente per il nuovo bando.</p>'+
             (options.length?options.map(function(c){
@@ -3365,7 +3361,7 @@
               p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>':'')+
             '<button type="button" class="btn secondary" id="cm-ticket-pair">Segnalazioni</button>'+
             '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button>'+
-            (state.role==="admin"?'<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>':'')+
+            '<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>'+
             '</div>'+choices;
           $("cm-side-close").onclick=closeManagement;
           if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){openEditor(cm,index);};
