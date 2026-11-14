@@ -1730,41 +1730,30 @@
       }
 
       async function renderCommissioniGlobali(){
-        html(panel("Anagrafica commissioni","Lettura composizioni conservate..."));
+        html(panel("Anagrafica commissioni","Caricamento delle composizioni conservate..."));
         try{
           var data=await api("commissioni/anagrafica");
           if(state.page!=="commissioniarchivio")return;
           var records=data.commissioni||[];
-          var content='<div class="card mb"><h3 class="section-heading">Commissioni conservate</h3>'+
-            '<p class="caption">Archivio generale indipendente dai bandi, non cancellato dall’azzeramento. Le composizioni e le versioni precedenti restano consultabili: non sono automaticamente valide per nuove procedure.</p>'+
-            (records.length?'<div class="tablebox"><table><thead><tr><th>Seleziona</th><th>CdS · sede</th><th>Presidente e componenti</th><th>Anno</th><th>Fonte originaria</th></tr></thead><tbody>'+
-              records.map(function(r){return '<tr><td><input type="checkbox" class="global-commission-check" value="'+esc(r.id)+'"></td>'+
-                '<td>'+esc(r.cds)+' · '+esc(r.sede)+'</td><td><strong>'+esc(r.presidente)+'</strong>'+
-                '<div class="caption">'+esc(r.componenti||"Composizione incompleta")+'</div></td>'+
-                '<td>'+esc(r.anno||"Non indicato")+'</td><td>'+esc(r.fonte_bando)+'</td></tr>';}).join('')+'</tbody></table></div>':
-              '<p class="muted">Nessuna commissione conservata.</p>')+'</div>'+
-            '<div class="card"><h3 class="section-heading">Associa a un nuovo bando</h3>'+
-            '<p class="caption">Seleziona soltanto commissioni con provvedimento ancora valido e CdS/sede corrispondenti a quelli PICA. L’anno accademico, se indicato da entrambe le fonti, deve corrispondere; non viene effettuata alcuna associazione automatica.</p>'+
-            (cur()?'<p>Bando attivo: <strong>'+esc(state.active)+'</strong></p>'+
-              '<label><input type="checkbox" id="global-commission-verified"> Ho verificato documentalmente la validità delle composizioni selezionate per questo bando.</label>'+
-              '<div class="actions" style="margin-top:12px"><button class="btn" id="global-commission-reuse">Associa le commissioni selezionate</button></div>':
-              '<p class="muted">Importa o seleziona un bando per utilizzare le commissioni conservate.</p>')+'</div>';
+          var content='<div class="card mb"><div class="ru-cm-overview-head">'+
+            '<div><h3 class="section-heading">Anagrafica generale delle commissioni</h3>'+
+            '<p class="caption">Le composizioni sono conservate indipendentemente dai bandi. '+
+            'La consultazione non comporta nomine né associazioni automatiche. '+
+            'Per associare una commissione, apri Commissioni nel bando interessato.</p></div>'+
+            (cur()?'<button type="button" class="btn secondary" id="cm-back-bando">Torna alle Commissioni del bando</button>':'')+
+            '</div>'+
+            (records.length?'<div class="tablebox"><table><thead><tr><th>CdS · sede</th>'+
+              '<th>Presidente e componenti</th><th>Anno</th><th>Registrazione</th></tr></thead><tbody>'+
+              records.map(function(r){return '<tr><td>'+esc(r.cds)+' · '+esc(r.sede)+'</td>'+
+                '<td><strong>'+esc(r.presidente)+'</strong>'+
+                '<div class="caption">'+esc(r.componenti||"Composizione da verificare")+'</div></td>'+
+                '<td>'+esc(r.anno||"Non indicato")+'</td>'+
+                '<td>'+esc(r.conservata_il||"Non indicata")+'</td></tr>';}).join('')+
+              '</tbody></table></div>':
+              '<p class="muted">Nessuna commissione conservata nell’anagrafica.</p>')+
+            '</div>';
           html(content);
-          if($("global-commission-reuse"))$("global-commission-reuse").onclick=async function(){
-            var ids=[...document.querySelectorAll(".global-commission-check:checked")].map(function(x){return Number(x.value);});
-            if(!ids.length){note("Seleziona almeno una commissione.",true);return;}
-            if(!$("global-commission-verified").checked){note("La verifica documentale è obbligatoria.",true);return;}
-            if(!confirm("Confermare l'associazione delle "+ids.length+" commissioni selezionate al bando "+state.active+
-               "? Le nomine precedenti non sono automaticamente valide per nuovi bandi."))return;
-            this.disabled=true;
-            try{
-              var result=await api("bandi/"+encodeURIComponent(state.active)+"/commissioni/recupera-globali",{
-                method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({ids:ids,conferma_verifica:true})});
-              note("Commissioni associate al bando: "+result.aggiunte+". Verifica i dati prima di generare i PDF.",false);
-              renderCommissioniGlobali();
-            }catch(err){note(err.message,true);this.disabled=false;}
-          };
+          if($("cm-back-bando"))$("cm-back-bando").onclick=function(){go("commissioni");};
         }catch(err){note(err.message,true);html(panel("Anagrafica commissioni",esc(err.message)));}
       }
 
