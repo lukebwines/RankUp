@@ -789,7 +789,7 @@
         return '<div class="band-row"><div><strong>'+esc(b.codice)+'</strong><small>'+esc(b.candidature)+' candidature · '+esc(b.incarichi)+' incarichi · '+esc(b.cds)+' CdS</small></div>'+
           '<div class="actions"><span class="badge">'+esc(b.stato)+'</span><button class="btn secondary" data-choose="'+esc(b.codice)+'">Apri</button></div></div>';
       }
-      function bindBandButtons(){document.querySelectorAll("[data-choose]").forEach(function(button){button.onclick=function(){state.page="incarichi";setActive(button.dataset.choose);};});}
+      function bindBandButtons(){document.querySelectorAll("[data-choose]").forEach(function(button){button.onclick=function(){state.commissioniInLavorazioneOnly=false;state.page="incarichi";setActive(button.dataset.choose);};});}
       function dashboard(){
         var scoped=bandiAnno(),validYear=annoValido(state.year);
         html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Anno accademico: '+esc(annoLabel())+
@@ -3147,11 +3147,18 @@
           (onlyPending?'Mostra tutte le commissioni':'Mostra solo in lavorazione')+'</button></div>'+
           (onlyPending?(pending.length?
             '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th><th>Commissione</th></tr></thead><tbody>'+
-            pending.map(function(p){return '<tr><td>'+esc(p.cds)+'</td><td>'+esc(p.sede)+
-              '</td><td>'+esc(p.commissione_registrata?'Registrata':'Non ancora registrata')+
-              '</td></tr>';}).join('')+'</tbody></table></div>':
+            pending.map(function(p){
+              var association=pairs.find(function(x){return x.cds===p.cds&&x.sede===p.sede;});
+              var labels={associata:"Associata · chiusura CdS da completare",
+                mancante:"Commissione da inserire",incompleta:"Composizione incompleta",
+                ambigua:"Associazione ambigua"};
+              return '<tr><td>'+esc(p.cds)+'</td><td>'+esc(p.sede)+
+                '</td><td>'+esc(labels[association&&association.stato]||"Associazione da verificare")+
+                '</td></tr>';
+            }).join('')+'</tbody></table></div>':
             '<p class="caption">Nessuna commissione in lavorazione per questo bando.</p>'):'')+
-          '<p class="caption">La conclusione si determina dalla graduatoria CdS definitiva non regredita, nella sezione Verbali.</p></div>';
+          '<p class="caption">La conclusione si determina dalla graduatoria CdS definitiva non regredita, nella sezione Verbali.</p>'+
+          '<button class="btn secondary" id="cm-to-verbali" type="button">Vai ai Verbali</button></div>';
         var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
           '<div class="ru-quick-stats">'+
           '<span class="ru-status-pill ru-status-pill--good">'+esc(report.associate)+' / '+esc(report.totale)+' CdS/sedi associati</span>'+
@@ -3168,7 +3175,7 @@
                (x.item.stato==="incompleta"?
                '<button class="btn secondary cm-edit-incomplete" data-pair="'+x.index+'" type="button">Completa</button>':
                '<span class="caption">Da verificare</span>'))+'</td></tr>';}).join('')+
-          '</tbody></table></div>':'<p class="caption">Tutti i CdS/sedi presenti nelle candidature sono associati.</p>')+'</div>';
+          '</tbody></table></div>':'<p class="caption">'+(onlyPending?'Nessun CdS/sede in lavorazione ha associazioni mancanti.':'Tutti i CdS/sedi presenti nelle candidature sono associati.')+'</p>')+'</div>';
 
         var upload='<div class="card"><h3 class="section-heading">Importazione massiva delle commissioni · Bando '+esc(code)+'</h3>'+
           '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">'+
@@ -3212,6 +3219,7 @@
           '</tbody></table></div></div>';
         html(pendingFilter+summary+upload+editor+listing);
         $("cm-only-pending").onclick=function(){state.commissioniInLavorazioneOnly=!onlyPending;renderCommissioni(rows,code);};
+        $("cm-to-verbali").onclick=function(){go("verbali");};
 
         var selected=null;
         function openEditor(row, pairIndex){
@@ -4081,7 +4089,7 @@
         }
         clearNote();setAcademicYear(value);
       };
-      $("band-select").onchange=function(){setActive(this.value);};
+      $("band-select").onchange=function(){state.commissioniInLavorazioneOnly=false;setActive(this.value);};
       document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){if(b.dataset.page==="segnalazioni")apriSegnalazioni("");else {state.commissioniInLavorazioneOnly=false;go(b.dataset.page);}};});
       checkAuthentication();
     })();
