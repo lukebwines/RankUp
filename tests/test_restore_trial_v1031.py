@@ -1,6 +1,8 @@
 """Restore trial operates only on isolated copies and checks integrity."""
 import sqlite3
 from pathlib import Path
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from scripts.verify_restore import verify_sqlite_restore
 
 
