@@ -89,3 +89,9 @@ html[data-theme="dark"] .ru-ops .ru-ops-import details{border-color:#35516c}
 @media(max-width:1190px){.ru-ops .ru-ops-main{grid-template-columns:1fr}.ru-ops .ru-ops-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:920px){.ru-ops .ru-dashboard-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:660px){.ru-ops .ru-dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ru-ops .ru-ops-hero{padding:20px;flex-wrap:wrap}.ru-ops .ru-ops-card{padding:15px}.ru-ops .ru-ops-task-badge{display:none}.ru-ops .ru-ops-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.ru-ops .ru-ops-task-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ru-ops .ru-ops-task-wrap .ru-ops-task{flex:1;min-width:min(100%,250px)}
+.ru-ops .ru-ops-verify{border:1px solid #c5dced;color:#256ca8;background:#f1f8ff;padding:9px 12px;border-radius:9px;font-size:11px;font-weight:800}
+.ru-ops .ru-ops-verify:hover{background:#e1f0ff}
+html[data-theme="dark"] .ru-ops .ru-ops-verify{background:#244c70;border-color:#477ba9;color:#e5f3ff}
