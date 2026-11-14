@@ -43,10 +43,3 @@ def test_segnalazioni_ui_and_migration_are_in_release():
                    '@app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")',
                    '@app.post("/api/bandi/{code}/segnalazioni/{segnalazione_id}/risposte", status_code=201)'):
         assert action in server
-,migration,re.M)
-    assert match and int(match.group(1)) >= 11
-    for action in ('@app.get("/api/bandi/{code}/segnalazioni")',
-                   '@app.post("/api/bandi/{code}/segnalazioni", status_code=201)',
-                   '@app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")',
-                   '@app.post("/api/bandi/{code}/segnalazioni/{segnalazione_id}/risposte", status_code=201)'):
-        assert action in server
