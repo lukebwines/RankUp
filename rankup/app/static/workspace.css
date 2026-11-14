@@ -584,3 +584,33 @@ html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
   .ru-workspace .ru-ai-filters{grid-template-columns:1fr;gap:10px;padding:12px}
   .ru-workspace .ru-ai-results-table{min-width:1150px}
 }
+
+/* RankUP 1.0.24 — Segnalazioni interne, isolate dalle altre sezioni. */
+.ru-workspace .ru-ticket{border-left:3px solid var(--ru-stroke)}
+.ru-workspace .ru-ticket-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.ru-workspace .ru-ticket-controls label{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ru-workspace .ru-ticket-controls select{min-width:190px;max-width:100%}
+.ru-workspace .ru-ticket-form{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:13px;
+  align-items:end;margin:14px 0 5px;
+}
+.ru-workspace .ru-ticket-form label{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ru-workspace .ru-ticket-form label:has(textarea){grid-column:1/-1}
+.ru-workspace .ru-ticket-form input,
+.ru-workspace .ru-ticket-form textarea,
+.ru-workspace .ru-ticket-form select{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+.ru-workspace .ru-ticket-form > div{grid-column:1/-1}
+.ru-workspace .ru-ticket-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
+.ru-workspace .ru-ticket details{margin-top:14px;border-top:1px solid var(--ru-stroke);padding-top:10px}
+.ru-workspace .ru-ticket details summary{cursor:pointer;font-weight:750;color:var(--ru-ink)}
+.ru-workspace .ru-ticket blockquote{
+  margin:11px 0 11px 14px;padding:10px 14px;
+  border-left:3px solid var(--ru-accent);background:var(--ru-surface-alt);border-radius:0 8px 8px 0;
+}
+.ru-workspace .ru-ticket-status--aperta{background:var(--ru-warning-surface);color:var(--ru-warning)}
+.ru-workspace .ru-ticket-status--in_carico{background:var(--ru-accent-soft);color:var(--ru-ink)}
+.ru-workspace .ru-ticket-status--risolta{background:var(--ru-success-surface);color:var(--ru-success)}
+@media(max-width:690px){
+  .ru-workspace .ru-ticket-form{grid-template-columns:1fr}
+  .ru-workspace .ru-ticket-controls select{min-width:0;width:100%}
+}
