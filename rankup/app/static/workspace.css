@@ -692,3 +692,114 @@ html[data-theme="dark"] .ru-workspace .card.ru-kpi{--kpi-ink:#f6f9ff}
   .ru-workspace .ru-dashboard-detail-row{align-items:flex-start;flex-wrap:wrap}
 }
 @media(prefers-reduced-motion:reduce){.ru-workspace .ru-kpi{transition:none!important}.ru-workspace .ru-kpi:hover{transform:none}}
+/* RankUP 1.0.27 — Centro gestione Commissioni.
+   Un elenco per CdS/sede, dettagli contestuali e importazione avanzata. */
+.ru-workspace .ru-cm-overview-head,
+.ru-workspace .ru-cm-roster-head,
+.ru-workspace .ru-cm-side-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;
+}
+.ru-workspace .ru-cm-overview-head p{margin:0 0 10px}
+.ru-workspace .ru-cm-stats{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:15px 0;
+}
+.ru-workspace .ru-cm-stats > div{
+  display:flex;flex-direction:column;gap:4px;
+  border:1px solid var(--ru-stroke);border-radius:11px;
+  padding:14px;background:var(--ru-surface-alt);
+}
+.ru-workspace .ru-cm-stats strong{
+  font-size:clamp(23px,2vw,31px);line-height:1.1;color:var(--ru-ink);
+  font-variant-numeric:tabular-nums;
+}
+.ru-workspace .ru-cm-stats span{font-size:12px;color:var(--ru-muted)}
+.ru-workspace .ru-cm-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:18px}
+.ru-workspace .ru-cm-filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.ru-workspace .ru-cm-filters button{
+  cursor:pointer;border:1px solid var(--ru-stroke);border-radius:9px;
+  color:var(--ru-ink);background:var(--ru-surface-alt);padding:9px 12px;
+  font-weight:700;font-size:12px;transition:filter .15s ease;
+}
+.ru-workspace .ru-cm-filters button.active,
+.ru-workspace .ru-cm-filters button[aria-pressed="true"]{
+  color:var(--ru-ink);border-color:var(--ru-accent);
+  box-shadow:inset 0 -2px 0 var(--ru-accent);background:var(--ru-accent-soft);
+}
+.ru-workspace .ru-cm-search{display:flex;flex-direction:column;gap:5px;min-width:min(250px,100%);font-size:12px}
+.ru-workspace .ru-cm-search input{width:100%;min-width:0}
+.ru-workspace .ru-cm-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start;margin:0 0 16px}
+.ru-workspace .ru-cm-layout:has(.ru-cm-side:not([hidden])){
+  grid-template-columns:minmax(0,1.4fr) minmax(310px,.9fr);
+}
+.ru-workspace .ru-cm-roster,
+.ru-workspace .ru-cm-side{min-width:0}
+.ru-workspace .ru-cm-roster-head{margin-bottom:12px}
+.ru-workspace .ru-cm-roster-head .caption{margin:0}
+.ru-workspace .ru-cm-tablebox{width:100%;overflow-x:auto}
+.ru-workspace .ru-cm-tablebox th{white-space:normal}
+.ru-workspace .ru-cm-tablebox td{vertical-align:middle}
+.ru-workspace .ru-cm-tablebox td:first-child{min-width:200px;max-width:540px;overflow-wrap:anywhere}
+.ru-workspace .ru-cm-badge{
+  display:inline-block;max-width:100%;padding:5px 9px;border-radius:8px;
+  font-size:11px;font-weight:750;line-height:1.4;border:1px solid transparent;
+}
+.ru-workspace .ru-cm-badge--ok{color:var(--ru-success);background:var(--ru-success-surface);border-color:var(--ru-success)}
+.ru-workspace .ru-cm-badge--missing{color:var(--ru-warning);background:var(--ru-warning-surface);border-color:var(--ru-warning)}
+.ru-workspace .ru-cm-badge--review{color:var(--ru-danger);background:var(--ru-danger-surface);border-color:var(--ru-danger)}
+.ru-workspace .ru-cm-badge--pending{color:var(--ru-warning);background:var(--ru-warning-surface)}
+.ru-workspace .ru-cm-side{
+  position:sticky;top:16px;max-height:calc(100vh - 38px);
+  overflow:auto;background:var(--ru-surface);
+  color:var(--ru-ink);border:1px solid var(--ru-stroke);
+  border-radius:15px;padding:17px;box-shadow:0 9px 30px rgb(0 0 0 / 13%);
+}
+.ru-workspace #cm-manage-panel[hidden],
+.ru-workspace #commission-import[hidden],
+.ru-workspace #cm-detail-panel[hidden]{display:none!important}
+.ru-workspace .ru-cm-side-head{margin-bottom:13px;align-items:center}
+.ru-workspace .ru-cm-side-head h3{margin:0;font-size:18px}
+.ru-workspace .ru-cm-composition{
+  margin:12px 0;background:var(--ru-surface-alt);
+  border-radius:10px;border:1px solid var(--ru-stroke);padding:10px 14px;
+}
+.ru-workspace .ru-cm-composition p{margin:8px 0;overflow-wrap:anywhere}
+.ru-workspace .ru-cm-composition strong{display:block;color:var(--ru-muted);font-size:12px}
+.ru-workspace .ru-cm-panel-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.ru-workspace .ru-cm-proposals{border-top:1px solid var(--ru-stroke);margin-top:15px;padding-top:12px}
+.ru-workspace .ru-cm-proposals h4{margin:0 0 7px}
+.ru-workspace .ru-cm-proposal{display:flex;align-items:flex-start;gap:10px;padding:10px 5px;border-bottom:1px solid var(--ru-stroke);cursor:pointer}
+.ru-workspace .ru-cm-proposal input{min-width:18px;width:18px;margin:3px 0}
+.ru-workspace .ru-cm-proposal span{min-width:0}
+.ru-workspace .ru-cm-proposal small{display:block;color:var(--ru-muted);margin:4px 0;line-height:1.5;overflow-wrap:anywhere}
+.ru-workspace .ru-cm-warning{color:var(--ru-danger)!important}
+.ru-workspace .ru-cm-verification{display:flex;align-items:flex-start;gap:8px;margin:15px 0;font-size:12px;line-height:1.5}
+.ru-workspace .ru-cm-verification input{flex:0 0 18px;min-width:18px;width:18px;margin:2px 0 0}
+.ru-workspace .ru-cm-side #commission-editor{padding:10px;border:0!important;box-shadow:none;margin:0}
+.ru-workspace .ru-cm-side #commission-editor form input,
+.ru-workspace .ru-cm-side #commission-editor form select,
+.ru-workspace .ru-cm-side #commission-editor form textarea{max-width:100%;box-sizing:border-box}
+.ru-workspace .ru-cm-advanced{margin:0 0 16px}
+.ru-workspace .ru-cm-advanced > summary{cursor:pointer;font-size:15px;font-weight:750}
+.ru-workspace .ru-cm-advanced .ru-cm-import{margin-top:18px}
+.ru-workspace .ru-cm-orphans{max-height:180px;overflow-y:auto;font-size:12px;line-height:1.6}
+.ru-workspace .ru-cm-preview-result{
+  margin:14px 0;padding:12px;border:1px solid var(--ru-stroke);
+  border-radius:10px;background:var(--ru-surface-alt);
+}
+.ru-workspace .ru-cm-preview-scroll{max-height:270px;overflow:auto;margin:10px 0}
+.ru-workspace .ru-cm-preview-scroll table{width:100%;font-size:12px}
+.ru-workspace .ru-cm-preview-scroll th,.ru-workspace .ru-cm-preview-scroll td{
+  padding:7px 9px;text-align:left;border-bottom:1px solid var(--ru-stroke)
+}
+.ru-workspace .ru-pica-cm-notice button{margin-left:10px}
+@media(max-width:1050px){
+  .ru-workspace .ru-cm-layout:has(.ru-cm-side:not([hidden])){grid-template-columns:1fr}
+  .ru-workspace .ru-cm-side{position:relative;top:auto;max-height:none}
+  .ru-workspace .ru-cm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .ru-workspace .ru-cm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ru-workspace .ru-cm-toolbar{align-items:stretch}
+  .ru-workspace .ru-cm-search{width:100%}
+  .ru-workspace .ru-cm-roster-head button{width:100%}
+}
