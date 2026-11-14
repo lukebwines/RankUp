@@ -9,7 +9,7 @@ from test_pdf_import import _setup, _post
 
 def _pica_with_code(code):
     workbook=load_workbook(BytesIO(pica_fixture()))
-    workbook.active["A1"]="universita' "+code+" - esportazione di prova"
+    workbook.active["A1"]="univr "+code+" - Esportazione dati"
     output=BytesIO()
     workbook.save(output)
     workbook.close()
