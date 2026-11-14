@@ -2754,7 +2754,7 @@ async def anteprima_import_commissioni(
     except Exception:
         fail("Impossibile leggere l'Excel delle commissioni")
     with connect() as db:
-        _require_bando_aperto(db, code)
+        _require_bando_aperto(db,code)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if b is None:
             fail("Bando non trovato", 404)
