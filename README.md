@@ -489,15 +489,15 @@ La funzione **Procedimento del bando → Verifica requisito ente → Report PDF 
 
 Il report è accessibile **solo all'Admin** e i dati personali rimangono in RankUP. Non invia informazioni a GroqCloud, non ricalcola automaticamente i giudizi dell'AI e non modifica schede o graduatorie. Se manca un nominativo o un CdS compare **[DA VERIFICARE]**: il PDF non inventa dati. Il file ha nome compatto identificabile per bando/CdS/sede/filtro con suffisso univoco, evitando collisioni fra denominazioni lunghe. La vecchia funzione di calcolo degli esiti non è stata modificata.
 
-## Dashboard v1.0.25 — indicatori navigabili
+## Dashboard v1.0.25–1.0.26 — indicatori navigabili
 
 La Dashboard presenta cinque riquadri colorati e cliccabili: **Bandi aperti nell'A.A.**,
-**Candidature PICA**, **Incarichi**, **Candidature valutate** e
+**Incarichi**, **Candidature PICA**, **Candidature valutate** e
 **Commissioni in lavorazione**. I dati provengono esclusivamente da RankUP.
 
 - **Bando attivo:** le candidature, gli incarichi e le valutazioni aprono la
-  sezione del bando; le commissioni aprono **Commissioni** con filtro
-  **solo in lavorazione**. Il riquadro dei bandi apre sempre l'elenco
+  sezione del bando; **Commissioni in lavorazione** apre **Verbali**,
+  senza impostare filtri sulle commissioni registrate. Il riquadro dei bandi apre sempre l'elenco
   dei bandi non archiviati nell'A.A.
 - **Nessun bando attivo:** i riquadri aprono un riepilogo per bando nel
   medesimo A.A.; il pulsante **Apri** imposta il bando e apre la sezione
