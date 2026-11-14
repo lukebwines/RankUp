@@ -65,4 +65,6 @@ def test_segnalazioni_operatore_admin_e_isolamento(tmp_path, monkeypatch):
         assert _up(operatore, "/api/bandi/26-99/segnalazioni", json=payload).status_code == 404
         assert _up(admin, item.replace("26-02","26-99"), method="PUT", json=update).status_code == 404
         assert _up(operatore, path, json=payload).status_code == 409
+        assert _up(admin, item, method="PUT", json=update).status_code == 409
+        assert _up(admin, item + "/risposte", json={"testo": "Nessuna modifica"}).status_code == 409
         assert admin.get(path).json()["sola_lettura"] is True
