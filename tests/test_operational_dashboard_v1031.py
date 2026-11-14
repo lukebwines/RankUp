@@ -157,3 +157,23 @@ def test_cross_code_identifier_overlap_warning_not_automatic_cancellation(tmp_pa
         assert overlaps and overlaps[0]["codice"]=="26-02"
         assert overlaps[0]["id_pica_in_comune"]>0
         assert all("cognome" not in json.dumps(o) for o in overlaps)
+
+
+def test_pica_source_storage_failure_rolls_back_all_records(tmp_path, monkeypatch):
+    server,admin,_=_setup(tmp_path,monkeypatch)
+    with admin:
+        sample=_pica_with_code("26-04")
+        preview=_post(admin,"/api/pica/preview",files={
+            "file":("pica.xlsx",sample,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        assert preview.status_code==200,preview.text
+        def storage_failure(*args,**kwargs):
+            raise OSError("Errore sintetico di archiviazione")
+        monkeypatch.setattr(server.shutil,"copy2",storage_failure)
+        result=_post(admin,"/api/pica/commit",json={"token":preview.json()["token"]})
+        assert result.status_code==503,result.text
+        with server.connect() as db:
+            assert not db.execute("SELECT id FROM bandi WHERE codice='26-04'").fetchone()
+            assert db.execute("SELECT COUNT(*) FROM pica_import_eventi").fetchone()[0]==1
+            # La sola importazione preesistente del fixture rimane intatta.
+        assert not (tmp_path/"sources"/"26-04"/"pica_originale.xlsx").exists()
