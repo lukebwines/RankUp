@@ -624,6 +624,7 @@
         state.incarichiQuery="";
         state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
+        state.cmFilter="tutte";state.cmSearch="";
         persistSelection();updateHeader();render();
       };
       function setAcademicYear(year){
@@ -633,6 +634,7 @@
         state.incarichiQuery="";
         state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
+        state.cmFilter="tutte";state.cmSearch="";
         syncAcademicSelection();updateHeader();render();
       }
       function updateHeader(){
@@ -2778,7 +2780,8 @@
           var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({token:state.preview.token,tipologie:mapped,
               anno_accademico:state.preview.anno_accademico})});
-          await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
+          await reload();state.page="incarichi";state.active=result.codice_bando;
+          state.cmFilter="tutte";state.cmSearch="";localStorage.setItem("rankup_active",state.active);
           updateHeader();render();
           // Il PICA resta importato anche se la verifica accessoria delle
           // commissioni fallisce. Nessuna associazione automatica.
