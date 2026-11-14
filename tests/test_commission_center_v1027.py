@@ -82,10 +82,13 @@ def test_unified_ui_pica_warning_and_version():
     css = (ROOT / "rankup/app/static/workspace.css").read_text(encoding="utf-8")
     server = (ROOT / "rankup/app/server.py").read_text(encoding="utf-8")
     config = (ROOT / "rankup/config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.27"' in config
-    assert 'version="1.0.27"' in server
-    assert 'workspace.css?v=1.0.27' in html
-    assert 'RANKUP · v1.0.27' in html
+    import re
+    match=re.search(r'^version:\s*"(\d+)\.(\d+)\.(\d+)"',config,re.M)
+    assert match and tuple(map(int,match.groups())) >= (1,0,27)
+    version=".".join(match.groups())
+    assert f'version="{version}"' in server
+    assert f'workspace.css?v={version}' in html
+    assert f'RANKUP · v{version}' in html
     assert 'Centro gestione Commissioni' in html
     assert 'id="cm-unified-rows"' in html
     assert 'id="cm-manage-panel"' in html
