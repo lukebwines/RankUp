@@ -20,7 +20,7 @@ def _commission_snapshot(server):
         """).fetchall()]
 
 
-def test_catalog_suggestions_are_only_readable_by_admin_and_do_not_assign(tmp_path, monkeypatch):
+def test_catalog_suggestions_are_available_to_authenticated_operators_without_auto_association(tmp_path, monkeypatch):
     server, client, _ = _setup(tmp_path, monkeypatch)
     with client:
         original = _commission_snapshot(server)
@@ -41,7 +41,15 @@ def test_catalog_suggestions_are_only_readable_by_admin_and_do_not_assign(tmp_pa
             assert _post(user, "/api/auth/login", json={
                 "username": "test-operatore", "password": "PasswordDiTest123!"
             }).status_code == 200
-            assert user.get("/api/bandi/26-02/commissioni/suggerimenti").status_code == 403
+            available = user.get("/api/bandi/26-02/commissioni/suggerimenti")
+            assert available.status_code == 200, available.text
+            registry = user.get("/api/commissioni/anagrafica")
+            assert registry.status_code == 200, registry.text
+            assert registry.json()["commissioni"]
+            # L'API storica /admin resta chiusa agli operatori.
+            assert user.get("/api/admin/commissioni-globali").status_code == 403
+            # La lettura non deve modificare alcuna associazione.
+            assert _commission_snapshot(server) == original
         assert client.get("/api/bandi/CODICE-NON-ESISTENTE/commissioni/suggerimenti").status_code == 404
 
 
@@ -74,10 +82,13 @@ def test_unified_ui_pica_warning_and_version():
     css = (ROOT / "rankup/app/static/workspace.css").read_text(encoding="utf-8")
     server = (ROOT / "rankup/app/server.py").read_text(encoding="utf-8")
     config = (ROOT / "rankup/config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.27"' in config
-    assert 'version="1.0.27"' in server
-    assert 'workspace.css?v=1.0.27' in html
-    assert 'RANKUP · v1.0.27' in html
+    import re
+    match=re.search(r'^version:\s*"(\d+)\.(\d+)\.(\d+)"',config,re.M)
+    assert match and tuple(map(int,match.groups())) >= (1,0,27)
+    version=".".join(match.groups())
+    assert f'version="{version}"' in server
+    assert f'workspace.css?v={version}' in html
+    assert f'RANKUP · v{version}' in html
     assert 'Centro gestione Commissioni' in html
     assert 'id="cm-unified-rows"' in html
     assert 'id="cm-manage-panel"' in html

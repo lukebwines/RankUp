@@ -36,7 +36,8 @@ def test_segnalazioni_ui_and_migration_are_in_release():
     assert 'class="ru-status-pill ru-ticket-status--' in html
     assert 'function apriSegnalazioni(ambito)' in html
     assert '.ru-workspace .ru-ticket-form{' in css
-    assert 'SCHEMA_VERSION = 11' in migration
+    current_version = int(re.search(r"SCHEMA_VERSION = ([0-9]+)", migration).group(1))
+    assert current_version >= 11
     for action in ('@app.get("/api/bandi/{code}/segnalazioni")',
                    '@app.post("/api/bandi/{code}/segnalazioni", status_code=201)',
                    '@app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")',

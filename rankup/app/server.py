@@ -292,6 +292,16 @@ def initialize() -> None:
         );
         CREATE INDEX IF NOT EXISTS ix_comm_catalogo_cds_sede
           ON commissioni_catalogo(cds,sede,anno);
+        CREATE TABLE IF NOT EXISTS commissioni_catalogo_eventi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            catalogo_id INTEGER NOT NULL REFERENCES commissioni_catalogo(id),
+            precedente_id INTEGER REFERENCES commissioni_catalogo(id),
+            azione TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_catalogo_eventi_catalogo
+          ON commissioni_catalogo_eventi(catalogo_id);
         CREATE TABLE IF NOT EXISTS commissioni_eventi (
             id INTEGER PRIMARY KEY,
             bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -940,7 +950,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.27", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.28", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1364,7 +1374,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.27", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.28", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2487,10 +2497,20 @@ def edit_commissione(code: str, commission_id: int, body: CommissioneInput):
 
 
 
-@app.get("/api/admin/commissioni-globali")
-def archivio_commissioni_generali(request: Request):
-    """Composizioni conservate a livello applicativo, indipendenti dai bandi."""
-    require_admin(request)
+def require_gestore_commissioni(request: Request) -> dict:
+    """Admin e operatori autenticati gestiscono le commissioni.
+
+    Utenti e credenziali restano di competenza esclusiva dell'Admin.
+    Il middleware valida già la sessione; controllo esplicito anche
+    per i percorsi chiamati direttamente dai test o da altro codice.
+    """
+    principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal or principal["role"] not in ("admin", "user"):
+        fail("Accesso alla gestione commissioni riservato agli utenti autenticati", 403)
+    return principal
+
+
+def _elenco_commissioni_catalogo():
     with connect() as db:
         rows=db.execute("""
             SELECT id,cds,sede,presidente,componenti,requisiti,anno,
@@ -2499,7 +2519,97 @@ def archivio_commissioni_generali(request: Request):
             ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE,
                      anno DESC,id DESC
         """).fetchall()
-    return {"commissioni":[dict(row) for row in rows]}
+    records=[dict(row) for row in rows]
+    latest={}
+    for item in records:
+        key=(course_key(item["cds"]),seat_key(item["sede"]))
+        latest[key]=max(latest.get(key,0),item["id"])
+    for item in records:
+        key=(course_key(item["cds"]),seat_key(item["sede"]))
+        item["corrente"]=item["id"]==latest[key]
+    return {"commissioni":records}
+
+
+def _salva_versione_catalogo(db, values: dict, precedente_id: int | None = None) -> dict:
+    """Salva una nuova composizione immutabile, senza modificare i bandi."""
+    fields=("cds","sede","presidente","componenti","requisiti","anno")
+    keys=tuple(values[field] for field in fields)
+    existing=db.execute("""
+        SELECT id FROM commissioni_catalogo WHERE
+        cds=? AND sede=? AND presidente=? AND componenti=? AND requisiti=? AND anno=?
+    """, keys).fetchone()
+    if existing is not None:
+        fail("Questa composizione è già conservata nell'anagrafica. Non è stata duplicata.",409)
+    _conserva_commissione_catalogo(db,values,"Anagrafica")
+    created=db.execute("""
+        SELECT id FROM commissioni_catalogo WHERE
+        cds=? AND sede=? AND presidente=? AND componenti=? AND requisiti=? AND anno=?
+    """,keys).fetchone()
+    if created is None:
+        fail("Impossibile registrare la nuova versione in anagrafica",500)
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    db.execute("""
+        INSERT INTO commissioni_catalogo_eventi
+        (catalogo_id,precedente_id,azione,autore,quando)
+        VALUES(?,?,?,?,?)
+    """,(created["id"],precedente_id,
+         "nuova_versione" if precedente_id else "inserimento",
+         request_actor(),now))
+    return {"id":created["id"],"versione_precedente_id":precedente_id}
+
+
+@app.post("/api/commissioni/anagrafica")
+def nuova_commissione_in_anagrafica(body: CommissioneInput, request: Request):
+    require_gestore_commissioni(request)
+    values=_commission_fields(body.model_dump())
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result=_salva_versione_catalogo(db,values)
+        db.commit()
+    return {"ok":True,**result,"avviso":"Composizione conservata in anagrafica, non associata ad alcun bando."}
+
+
+@app.post("/api/commissioni/anagrafica/{catalogo_id}/versioni")
+def versione_commissione_in_anagrafica(catalogo_id: int, body: CommissioneInput,
+                                      request: Request):
+    require_gestore_commissioni(request)
+    values=_commission_fields(body.model_dump())
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        original=db.execute("SELECT * FROM commissioni_catalogo WHERE id=?",
+                            (catalogo_id,)).fetchone()
+        if original is None:
+            fail("Composizione di origine non trovata",404)
+        # Non generare una nuova revisione a partire da una versione storica
+        # se nel frattempo esiste una composizione più recente per CdS/sede.
+        series=db.execute("""
+            SELECT id,cds,sede FROM commissioni_catalogo ORDER BY id DESC
+        """).fetchall()
+        same=[r for r in series
+              if course_key(r["cds"])==course_key(original["cds"])
+              and seat_key(r["sede"])==seat_key(original["sede"])]
+        if same and same[0]["id"]!=catalogo_id:
+            fail("Composizione storica: apri la versione più recente prima di modificarla.",409)
+        if (course_key(values["cds"])!=course_key(original["cds"]) or
+                seat_key(values["sede"])!=seat_key(original["sede"])):
+            fail("Una modifica del CdS o della sede richiede una nuova scheda anagrafica.",409)
+        result=_salva_versione_catalogo(db,values,catalogo_id)
+        db.commit()
+    return {"ok":True,**result,"avviso":"Nuova versione conservata. I bandi già associati restano invariati."}
+
+
+@app.get("/api/commissioni/anagrafica")
+def archivio_commissioni_condiviso(request: Request):
+    """Anagrafica operativa condivisa tra Admin e operatori autenticati."""
+    require_gestore_commissioni(request)
+    return _elenco_commissioni_catalogo()
+
+
+@app.get("/api/admin/commissioni-globali")
+def archivio_commissioni_generali(request: Request):
+    """Compatibilità: la vecchia API /admin conserva il permesso originario."""
+    require_admin(request)
+    return _elenco_commissioni_catalogo()
 
 
 class RecuperaCommissioniGlobali(BaseModel):
@@ -2514,9 +2624,9 @@ def suggerimenti_commissioni_per_bando(code: str, request: Request):
     Mostra esclusivamente composizioni globali con stessa sede e CdS
     (normalizzazione deterministica già usata nel procedimento).
     La validità degli atti resta subordinata a conferma documentale
-    sull'endpoint di recupero, riservato all'amministratore.
+    sull'endpoint di recupero, riservato agli utenti autenticati.
     """
-    require_admin(request)
+    require_gestore_commissioni(request)
     code = valid_code(code)
     with connect() as db:
         bando = db.execute(
@@ -2565,7 +2675,7 @@ def suggerimenti_commissioni_per_bando(code: str, request: Request):
 def recupera_commissioni_globali(code: str,body: RecuperaCommissioniGlobali,
                                  request: Request):
     """Solo associazione esplicita e verificata; mai ereditare nomine automaticamente."""
-    require_admin(request)
+    require_gestore_commissioni(request)
     code=valid_code(code)
     if not body.conferma_verifica:
         fail("Confermare la verifica dell'atto e della validita' della composizione",400)

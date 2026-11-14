@@ -803,3 +803,12 @@ html[data-theme="dark"] .ru-workspace .card.ru-kpi{--kpi-ink:#f6f9ff}
   .ru-workspace .ru-cm-search{width:100%}
   .ru-workspace .ru-cm-roster-head button{width:100%}
 }
+
+/* RankUP 1.0.28 — anagrafica condivisa e composizioni versionate */
+.ru-workspace #cm-reg-editor[hidden]{display:none!important}
+.ru-workspace .ru-cm-reg-form{display:flex;flex-direction:column;gap:14px}
+.ru-workspace .ru-cm-reg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.ru-workspace .ru-cm-reg-form label{display:flex;flex-direction:column;gap:6px;font-weight:650;font-size:12px;min-width:0}
+.ru-workspace .ru-cm-reg-form input,.ru-workspace .ru-cm-reg-form textarea{box-sizing:border-box;max-width:100%;width:100%;font-weight:400}
+.ru-workspace .ru-cm-reg-form input[readonly]{opacity:.78;cursor:not-allowed}
+@media(max-width:690px){.ru-workspace .ru-cm-reg-grid{grid-template-columns:1fr}}

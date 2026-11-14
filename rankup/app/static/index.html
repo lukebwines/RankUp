@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.27">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.28">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -220,10 +220,10 @@
       <nav id="nav">
         <div class="nav-separator">GESTIONE GENERALE</div>
         <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
+        <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
-        <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
@@ -239,7 +239,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.27<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.28<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -421,13 +421,13 @@
         $("account-info").textContent=(state.role==="admin"?"Admin":"Utente")+" · "+state.username;
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
-        $("admin-commissioni-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-commissioni-link").style.display="flex";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("band-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","commissioniarchivio","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -850,8 +850,7 @@
         }
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
           html(panel("Accesso riservato","La configurazione SSD è riservata all’Admin."));
-        if(state.page==="commissioniarchivio")return state.role==="admin"?renderCommissioniGlobali():
-          html(panel("Accesso riservato","L’anagrafica commissioni è riservata all’Admin."));
+        if(state.page==="commissioniarchivio")return renderCommissioniGlobali();
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="azzeramento")return state.role==="admin"?renderAzzeramento():html(panel("Accesso riservato","Azzeramento dati riservato all\u0027Admin."));
@@ -1731,42 +1730,115 @@
       }
 
       async function renderCommissioniGlobali(){
-        if(state.role!=="admin")return;
-        html(panel("Anagrafica commissioni","Lettura composizioni conservate..."));
+        html(panel("Anagrafica commissioni","Caricamento delle composizioni conservate..."));
         try{
-          var data=await api("admin/commissioni-globali");
+          var data=await api("commissioni/anagrafica");
           if(state.page!=="commissioniarchivio")return;
           var records=data.commissioni||[];
-          var content='<div class="card mb"><h3 class="section-heading">Commissioni conservate</h3>'+
-            '<p class="caption">Archivio generale indipendente dai bandi, non cancellato dall’azzeramento. Le composizioni e le versioni precedenti restano consultabili: non sono automaticamente valide per nuove procedure.</p>'+
-            (records.length?'<div class="tablebox"><table><thead><tr><th>Seleziona</th><th>CdS · sede</th><th>Presidente e componenti</th><th>Anno</th><th>Fonte originaria</th></tr></thead><tbody>'+
-              records.map(function(r){return '<tr><td><input type="checkbox" class="global-commission-check" value="'+esc(r.id)+'"></td>'+
-                '<td>'+esc(r.cds)+' · '+esc(r.sede)+'</td><td><strong>'+esc(r.presidente)+'</strong>'+
-                '<div class="caption">'+esc(r.componenti||"Composizione incompleta")+'</div></td>'+
-                '<td>'+esc(r.anno||"Non indicato")+'</td><td>'+esc(r.fonte_bando)+'</td></tr>';}).join('')+'</tbody></table></div>':
-              '<p class="muted">Nessuna commissione conservata.</p>')+'</div>'+
-            '<div class="card"><h3 class="section-heading">Associa a un nuovo bando</h3>'+
-            '<p class="caption">Seleziona soltanto commissioni con provvedimento ancora valido e CdS/sede corrispondenti a quelli PICA. L’anno accademico, se indicato da entrambe le fonti, deve corrispondere; non viene effettuata alcuna associazione automatica.</p>'+
-            (cur()?'<p>Bando attivo: <strong>'+esc(state.active)+'</strong></p>'+
-              '<label><input type="checkbox" id="global-commission-verified"> Ho verificato documentalmente la validità delle composizioni selezionate per questo bando.</label>'+
-              '<div class="actions" style="margin-top:12px"><button class="btn" id="global-commission-reuse">Associa le commissioni selezionate</button></div>':
-              '<p class="muted">Importa o seleziona un bando per utilizzare le commissioni conservate.</p>')+'</div>';
+          var target=state.cmArchivePrefill||null;
+          state.cmArchivePrefill=null;
+          function registryGroup(r){
+            return String(r.cds||"").trim().toLocaleUpperCase("it")
+              .replace(/\s*\(\s*ABILITANTE\b[^)]*\)\s*$/,"")+
+              " / "+String(r.sede||"").trim().toLocaleUpperCase("it");
+          }
+
+          var content='<div class="card mb">'+
+            '<div class="ru-cm-overview-head"><div>'+
+            '<h3 class="section-heading">Anagrafica generale delle commissioni</h3>'+
+            '<p class="caption">Inserimento e manutenzione delle composizioni. Le versioni precedenti restano conservate. '+
+            'Nessuna nuova composizione o modifica viene applicata automaticamente a un bando. '+
+            'Le associazioni si effettuano in Commissioni del bando.</p></div>'+
+            '<div class="actions"><button type="button" class="btn" id="cm-archive-new">Nuova commissione</button>'+
+            (cur()?'<button type="button" class="btn secondary" id="cm-back-bando">Commissioni del bando</button>':'')+
+            '</div></div>'+
+            '<div class="tablebox"><table><thead><tr><th>CdS · sede</th>'+
+            '<th>Presidente e componenti</th><th>Anno</th><th>Versione</th><th>Operazioni</th>'+
+            '</tr></thead><tbody>'+
+            (records.length?records.map(function(r){
+              var current=!!r.corrente;
+              return '<tr><td><strong>'+esc(r.cds)+'</strong><div class="caption">'+esc(r.sede)+'</div></td>'+
+                '<td><strong>'+esc(r.presidente)+'</strong>'+
+                '<div class="caption">'+esc(r.componenti||"Composizione da verificare")+'</div></td>'+
+                '<td>'+esc(r.anno||"Da verificare")+'</td>'+
+                '<td><span class="ru-cm-badge '+(current?"ru-cm-badge--ok":"ru-cm-badge--review")+'">'+
+                (current?"Più recente":"Versione storica")+'</span></td>'+
+                '<td>'+(current?'<button type="button" class="btn secondary" data-cm-reg-edit="'+
+                  esc(r.id)+'">Nuova versione</button>':'<span class="caption">Conservata</span>')+
+                '</td></tr>';
+            }).join(''):'<tr><td colspan="5">Nessuna composizione presente in Anagrafica.</td></tr>')+
+            '</tbody></table></div></div>'+
+            '<div class="card" id="cm-reg-editor" hidden><h3 class="section-heading" id="cm-reg-title">'+
+            'Nuova commissione</h3>'+
+            '<p class="caption" id="cm-reg-hint">La registrazione non comporta un’associazione al bando. '+
+            'Verificare l’atto di nomina e il suo ambito prima di un successivo utilizzo.</p>'+
+            '<form id="cm-reg-form" class="ru-cm-reg-form">'+
+            '<div class="ru-cm-reg-grid">'+
+            '<label>Corso di Studio<input name="cds" id="cm-reg-cds" maxlength="250" required></label>'+
+            '<label>Sede<input name="sede" id="cm-reg-sede" maxlength="100" required></label>'+
+            '<label>Presidente<input name="presidente" id="cm-reg-presidente" maxlength="250" required></label>'+
+            '<label>Anno accademico risultante dall’atto<input name="anno" id="cm-reg-anno" maxlength="30" placeholder="[DA VERIFICARE]"></label>'+
+            '</div>'+
+            '<label>Componenti e supplenti<textarea id="cm-reg-componenti" maxlength="2000" rows="3"></textarea></label>'+
+            '<label>Requisiti / note dalla fonte ufficiale<textarea id="cm-reg-requisiti" maxlength="2000" rows="3"></textarea></label>'+
+            '<div class="actions"><button type="submit" class="btn" id="cm-reg-save">Salva in Anagrafica</button>'+
+            '<button type="button" class="btn secondary" id="cm-reg-cancel">Annulla</button></div></form></div>';
           html(content);
-          if($("global-commission-reuse"))$("global-commission-reuse").onclick=async function(){
-            var ids=[...document.querySelectorAll(".global-commission-check:checked")].map(function(x){return Number(x.value);});
-            if(!ids.length){note("Seleziona almeno una commissione.",true);return;}
-            if(!$("global-commission-verified").checked){note("La verifica documentale è obbligatoria.",true);return;}
-            if(!confirm("Confermare l'associazione delle "+ids.length+" commissioni selezionate al bando "+state.active+
-               "? Le nomine precedenti non sono automaticamente valide per nuovi bandi."))return;
-            this.disabled=true;
+          var editingId=null;
+          function openForm(row){
+            editingId=row?Number(row.id):null;
+            $("cm-reg-title").textContent=row?"Nuova versione della composizione":"Nuova commissione";
+            $("cm-reg-hint").textContent=row?
+              "La versione precedente rimarrà conservata. Nessun bando sarà modificato automaticamente.":
+              "La registrazione non associa la commissione ad alcun bando. Verificare la documentazione di nomina.";
+            ["cds","sede","presidente","componenti","requisiti","anno"].forEach(function(field){
+              $("cm-reg-"+field).value=row?String(row[field]||""):"";
+            });
+            if(target&&!row){$("cm-reg-cds").value=target.cds||"";
+              $("cm-reg-sede").value=target.sede||"";}
+            $("cm-reg-cds").readOnly=!!row;
+            $("cm-reg-sede").readOnly=!!row;
+            $("cm-reg-editor").hidden=false;
+            $("cm-reg-editor").scrollIntoView({behavior:"smooth",block:"nearest"});
+          }
+          $("cm-archive-new").onclick=function(){target=null;openForm(null);};
+          $("cm-reg-cancel").onclick=function(){$("cm-reg-editor").hidden=true;editingId=null;};
+          if($("cm-back-bando"))$("cm-back-bando").onclick=function(){go("commissioni");};
+          document.querySelectorAll("[data-cm-reg-edit]").forEach(function(button){
+            button.onclick=function(){
+              target=null;
+              openForm(records.find(function(r){return String(r.id)===button.dataset.cmRegEdit;}));
+            };
+          });
+          $("cm-reg-form").onsubmit=async function(event){
+            event.preventDefault();
+            var payload={};
+            ["cds","sede","presidente","componenti","requisiti","anno"].forEach(function(field){
+              payload[field]=$("cm-reg-"+field).value.trim();
+            });
+            if(!payload.cds||!payload.sede||!payload.presidente){
+              note("CdS, sede e presidente sono obbligatori.",true);return;
+            }
+            if(!confirm(editingId?
+              "Confermare la nuova versione? La precedente resterà conservata e i bandi associati non cambieranno.":
+              "Conservare la composizione nell’Anagrafica? Non verrà associata automaticamente a un bando."))return;
+            var button=$("cm-reg-save");button.disabled=true;
             try{
-              var result=await api("bandi/"+encodeURIComponent(state.active)+"/commissioni/recupera-globali",{
-                method:"POST",headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({ids:ids,conferma_verifica:true})});
-              note("Commissioni associate al bando: "+result.aggiunte+". Verifica i dati prima di generare i PDF.",false);
+              var endpoint="commissioni/anagrafica"+
+                (editingId?"/"+editingId+"/versioni":"");
+              var out=await api(endpoint,{method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify(payload)});
+              note(out.avviso||"Composizione registrata in Anagrafica.",false);
               renderCommissioniGlobali();
-            }catch(err){note(err.message,true);this.disabled=false;}
+            }catch(error){note(error.message,true);button.disabled=false;}
           };
+          if(target){
+            var prior=target.edit?records.find(function(r){
+              return registryGroup(r)===registryGroup(target)&&!!r.corrente;
+            }):null;
+            openForm(prior||null);
+          }
         }catch(err){note(err.message,true);html(panel("Anagrafica commissioni",esc(err.message)));}
       }
 
@@ -3158,10 +3230,8 @@
         var responses=await Promise.all([
           api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni"),
           api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione"),
-          state.role==="admin"?
-            api("bandi/"+encodeURIComponent(code)+"/commissioni/suggerimenti")
-              .catch(function(){return {suggerimenti:[],non_disponibili:true};}):
-            Promise.resolve({suggerimenti:[]})
+          api("bandi/"+encodeURIComponent(code)+"/commissioni/suggerimenti")
+            .catch(function(){return {suggerimenti:[],non_disponibili:true};})
         ]);
         if(state.page!=="commissioni"||state.active!==code)return;
         var report=responses[0],pending=responses[1].commissioni||[],catalog=responses[2];
@@ -3253,7 +3323,7 @@
           '<div><h3 class="section-heading">Elenco CdS e sedi</h3>'+
           '<p class="caption" id="cm-roster-count">'+esc(pairs.length)+
           ' posizioni presenti negli incarichi PICA</p></div>'+
-          '<button type="button" class="btn secondary" id="cm-new"'+(missing&&!archived?'':' disabled')+'>Nuova commissione</button></div>'+
+          '<button type="button" class="btn secondary" id="cm-new"'+(archived?' disabled':'')+'>Nuova commissione in Anagrafica</button></div>'+
           '<div class="tablebox ru-cm-tablebox" data-ru-search-ready="1"><table>'+
           '<thead><tr><th>Corso di Studio e sede</th><th>Associazione commissione</th>'+
           '<th>Procedimento</th><th>Azioni</th></tr></thead>'+
@@ -3323,7 +3393,7 @@
           var cm=rowForPair(p),pendingGroup=pendingKeys.has(pairKey(p));
           var options=proposals.get(pairKey(p))||[];
           var isMissing=p.stato==="mancante";
-          var choices=state.role==="admin"&&isMissing&&!archived?
+          var choices=isMissing&&!archived?
             '<div class="ru-cm-proposals"><h4>Composizioni nell’anagrafica generale</h4>'+
             '<p class="caption">Solo corrispondenze esatte per CdS normalizzato e sede. Nessuna nomina è valida automaticamente per il nuovo bando.</p>'+
             (options.length?options.map(function(c){
@@ -3361,15 +3431,19 @@
               '<p><strong>Requisiti</strong> '+esc(cm.requisiti||"Non indicati")+'</p>'+
               '</div>':'<p class="caption">Non è presente una commissione associata con certezza a questo CdS/sede.</p>')+
             '<div class="ru-cm-panel-actions">'+
-            (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica composizione</button>':
-              p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>':'')+
+            (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica in Anagrafica</button>':
+              p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Crea nell’Anagrafica</button>':'')+
             '<button type="button" class="btn secondary" id="cm-ticket-pair">Segnalazioni</button>'+
             '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button>'+
-            (state.role==="admin"?'<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>':'')+
+            '<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>'+
             '</div>'+choices;
           $("cm-side-close").onclick=closeManagement;
-          if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){openEditor(cm,index);};
-          if($("cm-create-pair"))$("cm-create-pair").onclick=function(){openEditor(null,index);};
+          function goArchive(edit){
+            state.cmArchivePrefill={cds:p.cds,sede:p.sede,edit:!!edit};
+            go("commissioniarchivio");
+          }
+          if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){goArchive(true);};
+          if($("cm-create-pair"))$("cm-create-pair").onclick=function(){goArchive(false);};
           $("cm-ticket-pair").onclick=function(){apriSegnalazioni(cm?cm.id:"");};
           $("cm-verbali-pair").onclick=function(){
             state.verbaliCds=p.cds;state.verbaliSede=p.sede;go("verbali");
@@ -3421,7 +3495,7 @@
           $("commission-editor").style.display="block";
           $("commission-editor").scrollIntoView({behavior:"smooth",block:"start"});
         }
-        $("cm-new").onclick=function(){openEditor(null);};
+        $("cm-new").onclick=function(){state.cmArchivePrefill=null;go("commissioniarchivio");};
         $("cm-cancel").onclick=function(){selected=null;if(selectedPairIndex!==null)openManagement(selectedPairIndex);else closeManagement();};
         $("cm-manual-form").onsubmit=async function(event){
           event.preventDefault();
