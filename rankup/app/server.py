@@ -940,7 +940,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.24", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.25", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1364,7 +1364,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.24", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.25", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1408,7 +1408,7 @@ def list_bandi():
                      AND v.stato='Acquisita' AND v.attiva=1
                      AND v.decisione IN ('idoneo','non_idoneo','escluso'))
                    AS valutazioni_acquisite,
-                 (SELECT COUNT(*) FROM (
+                 (CASE WHEN b.stato='Archiviato' THEN 0 ELSE (SELECT COUNT(*) FROM (
                    SELECT DISTINCT i.cds,i.sede FROM incarichi i
                    WHERE i.bando_id=b.id AND NOT EXISTS (
                      SELECT 1 FROM graduatorie_cds g
@@ -1417,7 +1417,7 @@ def list_bandi():
                        AND g.stato IN ('definitiva','approvata')
                        AND ri.graduatoria_id IS NULL
                    )
-                 )) AS cds_in_lavorazione
+                 )) END) AS cds_in_lavorazione
           FROM bandi b LEFT JOIN bandi_riferimenti ref ON ref.bando_id=b.id
           ORDER BY b.import_at DESC, b.id DESC
         """).fetchall()
@@ -2558,6 +2558,45 @@ def list_commissioni(code: str):
             WHERE b.codice=? ORDER BY cm.cds COLLATE NOCASE, cm.sede COLLATE NOCASE
         """, (code,)).fetchall()
     return {"commissioni": [dict(x) for x in rows]}
+
+
+@app.get("/api/bandi/{code}/commissioni/in-lavorazione")
+def commissioni_in_lavorazione(code: str):
+    """CdS/sedi con incarichi PICA senza graduatoria CdS definitiva non regredita.
+
+    Identico criterio della Dashboard (cds_in_lavorazione). La commissione
+    può essere non ancora registrata; l'assenza non equivale a conclusione.
+    I bandi archiviati non sono lavori ancora aperti.
+    """
+    code = valid_code(code)
+    with connect() as db:
+        bando = db.execute(
+            "SELECT id,stato FROM bandi WHERE codice=?", (code,)
+        ).fetchone()
+        if bando is None:
+            fail("Bando non trovato", 404)
+        if bando["stato"] == "Archiviato":
+            return {"commissioni": [], "totale": 0}
+        rows = db.execute("""
+            SELECT DISTINCT i.cds, i.sede,
+                   CASE WHEN EXISTS (
+                     SELECT 1 FROM commissioni cm
+                     WHERE cm.bando_id=i.bando_id
+                       AND cm.cds=i.cds AND cm.sede=i.sede
+                   ) THEN 1 ELSE 0 END AS commissione_registrata
+            FROM incarichi i
+            WHERE i.bando_id=? AND NOT EXISTS (
+              SELECT 1 FROM graduatorie_cds g
+              LEFT JOIN graduatorie_cds_riaperte ri
+                ON ri.graduatoria_id=g.id
+              WHERE g.bando_id=i.bando_id
+                AND g.cds=i.cds AND g.sede=i.sede
+                AND g.stato IN ('definitiva','approvata')
+                AND ri.graduatoria_id IS NULL
+            )
+            ORDER BY i.cds COLLATE NOCASE, i.sede COLLATE NOCASE
+        """, (bando["id"],)).fetchall()
+    return {"commissioni": [dict(row) for row in rows], "totale": len(rows)}
 
 
 @app.get("/api/bandi/{code}/commissioni/associazioni")
