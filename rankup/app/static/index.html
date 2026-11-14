@@ -3219,7 +3219,9 @@
           '<select id="cm-import-mode" aria-label="Modalità importazione" style="padding:9px;border:1px solid #bdcddd;border-radius:7px">'+
           '<option value="solo_nuove">Aggiungi solo le commissioni mancanti</option>'+
           '<option value="aggiorna">Aggiorna anche le commissioni già presenti</option></select>'+
-          '<button class="btn" id="commission-import" type="button">Importa commissioni</button></div>'+
+          '<button class="btn secondary" id="cm-preview-import" type="button">Analizza Excel</button></div>'+
+          '<div id="cm-import-preview" aria-live="polite"></div>'+
+          '<button class="btn" id="commission-import" type="button" hidden disabled>Conferma importazione</button>'+
           '<p class="caption">L’importazione non elimina le commissioni assenti dal file. Per modificare quelle presenti devi selezionare esplicitamente Aggiorna. Le modifiche restano nel singolo bando.</p></div>';
 
         var options=pairs.map(function(p,i){
@@ -3452,10 +3454,55 @@
             setTimeout(function(){URL.revokeObjectURL(url);},60000);
           }catch(err){note(err.message,true);}finally{button.disabled=false;}
         };
+        var cmPreviewKey="";
+        function resetCommissionPreview(){
+          cmPreviewKey="";
+          $("cm-import-preview").innerHTML="";
+          $("commission-import").hidden=true;
+          $("commission-import").disabled=true;
+        }
+        $("commission-file").onchange=resetCommissionPreview;
+        $("cm-import-mode").onchange=resetCommissionPreview;
+        $("cm-preview-import").onclick=async function(){
+          var file=$("commission-file").files[0];
+          if(!file){note("Seleziona prima un file Excel delle commissioni.",true);return;}
+          var mode=$("cm-import-mode").value;
+          resetCommissionPreview();
+          var button=this;button.disabled=true;
+          try{
+            var fd=new FormData();fd.append("file",file);fd.append("mode",mode);
+            var result=await api("bandi/"+encodeURIComponent(code)+
+              "/commissioni/import/anteprima",{method:"POST",body:fd});
+            if($("commission-file").files[0]!==file||$("cm-import-mode").value!==mode)return;
+            cmPreviewKey=file.name+":"+file.size+":"+file.lastModified+":"+mode;
+            $("cm-import-preview").innerHTML='<div class="ru-cm-preview-result">'+
+              '<strong>Anteprima delle modifiche previste</strong>'+
+              '<p>'+esc(result.aggiunte)+' da aggiungere · '+
+              esc(result.aggiornate)+' da aggiornare · '+
+              esc(result.inalterate)+' già presenti / inalterate · '+
+              esc(result.righe_da_compilare_omesse)+' righe incomplete omesse</p>'+
+              '<div class="ru-cm-preview-scroll"><table><thead><tr><th>CdS</th><th>Sede</th>'+
+              '<th>Presidente</th><th>Azione</th></tr></thead><tbody>'+
+              (result.anteprima||[]).map(function(r){
+                return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+
+                  '</td><td>'+esc(r.presidente)+'</td><td>'+esc(r.azione)+'</td></tr>';
+              }).join('')+'</tbody></table></div>'+
+              '<label class="ru-cm-verification"><input type="checkbox" id="cm-import-confirm-check">'+
+              'Ho controllato l’anteprima e confermo le operazioni indicate.</label></div>';
+            $("commission-import").hidden=false;
+            $("commission-import").disabled=false;
+          }catch(error){note(error.message,true);}
+          finally{button.disabled=false;}
+        };
         $("commission-import").onclick=async function(){
           var file=$("commission-file").files[0];
           if(!file){note("Seleziona un Excel delle commissioni (.xlsx)",true);return;}
           var mode=$("cm-import-mode").value;
+          var key=file.name+":"+file.size+":"+file.lastModified+":"+mode;
+          if(key!==cmPreviewKey){resetCommissionPreview();note("Riesegui l’anteprima prima di confermare.",true);return;}
+          if(!$("cm-import-confirm-check")||!$("cm-import-confirm-check").checked){
+            note("Conferma di aver verificato l’anteprima.",true);return;
+          }
           if(!confirm(mode==="aggiorna"
               ?"Aggiornare le commissioni già presenti nel bando "+code+"? I campi vuoti dell’Excel non cancelleranno quelli salvati."
               :"Importare solo le nuove commissioni nel bando "+code+"?"))return;
