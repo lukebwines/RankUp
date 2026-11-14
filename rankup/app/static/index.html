@@ -814,44 +814,298 @@
           '<div class="actions"><span class="badge">'+esc(b.stato)+'</span><button class="btn secondary" data-choose="'+esc(b.codice)+'">Apri</button></div></div>';
       }
       function bindBandButtons(){document.querySelectorAll("[data-choose]").forEach(function(button){button.onclick=function(){state.commissioniInLavorazioneOnly=false;state.page="incarichi";setActive(button.dataset.choose);};});}
+      // Dashboard integrata A+B: panoramica e centro operativo.
+      // I conteggi delle fasi sono sempre derivati dalle tabelle RankUP.
+      function opsIcon(name){
+        var icons={commissioni:"ri-users",valutazioni:"ri-clipboard",
+          verbali:"ri-file",graduatorie:"ri-list",segnalazioni:"ri-clipboard"};
+        return '<svg class="navicon" aria-hidden="true"><use href="#'+
+          (icons[name]||"ri-file")+'"></use></svg>';
+      }
       function dashboard(){
         var scoped=bandiAnno(),validYear=annoValido(state.year);
-        html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Anno accademico: '+esc(annoLabel())+
-          (cur()?' · Bando '+esc(state.active):' · Totali di tutti i bandi dell’A.A.')+
-          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+dashboardMetricPanel()+
-          (cur()?'<div class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(state.active)+'</h3><div class="actions"><button id="dashboard-tickets" class="btn secondary">Tutte le segnalazioni</button><button id="dashboard-my-tickets" class="btn secondary">Assegnate a me</button></div></div>':'')+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
-          (scoped.length?scoped.map(row).join(''):'<div class="empty"><strong>Nessun bando per questo anno accademico</strong>Seleziona o registra l’A.A. corretto; i bandi preesistenti senza anno sono consultabili in «Da associare».</div>')+
-          '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit"'+(validYear?'':' disabled')+'>Prepara bando</button></form>'+
-          '<p class="caption">Per creare o importare un bando occorre scegliere prima un A.A. verificato. L’anno sarà registrato nei Riferimenti del bando. La preparazione consente di caricare il PDF ufficiale prima delle candidature PICA.</p></div>'+
-          '<div class="card"><h3 class="section-heading">Importa esportazione PICA</h3><div class="upload"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label><input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn">Analizza file</button></div><div id="preview-result" style="margin-top:14px"></div><p class="caption">Il codice bando è letto dalla prima riga del file, non dal nome del file.</p></div>'+
-          '<div class="card"><h3 class="section-heading">Flusso di lavoro</h3><div class="flow">'+
-          ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione','Archivio finale ZIP e chiusura del bando'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
-          '</div><p class="caption">Graduatorie CdS, PDF e approvazioni parziali ora disponibili nelle relative sezioni.</p></div></div>');
-        bindBandButtons();bindDashboardMetrics();$("preview-btn").onclick=preview;
-        if($("dashboard-tickets")){
-          $("dashboard-tickets").onclick=function(){apriSegnalazioni("");};
-          $("dashboard-my-tickets").onclick=function(){
-            state.ambitoSegnalazioni="";
-            state.soloMieSegnalazioni=true;
-            go("segnalazioni");
+        var admin=state.role==="admin";
+        html('<div class="ru-ops" id="ru-ops-dashboard">'+
+          '<section class="ru-ops-hero"><div><span class="ru-ops-eyebrow">Centro operativo · RankUP V3</span>'+
+          '<h3>Panoramica delle procedure</h3><p>Anno accademico '+esc(annoLabel())+
+          (cur()?' · Bando '+esc(state.active):' · Tutti i bandi selezionati')+
+          ' · Dati aggiornati dal database, nessuna scadenza presunta.</p></div>'+
+          '<button type="button" class="btn secondary" id="ru-ops-refresh">Aggiorna stato ↻</button></section>'+
+          cards()+dashboardMetricPanel()+
+          '<div class="ru-ops-main"><div class="ru-ops-col">'+
+          '<section class="ru-ops-card" aria-label="Attività da gestire">'+
+          '<div class="ru-ops-card-header"><h3><span aria-hidden="true">◉</span> Attività che richiedono attenzione</h3>'+
+          '<div class="actions"><span id="ru-ops-task-count" class="ru-ops-count">—</span>'+
+          '<button type="button" class="ru-ops-more" id="ru-ops-all">Vedi tutte</button></div></div>'+
+          '<div id="ru-ops-filters" class="ru-ops-filters" hidden></div>'+
+          '<div id="ru-ops-task-list" class="ru-ops-task-list" aria-live="polite">'+
+          '<div class="ru-ops-empty">Caricamento delle attività…</div></div>'+
+          '<div id="ru-ops-checks"></div>'+
+          '<p class="ru-ops-footnote">Ogni attività rimanda alla propria sezione del bando; nessuna modifica automatica.</p></section>'+
+          '<section class="ru-ops-card"><div class="ru-ops-card-header"><h3>Ultime procedure</h3>'+
+          '<span class="caption">A.A. '+esc(annoLabel())+'</span></div>'+
+          '<div class="ru-ops-procedures">'+
+          (scoped.length?scoped.slice(0,6).map(row).join(''):
+            '<div class="ru-ops-empty">Nessuna procedura nell’anno selezionato.</div>')+
+          '</div></section>'+
+          '</div><div class="ru-ops-col">'+
+          '<section class="ru-ops-card"><div class="ru-ops-card-header"><h3>▥ Avanzamento del procedimento</h3>'+
+          '<span class="caption">CdS e sedi reali</span></div>'+
+          '<div id="ru-ops-phases"><div class="ru-ops-empty">Calcolo in corso…</div></div></section>'+
+          '<section class="ru-ops-card"><div class="ru-ops-card-header"><h3>◷ Attività recenti</h3>'+
+          (admin?'<button class="ru-ops-more" type="button" id="ru-ops-history">Registro completo</button>':'')+
+          '</div><div id="ru-ops-recent"><div class="ru-ops-empty">Caricamento…</div></div></section>'+
+          '<section class="ru-ops-card"><div class="ru-ops-card-header"><h3>Segnalazioni aperte</h3>'+
+          '<button type="button" class="ru-ops-more" id="dashboard-tickets">Apri</button></div>'+
+          '<div id="ru-ops-tickets"><div class="ru-ops-empty">Caricamento…</div></div>'+
+          '<div id="ru-ops-deadlines"></div></section>'+
+          '</div></div>'+
+          '<section class="ru-ops-card mb" style="margin-top:18px"><div class="ru-ops-card-header">'+
+          '<h3>⚡ Accesso rapido</h3><span class="caption">Le attività più utilizzate</span></div>'+
+          '<div class="ru-ops-quick-grid">'+
+          (admin?'<button type="button" class="ru-ops-quick" data-ops-quick="pica"><strong>⬆ Importa PICA</strong><small>Analizza candidature</small></button>':
+            '<button type="button" class="ru-ops-quick" data-ops-quick="segnalazioni"><strong>☷ Segnalazioni</strong><small>Note operative</small></button>')+
+          '<button type="button" class="ru-ops-quick" data-ops-quick="commissioni"><strong>♧ Gestisci commissioni</strong><small>Anagrafica e associazioni</small></button>'+
+          '<button type="button" class="ru-ops-quick" data-ops-quick="graduatorie"><strong>▤ Consulta graduatorie</strong><small>CdS e generale</small></button>'+
+          (admin?'<button type="button" class="ru-ops-quick" data-ops-quick="diagnostica"><strong>◉ Diagnostica e registro</strong><small>Verifiche e storico</small></button>':
+            '<button type="button" class="ru-ops-quick" data-ops-quick="verbali"><strong>▣ Verbali</strong><small>Documenti CdS</small></button>')+
+          '</div></section>'+
+          (admin?'<section class="ru-ops-card ru-ops-import" id="ru-ops-import">'+
+          '<div class="ru-ops-card-header"><h3>Gestione nuove procedure</h3>'+
+          '<span class="caption">Riservata all’Admin</span></div>'+
+          '<details id="ru-ops-new-bando"><summary>+ Prepara un nuovo bando</summary>'+
+          '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap">'+
+          '<label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice ufficiale"></label>'+
+          '<button class="btn secondary" type="submit"'+(validYear?'':' disabled')+'>Prepara bando</button></form>'+
+          '<p class="caption">Registra il bando per acquisire PDF e riferimenti prima di PICA. Occorre un A.A. verificato.</p></details>'+
+          '<details id="ru-ops-pica"><summary>⬆ Importa esportazione PICA</summary>'+
+          '<div class="upload" style="margin-top:12px"><label for="pica-file"><strong>File candidature .xls o .xlsx</strong></label>'+
+          '<input type="file" id="pica-file" accept=".xls,.xlsx"><button id="preview-btn" class="btn" type="button">Analizza file</button></div>'+
+          '<div id="preview-result" style="margin-top:14px"></div>'+
+          '<p class="caption">Il codice viene letto dalla prima riga del PICA, non dal nome del file. Eventuali codici divergenti richiedono conferma.</p></details>'+
+          '</section>':'')+'</div>');
+        bindBandButtons();bindDashboardMetrics();
+        $("ru-ops-refresh").onclick=loadOperationalDashboard;
+        $("ru-ops-all").onclick=function(){
+          state.opsAll=!state.opsAll;renderOperationalTasks();
+        };
+        if($("dashboard-tickets"))$("dashboard-tickets").onclick=function(){
+          if(!state.active){note("Seleziona prima il bando per visualizzarne le segnalazioni.",true);return;}
+          apriSegnalazioni("");
+        };
+        if($("ru-ops-history"))$("ru-ops-history").onclick=function(){go("diagnostica");};
+        document.querySelectorAll("[data-ops-quick]").forEach(function(button){
+          button.onclick=function(){
+            var action=button.dataset.opsQuick;
+            if(action==="pica"){
+              $("ru-ops-pica").open=true;
+              $("ru-ops-pica").scrollIntoView({behavior:"smooth",block:"center"});
+              return;
+            }
+            if(action==="diagnostica"){go("diagnostica");return;}
+            if(action==="commissioni"&&!state.active){go("commissioniarchivio");return;}
+            if(!state.active){note("Seleziona prima un bando per aprire questa sezione.",true);return;}
+            go(action);
+          };
+        });
+        if(admin){
+          $("preview-btn").onclick=preview;
+          $("new-bando").onsubmit=async function(event){
+            event.preventDefault();
+            if(state.role!=="admin"){note("Operazione riservata all'Admin.",true);return;}
+            var button=this.querySelector("button");button.disabled=true;
+            try{
+              var code=this.elements.codice.value.trim();
+              if(!annoValido(state.year))throw new Error("Seleziona prima un A.A. verificato.");
+              var created=await api("bandi",{method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({codice:code,anno_accademico:state.year})});
+              await reload();state.active=created.codice;state.page="incarichi";
+              localStorage.setItem("rankup_active",state.active);
+              updateHeader();render();
+              note("Bando "+created.codice+" preparato. Carica il PDF ufficiale nella pagina Incarichi.",false);
+            }catch(err){note(err.message,true);button.disabled=false;}
           };
         }
-        $("new-bando").onsubmit=async function(event){
-          event.preventDefault();
-          if(state.role!=="admin"){note("La preparazione del bando è riservata all'Admin.",true);return;}
-          var btn=this.querySelector("button");btn.disabled=true;
-          try{
-            var code=this.elements.codice.value.trim();
-            if(!annoValido(state.year))throw new Error("Seleziona prima un anno accademico verificato.");
-            var created=await api("bandi",{method:"POST",headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({codice:code,anno_accademico:state.year})});
-            await reload();
-            state.active=created.codice;state.page="incarichi";
-            localStorage.setItem("rankup_active",state.active);
-            updateHeader();render();
-            note("Bando "+created.codice+" in preparazione. Carica il PDF ufficiale nella pagina Incarichi.",false);
-          }catch(err){note(err.message,true);btn.disabled=false;}
-        };
+        loadOperationalDashboard();
+      }
+      async function loadOperationalDashboard(){
+        var year=state.year,code=state.active;
+        if(!year){
+          if($("ru-ops-task-list"))$("ru-ops-task-list").innerHTML='<div class="ru-ops-empty">Seleziona un anno accademico.</div>';
+          return;
+        }
+        try{
+          var url="dashboard/operativo?anno_accademico="+encodeURIComponent(year)+
+            (code?"&codice="+encodeURIComponent(code):"");
+          var result=await api(url);
+          if(state.page!=="dashboard"||year!==state.year||code!==state.active)return;
+          state.opsData=result;
+          renderOperationalTasks();renderOperationalPhases();
+          renderOperationalRecent();renderOperationalTickets();
+        }catch(error){
+          if(state.page!=="dashboard")return;
+          $("ru-ops-task-list").innerHTML='<div class="ru-ops-empty">'+esc(error.message)+'</div>';
+          note("Impossibile completare la vista operativa: "+error.message,true);
+        }
+      }
+      function renderOperationalTasks(){
+        if(state.page!=="dashboard"||!$("ru-ops-task-list"))return;
+        var data=state.opsData||{attivita:[],segnalazioni:[]};
+        var rows=(data.attivita||[]).map(function(r){
+          return Object.assign({kind:"cds"},r);
+        });
+        (data.segnalazioni||[]).forEach(function(r){
+          rows.push({kind:"ticket",bando:r.bando,problema:r.titolo,
+            pagina:"segnalazioni",priorita:r.mia?1:2,assegnato_a:r.assegnato_a,
+            titolo:r.titolo,id:r.id,mia:r.mia});
+        });
+        rows.sort(function(a,b){return a.priorita-b.priorita;});
+        var all=!!state.opsAll;
+        $("ru-ops-all").textContent=all?"Mostra meno":"Vedi tutte";
+        $("ru-ops-task-count").textContent=rows.length+" attività";
+        var filters=$("ru-ops-filters");
+        filters.hidden=!all;
+        if(all&&!filters.dataset.init){
+          filters.innerHTML='<label>Cerca CdS o bando<input type="search" id="ru-ops-search" placeholder="CdS, bando o attività"></label>'+
+            '<label>Priorità<select id="ru-ops-priority"><option value="">Tutte</option>'+
+            '<option value="1">Alta</option><option value="2">Media</option><option value="3">Bassa</option></select></label>'+
+            '<label>Ambito<select id="ru-ops-area"><option value="">Tutti</option>'+
+            '<option value="commissioni">Commissioni</option><option value="valutazioni">Valutazioni</option>'+
+            '<option value="verbali">Verbali</option><option value="graduatorie">Graduatorie</option>'+
+            '<option value="segnalazioni">Segnalazioni</option></select></label>'+
+            '<label>Assegnazione<select id="ru-ops-assignee"><option value="">Tutte le attività</option>'+
+            '<option value="me">Segnalazioni assegnate a me</option></select></label>';
+          filters.dataset.init="1";
+          filters.querySelectorAll("input,select").forEach(function(input){
+            input.addEventListener("input",renderOperationalTasks);
+            input.addEventListener("change",renderOperationalTasks);
+          });
+        }
+        if(all){
+          var search=(($("ru-ops-search")||{}).value||"").toLocaleLowerCase("it").trim();
+          var priority=(($("ru-ops-priority")||{}).value||"");
+          var area=(($("ru-ops-area")||{}).value||"");
+          var mine=(($("ru-ops-assignee")||{}).value||"");
+          rows=rows.filter(function(r){
+            return (!priority||String(r.priorita)===priority)&&
+              (!area||r.pagina===area)&&
+              (!mine||(r.kind==="ticket"&&r.mia))&&
+              (!search||[r.bando,r.cds,r.sede,r.problema].join(" ").toLocaleLowerCase("it").includes(search));
+          });
+        }else rows=rows.slice(0,5);
+        $("ru-ops-task-list").innerHTML=rows.length?rows.map(function(r){
+          var level=r.priorita===1?"high":r.priorita===2?"mid":"low";
+          var label=r.priorita===1?"Alta":r.priorita===2?"Media":"Bassa";
+          return '<button type="button" class="ru-ops-task ru-ops-task--'+level+'"'+
+            ' data-ops-nav="'+esc(r.pagina)+'" data-ops-bando="'+esc(r.bando)+'"'+
+            ' data-ops-cds="'+esc(r.cds||"")+'" data-ops-sede="'+esc(r.sede||"")+'"'+
+            ' aria-label="Apri '+esc(r.pagina)+' per '+esc(r.cds||r.titolo||r.bando)+'">'+
+            '<span class="ru-ops-task-icon">'+opsIcon(r.pagina)+'</span>'+
+            '<span class="ru-ops-task-info"><strong>'+esc(r.kind==="ticket"?"Segnalazione · "+r.bando:(r.cds||"Procedura")+" · "+(r.sede||r.bando))+'</strong>'+
+            '<small>'+esc(r.problema)+' · '+esc(r.bando)+
+            (r.assegnato_a?" · A "+esc(r.assegnato_a):"")+'</small></span>'+
+            '<span class="ru-ops-task-badge">'+label+'</span><span aria-hidden="true">›</span></button>';
+        }).join(""):'<div class="ru-ops-empty">Nessuna attività corrispondente ai filtri.</div>';
+        document.querySelectorAll("[data-ops-nav]").forEach(function(button){
+          button.onclick=function(){
+            var page=button.dataset.opsNav,code=button.dataset.opsBando;
+            var cds=button.dataset.opsCds,sede=button.dataset.opsSede;
+            if(!bandiAnno().some(function(b){return b.codice===code;})){
+              note("Il bando non appartiene all’A.A. selezionato.",true);return;
+            }
+            state.page=page;
+            setActive(code);
+            if(page==="valutazioni"&&cds){
+              state.valFilter={cds:cds,sede:sede};render();
+            }
+            if(page==="commissioni"&&cds){
+              state.cmSearch=cds;render();
+            }
+          };
+        });
+      }
+      function renderOperationalPhases(){
+        var target=$("ru-ops-phases");if(!target)return;
+        var fasi=(state.opsData||{}).fasi||[];
+        target.innerHTML=fasi.length?fasi.map(function(row){
+          var ratio=row.totale?Math.round(100*row.completati/row.totale):0;
+          return '<div class="ru-ops-phase"><div class="ru-ops-phase-line"><span>'+
+            esc(row.titolo)+'</span><strong>'+esc(row.completati)+' / '+esc(row.totale)+
+            '</strong></div><div class="ru-ops-track" role="progressbar" aria-valuemin="0" aria-valuemax="'+
+            esc(row.totale)+'" aria-valuenow="'+esc(row.completati)+'" aria-label="'+esc(row.titolo)+
+            '"><div class="ru-ops-fill" style="width:'+ratio+'%"></div></div></div>';
+        }).join("")+'<p class="ru-ops-footnote">Rapporti tra CdS/sedi presenti e stati verificabili; non sono percentuali di avanzamento amministrativo.</p>':
+          '<div class="ru-ops-empty">Nessun CdS attivo nell’ambito selezionato.</div>';
+      }
+      function renderOperationalRecent(){
+        var target=$("ru-ops-recent");if(!target)return;
+        var rows=((state.opsData||{}).recenti||[]).slice(0,5);
+        target.innerHTML=rows.length?rows.map(function(item){
+          var time="";
+          try{time=new Date(item.quando).toLocaleString("it-IT",{dateStyle:"short",timeStyle:"short"});}catch(e){time=item.quando;}
+          return '<div class="ru-ops-activity"><span class="ru-ops-activity-dot"></span>'+
+            '<div class="ru-ops-activity-main"><strong>'+esc(item.tipo)+' · '+esc(item.azione)+'</strong>'+
+            '<small>'+esc(item.bando)+' · '+esc(item.autore)+' · '+esc(time)+'</small></div></div>';
+        }).join(""):'<div class="ru-ops-empty">Nessuna operazione recente in questo ambito.</div>';
+      }
+      function renderOperationalTickets(){
+        var target=$("ru-ops-tickets"),due=$("ru-ops-deadlines");if(!target)return;
+        var data=state.opsData||{},tickets=(data.segnalazioni||[]),scadenze=data.scadenze||[];
+        target.innerHTML=tickets.length?tickets.slice(0,3).map(function(r){
+          return '<div class="ru-ops-activity"><span class="ru-ops-activity-dot"></span>'+
+            '<div class="ru-ops-activity-main"><strong>'+esc(r.titolo)+'</strong>'+
+            '<small>'+esc(r.bando)+' · '+(r.mia?"Assegnata a me":r.assegnato_a?"A "+esc(r.assegnato_a):"Da assegnare")+
+            '</small></div></div>';
+        }).join(""):'<div class="ru-ops-empty">Nessuna segnalazione aperta.</div>';
+        due.innerHTML=scadenze.length?'<div class="ru-ops-activity"><div class="ru-ops-activity-main">'+
+          '<strong>Scadenze registrate</strong>'+
+          scadenze.slice(0,4).map(function(r){return '<small>'+esc(r.bando)+' · '+esc(r.tipo)+
+            ': '+esc(r.data)+'</small>';}).join("")+'</div></div>':"";
+      }
+      async function renderDiagnostica(){
+        if(state.role!=="admin")return html(panel("Accesso riservato","Diagnostica riservata all'Admin."));
+        html('<div class="ru-ops ru-ops-diagnostic"><div class="ru-ops-hero">'+
+          '<div><span class="ru-ops-eyebrow">Solo Admin · Sola lettura</span>'+
+          '<h3>Diagnostica e registro attività</h3><p>Database, relazioni, commissioni e operazioni recenti.</p></div>'+
+          '<button class="btn secondary" id="diag-refresh">Ricarica</button></div>'+
+          '<div id="diag-output" class="ru-ops-card">Esecuzione controlli in sola lettura…</div>'+
+          '<div class="ru-ops-card" style="margin-top:16px"><div class="ru-ops-card-header">'+
+          '<h3>Registro delle operazioni</h3></div><div id="diag-history">Caricamento…</div></div></div>');
+        $("diag-refresh").onclick=renderDiagnostica;
+        var year=state.year,code=state.active;
+        try{
+          var scope="?anno_accademico="+encodeURIComponent(year||"")+
+            (code?"&codice="+encodeURIComponent(code):"");
+          var reports=await Promise.all([
+            api("admin/diagnostica"),api("admin/registro-attivita"+scope)]);
+          if(state.page!=="diagnostica")return;
+          var diag=reports[0],history=reports[1].attivita||[];
+          var failures=diag.controlli.filter(function(c){return c.esito==="attenzione";});
+          $("diag-output").innerHTML='<div class="ru-ops-card-header"><h3>Stato database</h3>'+
+            '<span class="ru-ops-count">'+esc(diag.esito==="ok"?"Integrità verificata":"Verifiche necessarie")+'</span></div>'+
+            '<p>SQLite: <strong>'+esc(diag.integrita)+'</strong> · Versione schema: '+
+            esc(diag.versione_schema)+' · Violazioni FK: '+esc(diag.violazioni_fk.length)+'</p>'+
+            '<div class="tablebox"><table><thead><tr><th>Controllo</th><th>Esito</th></tr></thead><tbody>'+
+            diag.controlli.map(function(c){return '<tr><td>'+esc(c.nome)+'</td><td>'+
+              esc(c.esito==="non_applicabile"?"Non applicabile":c.esito==="ok"?"OK":c.totale+" da verificare")+
+              '</td></tr>';}).join("")+'</tbody></table></div>'+
+            '<h4>Coerenza delle commissioni</h4><p class="ru-ops-footnote">Le divergenze tra la composizione del bando e quella più recente nell’Anagrafica non costituiscono da sole un errore: serve confronto con l’atto ufficiale.</p>'+
+            (diag.divergenze_commissioni.length?'<div class="tablebox"><table><thead><tr><th>Bando</th><th>CdS / sede</th><th>Indicazione</th></tr></thead><tbody>'+
+              diag.divergenze_commissioni.map(function(r){return '<tr><td>'+esc(r.bando)+'</td><td>'+
+                esc(r.cds)+' · '+esc(r.sede)+'</td><td>'+esc(r.nota)+'</td></tr>';}).join("")+
+              '</tbody></table></div>':'<p class="caption">Nessuna divergenza individuata nelle composizioni corrispondenti.</p>')+
+            '<h4>Backup di schema rilevati</h4>'+
+            (diag.backup_schema.length?'<p class="caption">'+
+              diag.backup_schema.map(function(b){return esc(b.file)+' ('+esc(b.dimensione_byte)+' byte)';}).join(' · ')+
+              '</p>':'<p class="caption">Nessuno snapshot di migrazione rilevato. Questo controllo non sostituisce la verifica dei backup Home Assistant.</p>')+
+            '<p class="ru-ops-footnote">Non viene effettuata alcuna correzione automatica. Per una verifica completa del ripristino occorre una copia separata.</p>';
+          $("diag-history").innerHTML=history.length?'<div class="tablebox"><table><thead><tr><th>Quando</th><th>Bando</th><th>Ambito</th><th>Operazione</th><th>Utente</th></tr></thead><tbody>'+
+            history.map(function(r){return '<tr><td>'+esc(r.quando)+'</td><td>'+esc(r.bando)+'</td><td>'+
+              esc(r.tipo)+'</td><td>'+esc(r.azione)+'</td><td>'+esc(r.autore)+'</td></tr>';}).join("")+
+            '</tbody></table></div>':'<p class="caption">Nessuna operazione nell’ambito selezionato.</p>';
+        }catch(err){
+          if(state.page==="diagnostica")$("diag-output").textContent="Diagnostica non disponibile: "+err.message;
+        }
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
