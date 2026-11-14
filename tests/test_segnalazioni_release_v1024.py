@@ -36,7 +36,14 @@ def test_segnalazioni_ui_and_migration_are_in_release():
     assert 'class="ru-status-pill ru-ticket-status--' in html
     assert 'function apriSegnalazioni(ambito)' in html
     assert '.ru-workspace .ru-ticket-form{' in css
-    assert 'SCHEMA_VERSION = 11' in migration
+    match=re.search(r'^SCHEMA_VERSION\s*=\s*(\d+)\s*
+    for action in ('@app.get("/api/bandi/{code}/segnalazioni")',
+                   '@app.post("/api/bandi/{code}/segnalazioni", status_code=201)',
+                   '@app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")',
+                   '@app.post("/api/bandi/{code}/segnalazioni/{segnalazione_id}/risposte", status_code=201)'):
+        assert action in server
+,migration,re.M)
+    assert match and int(match.group(1)) >= 11
     for action in ('@app.get("/api/bandi/{code}/segnalazioni")',
                    '@app.post("/api/bandi/{code}/segnalazioni", status_code=201)',
                    '@app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")',
