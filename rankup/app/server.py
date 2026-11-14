@@ -61,6 +61,7 @@ from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope
+from pica_safety import overlap_alerts
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -2285,6 +2286,7 @@ async def preview_pica(request: Request, file: UploadFile = File(...),
               AND b.codice<>? ORDER BY b.codice""",
             (anno,parsed["code"])).fetchall() if anno else [])
         dictionary = _dizionario(db)
+        possible_duplicates=overlap_alerts(db,parsed["rows"],parsed["code"])
     distinct = _tipologie(parsed)
     typelist = [
         {"chiave": key, "dicitura": info["dicitura"],
@@ -2305,7 +2307,8 @@ async def preview_pica(request: Request, file: UploadFile = File(...),
     return {"token": token, "codice_bando": parsed["code"],
             "titolo_pica": parsed["source_title"], "riepilogo": parsed["summary"],
             "file": filename, "gia_presente": False, "tipologie": typelist,
-            "bandi_preparati_diversi":[r["codice"] for r in prepared]}
+            "bandi_preparati_diversi":[r["codice"] for r in prepared],
+            "possibili_duplicati":possible_duplicates}
 
 
 class CommitRequest(BaseModel):
