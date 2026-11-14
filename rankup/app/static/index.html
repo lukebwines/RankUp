@@ -3124,59 +3124,59 @@
       async function renderCommissioni(rows,code){
         var responses=await Promise.all([
           api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni"),
-          api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione")
+          api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione"),
+          state.role==="admin"?
+            api("bandi/"+encodeURIComponent(code)+"/commissioni/suggerimenti")
+              .catch(function(){return {suggerimenti:[],non_disponibili:true};}):
+            Promise.resolve({suggerimenti:[]})
         ]);
         if(state.page!=="commissioni"||state.active!==code)return;
-        var report=responses[0],pending=responses[1].commissioni||[];
-        var onlyPending=!!state.commissioniInLavorazioneOnly;
-        function pairKey(cds,sede){return JSON.stringify([cds,sede]);}
-        var pendingKeys=new Set(pending.map(function(p){return pairKey(p.cds,p.sede);}));
+        var report=responses[0],pending=responses[1].commissioni||[],catalog=responses[2];
         var pairs=report.associazioni||[];
-        var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){
-          return x.item.stato!=="associata"&&
-            (!onlyPending||pendingKeys.has(pairKey(x.item.cds,x.item.sede)));
-        });
-        var shownRows=onlyPending?rows.filter(function(r){
-          return pendingKeys.has(pairKey(r.cds,r.sede));
-        }):rows;
-        var pendingFilter='<div class="card mb ru-cm-pending-filter">'+
-          '<div class="ru-dashboard-detail-heading"><div><h3 class="section-heading">Commissioni in lavorazione</h3>'+
-          '<p class="caption">'+esc(pending.length)+' CdS/sedi non ancora definitivi nel bando '+esc(code)+
-          '. Include quelli con commissione non ancora inserita; i bandi archiviati sono esclusi dal conteggio.</p></div>'+
-          '<button class="btn secondary" id="cm-only-pending" type="button" aria-pressed="'+onlyPending+'">'+
-          (onlyPending?'Mostra tutte le commissioni':'Mostra solo in lavorazione')+'</button></div>'+
-          (onlyPending?(pending.length?
-            '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th><th>Commissione</th></tr></thead><tbody>'+
-            pending.map(function(p){
-              var association=pairs.find(function(x){return x.cds===p.cds&&x.sede===p.sede;});
-              var labels={associata:"Associata · chiusura CdS da completare",
-                mancante:"Commissione da inserire",incompleta:"Composizione incompleta",
-                ambigua:"Associazione ambigua"};
-              return '<tr><td>'+esc(p.cds)+'</td><td>'+esc(p.sede)+
-                '</td><td>'+esc(labels[association&&association.stato]||"Associazione da verificare")+
-                '</td></tr>';
-            }).join('')+'</tbody></table></div>':
-            '<p class="caption">Nessuna commissione in lavorazione per questo bando.</p>'):'')+
-          '<p class="caption">La conclusione si determina dalla graduatoria CdS definitiva non regredita, nella sezione Verbali.</p>'+
-          '<button class="btn secondary" id="cm-to-verbali" type="button">Vai ai Verbali</button></div>';
-        var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
-          '<div class="ru-quick-stats">'+
-          '<span class="ru-status-pill ru-status-pill--good">'+esc(report.associate)+' / '+esc(report.totale)+' CdS/sedi associati</span>'+
-          (report.mancanti?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.mancanti)+' mancanti</span>':'')+
-          (report.incomplete?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.incomplete)+' incompleti</span>':'')+
-          (report.ambigue?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.ambigue)+' ambigui</span>':'')+
+        var pendingKeys=new Set(pending.map(function(p){return JSON.stringify([p.cds,p.sede]);}));
+        var proposals=new Map((catalog.suggerimenti||[]).map(function(p){
+          return [JSON.stringify([p.cds,p.sede]),p.candidati||[]];
+        }));
+        var filter=state.cmFilter||"tutte",query=state.cmSearch||"";
+        function pairKey(p){return JSON.stringify([p.cds,p.sede]);}
+        function rowForPair(p){
+          if(!p.cds_commissione||!p.sede_commissione)return null;
+          return rows.find(function(r){
+            return r.cds===p.cds_commissione&&r.sede===p.sede_commissione;
+          })||null;
+        }
+        function associationLabel(stato){
+          return {associata:"Associata",mancante:"Non associata",
+            ambigua:"Associazione ambigua",incompleta:"Composizione incompleta"}[stato]||
+            "Da verificare";
+        }
+        var missing=pairs.filter(function(p){return p.stato==="mancante";}).length;
+        var verify=pairs.filter(function(p){
+          return p.stato==="incompleta"||p.stato==="ambigua";
+        }).length;
+        var associationCount=pairs.filter(function(p){return p.stato==="associata";}).length;
+        var summary='<div class="card mb ru-cm-overview">'+
+          '<div class="ru-cm-overview-head"><div><h3 class="section-heading">Centro gestione Commissioni</h3>'+
+          '<p class="caption">Un unico elenco per i CdS/sedi importati dal PICA del bando '+
+          esc(code)+'. Associazione e avanzamento del verbale sono due controlli distinti.</p></div>'+
+          '<button class="btn secondary" id="cm-to-verbali" type="button">Vai ai Verbali</button></div>'+
+          '<div class="ru-cm-stats">'+
+          '<div><strong>'+esc(pairs.length)+'</strong><span>CdS/sedi PICA</span></div>'+
+          '<div><strong>'+esc(associationCount)+'</strong><span>Associate</span></div>'+
+          '<div><strong>'+esc(missing)+'</strong><span>Non associate</span></div>'+
+          '<div><strong>'+esc(verify)+'</strong><span>Da verificare</span></div>'+
           '</div>'+
-          (unmatched.length?'<div class="tablebox"><table><thead><tr><th>CdS PICA</th><th>Sede</th><th>Incarichi</th><th>Stato</th><th></th></tr></thead><tbody>'+
-          unmatched.map(function(x){return '<tr><td>'+esc(x.item.cds)+'</td><td>'+esc(x.item.sede)+
-            '</td><td>'+esc(x.item.incarichi)+'</td><td>'+esc(x.item.stato==="ambigua"?"Associazione ambigua":(
-               x.item.stato==="incompleta"?"Composizione incompleta":"Commissione da inserire"))+
-            '</td><td>'+(x.item.stato==="mancante"?
-               '<button class="btn secondary cm-add-missing" data-pair="'+x.index+'" type="button">Inserisci</button>':
-               (x.item.stato==="incompleta"?
-               '<button class="btn secondary cm-edit-incomplete" data-pair="'+x.index+'" type="button">Completa</button>':
-               '<span class="caption">Da verificare</span>'))+'</td></tr>';}).join('')+
-          '</tbody></table></div>':'<p class="caption">'+(onlyPending?'Nessun CdS/sede in lavorazione ha associazioni mancanti.':'Tutti i CdS/sedi presenti nelle candidature sono associati.')+'</p>')+'</div>';
-
+          '<p class="caption">CdS/sedi senza graduatoria definitiva: '+esc(pending.length)+
+          '. Un verbale non concluso non significa che manchi la commissione.</p>'+
+          (catalog.non_disponibili?'<p class="caption">Suggerimenti dall’anagrafica non disponibili; nessuna associazione automatica.</p>':'')+
+          '<div class="ru-cm-toolbar"><div class="ru-cm-filters" role="group" aria-label="Filtra le associazioni">'+
+          '<button type="button" data-cm-filter="tutte">Tutte</button>'+
+          '<button type="button" data-cm-filter="mancante">Non associate</button>'+
+          '<button type="button" data-cm-filter="associata">Associate</button>'+
+          '<button type="button" data-cm-filter="verifica">Da verificare</button></div>'+
+          '<label class="ru-cm-search">Cerca CdS, sede o componente'+
+          '<input type="search" id="cm-search" placeholder="Cerca nella tabella..." value="'+
+          esc(query)+'"></label></div></div>';
         var upload='<div class="card"><h3 class="section-heading">Importazione massiva delle commissioni · Bando '+esc(code)+'</h3>'+
           '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">'+
           '<label for="cm-template-kind">Modello Excel</label><select id="cm-template-kind" style="padding:9px;border:1px solid #bdcddd;border-radius:7px">'+
