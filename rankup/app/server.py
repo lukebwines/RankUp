@@ -2531,7 +2531,7 @@ def require_gestore_commissioni(request: Request) -> dict:
 def _elenco_commissioni_catalogo():
     with connect() as db:
         rows=db.execute("""
-            SELECT id,cds,sede,presidente,componenti,requisiti,anno,
+            SELECT id,impronta,cds,sede,presidente,componenti,requisiti,anno,
                    fonte_bando,conservata_il
             FROM commissioni_catalogo
             ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE,
@@ -2616,8 +2616,12 @@ def versione_commissione_in_anagrafica(catalogo_id: int, body: CommissioneInput,
     return {"ok":True,**result,"avviso":"Nuova versione conservata. I bandi già associati restano invariati."}
 
 
+class CommissioneRettificaInput(CommissioneInput):
+    expected_impronta: str = Field(min_length=64,max_length=64)
+
+
 @app.put("/api/commissioni/anagrafica/{catalogo_id}/rettifica")
-def rettifica_errore_materiale_catalogo(catalogo_id: int, body: CommissioneInput,
+def rettifica_errore_materiale_catalogo(catalogo_id: int, body: CommissioneRettificaInput,
                                        request: Request):
     """Solo Admin: corregge un refuso senza creare una versione né toccare i bandi.
 
@@ -2633,6 +2637,8 @@ def rettifica_errore_materiale_catalogo(catalogo_id: int, body: CommissioneInput
                             (catalogo_id,)).fetchone()
         if original is None:
             fail("Commissione non trovata in anagrafica",404)
+        if original["impronta"] != body.expected_impronta:
+            fail("La commissione è stata modificata da un altro utente. Ricaricare l'anagrafica.",409)
         # Rettifica del solo contenuto: la chiave CdS/sede resta invariata.
         if (course_key(values["cds"])!=course_key(original["cds"]) or
                 seat_key(values["sede"])!=seat_key(original["sede"])):
