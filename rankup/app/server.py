@@ -2737,6 +2737,59 @@ def download_modello_commissioni(code: str, tipo: str = "cds_sedi"):
     )
 
 
+@app.post("/api/bandi/{code}/commissioni/import/anteprima")
+async def anteprima_import_commissioni(
+    code: str, file: UploadFile = File(...), mode: str = Form("solo_nuove")
+):
+    """Analisi non distruttiva del file: nessuna commissione scritta nel DB."""
+    code = valid_code(code)
+    if mode not in ("solo_nuove", "aggiorna"):
+        fail("Modalità importazione non valida")
+    filename = (file.filename or "").split("/")[-1].split("\\")[-1]
+    content = await file.read(MAX_COMMISSION_FILE + 1)
+    try:
+        parsed = parse_commissioni(filename, content, code)
+    except ValueError as error:
+        fail(str(error))
+    except Exception:
+        fail("Impossibile leggere l'Excel delle commissioni")
+    with connect() as db:
+        _require_bando_aperto(db, code)
+        b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
+        if b is None:
+            fail("Bando non trovato", 404)
+        existing = db.execute(
+            "SELECT * FROM commissioni WHERE bando_id=?", (b["id"],)
+        ).fetchall()
+        found = [dict(row) for row in existing]
+        result = []
+        for idx, item in enumerate(parsed["rows"]):
+            values = _commission_fields(item)
+            previous = _match_commission_row(found, values["cds"], values["sede"])
+            if previous is None:
+                action = "aggiungi"
+                found.append(dict(values, id=-(idx + 1)))
+            elif mode == "solo_nuove":
+                action = "inalterata"
+            elif any(values[key] and values[key] != previous[key] for key in
+                     ("cds", "sede", "presidente", "componenti", "requisiti", "anno")):
+                action = "aggiorna"
+            else:
+                action = "inalterata"
+            result.append({
+                "cds": values["cds"], "sede": values["sede"],
+                "presidente": values["presidente"], "azione": action
+            })
+    return {
+        "anteprima": result,
+        "aggiunte": sum(r["azione"] == "aggiungi" for r in result),
+        "aggiornate": sum(r["azione"] == "aggiorna" for r in result),
+        "inalterate": sum(r["azione"] == "inalterata" for r in result),
+        "righe_da_compilare_omesse": parsed.get("righe_da_compilare_omesse", 0),
+        "nota": "La conferma riesamina il file e le commissioni correnti prima di salvare.",
+    }
+
+
 @app.post("/api/bandi/{code}/commissioni/import")
 async def import_commissioni(
     code: str, file: UploadFile = File(...), mode: str = Form("solo_nuove")
