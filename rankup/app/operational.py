@@ -189,13 +189,24 @@ def _recent_activity(db, ids, by_code, limit=30):
             events.append({"tipo":category,"azione":r["azione"],
                            "quando":r["quando"],"autore":r["autore"],
                            "bando":by_code[r["bando_id"]]["codice"]})
+    imported_ids=set()
+    if "pica_import_eventi" in available:
+        for r in db.execute(f"""SELECT bando_id,autore,quando FROM pica_import_eventi
+            WHERE bando_id IN ({bind}) ORDER BY quando DESC LIMIT ?""",
+            [*ids,limit]):
+            imported_ids.add(r["bando_id"])
+            events.append({"tipo":"PICA","azione":"Importazione PICA",
+                           "quando":r["quando"],"autore":r["autore"],
+                           "bando":by_code[r["bando_id"]]["codice"]})
     if "bandi" in available:
         for r in db.execute(f"""SELECT id,stato,created_at,import_at,source_filename
             FROM bandi WHERE id IN ({bind}) ORDER BY import_at DESC LIMIT ?""",
             [*ids,limit]):
+            if r["id"] in imported_ids:
+                continue
             events.append({"tipo":"Bandi","azione":(
                 "Preparazione bando" if r["stato"]=="In preparazione"
-                else "Registrazione/importazione PICA"),
+                else "Importazione storica (autore non registrato)"),
                 "quando":r["import_at"],"autore":"non registrato",
                 "bando":by_code[r["id"]]["codice"]})
     if "segnalazioni" in available:
@@ -214,13 +225,22 @@ def report_diagnostico(db: sqlite3.Connection, backups_dir=None):
         "SELECT name FROM sqlite_master WHERE type='table'")}
     results={
         "versione_schema":db.execute("PRAGMA user_version").fetchone()[0],
+        "journal_mode":db.execute("PRAGMA journal_mode").fetchone()[0],
         "integrita":db.execute("PRAGMA integrity_check").fetchone()[0],
         "violazioni_fk":[{"tabella":r[0],"riga":r[1],"referenza":r[2]}
               for r in db.execute("PRAGMA foreign_key_check")],
         "controlli":[],
         "divergenze_commissioni":[],
         "backup_schema":[],
+        "conteggi_storici":{},
     }
+    for table in ("pica_import_eventi","commissioni_eventi",
+                  "commissioni_catalogo_eventi","commissioni_catalogo_rettifiche",
+                  "valutazioni_pdf_eventi","graduatorie_eventi",
+                  "bandi_riferimenti_eventi"):
+        if table in tables:
+            results["conteggi_storici"][table]=db.execute(
+                "SELECT COUNT(*) FROM "+table).fetchone()[0]
     def check(name,required,query):
         if not set(required)<=tables:
             results["controlli"].append({"nome":name,"esito":"non_applicabile"})
