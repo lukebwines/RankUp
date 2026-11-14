@@ -1782,7 +1782,9 @@
                 '<td><span class="ru-cm-badge '+(current?"ru-cm-badge--ok":"ru-cm-badge--review")+'">'+
                 (current?"Più recente":"Versione storica")+'</span></td>'+
                 '<td>'+(current?'<button type="button" class="btn secondary" data-cm-reg-edit="'+
-                  esc(r.id)+'">Nuova versione</button>':'<span class="caption">Conservata</span>')+
+                  esc(r.id)+'">Nuova versione</button>'+
+                  (state.role==="admin"?' <button type="button" class="btn secondary" data-cm-reg-correct="'+esc(r.id)+'">Modifica</button>':'')
+                  :'<span class="caption">Conservata</span>')+
                 '</td></tr>';
             }).join(''):'<tr><td colspan="5">Nessuna composizione presente in Anagrafica.</td></tr>')+
             '</tbody></table></div></div>'+
@@ -1802,12 +1804,15 @@
             '<div class="actions"><button type="submit" class="btn" id="cm-reg-save">Salva in Anagrafica</button>'+
             '<button type="button" class="btn secondary" id="cm-reg-cancel">Annulla</button></div></form></div>';
           html(content);
-          var editingId=null;
-          function openForm(row){
+          var editingId=null, correctionMode=false, originalFingerprint="";
+          function openForm(row,correct){
+            correctionMode=!!correct;
+            originalFingerprint=row?String(row.impronta||""):"";
             editingId=row?Number(row.id):null;
-            $("cm-reg-title").textContent=row?"Nuova versione della composizione":"Nuova commissione";
-            $("cm-reg-hint").textContent=row?
-              "La versione precedente rimarrà conservata. Nessun bando sarà modificato automaticamente.":
+            $("cm-reg-title").textContent=correctionMode?"Modifica errore materiale":row?"Nuova versione della composizione":"Nuova commissione";
+            $("cm-reg-hint").textContent=correctionMode?
+              "Correzione diretta in anagrafica, senza motivazione. Le commissioni già registrate nei bandi restano invariate.":
+              row?"La versione precedente rimarrà conservata. Nessun bando sarà modificato automaticamente.":
               "La registrazione non associa la commissione ad alcun bando. Verificare la documentazione di nomina.";
             ["cds","sede","presidente","componenti","requisiti","anno"].forEach(function(field){
               $("cm-reg-"+field).value=row?String(row[field]||""):"";
@@ -1816,16 +1821,23 @@
               $("cm-reg-sede").value=target.sede||"";}
             $("cm-reg-cds").readOnly=!!row;
             $("cm-reg-sede").readOnly=!!row;
+            $("cm-reg-save").textContent=correctionMode?"Salva modifica":"Salva in Anagrafica";
             $("cm-reg-editor").hidden=false;
             $("cm-reg-editor").scrollIntoView({behavior:"smooth",block:"nearest"});
           }
           $("cm-archive-new").onclick=function(){target=null;openForm(null);};
-          $("cm-reg-cancel").onclick=function(){$("cm-reg-editor").hidden=true;editingId=null;};
+          $("cm-reg-cancel").onclick=function(){$("cm-reg-editor").hidden=true;editingId=null;correctionMode=false;};
           if($("cm-back-bando"))$("cm-back-bando").onclick=function(){go("commissioni");};
           document.querySelectorAll("[data-cm-reg-edit]").forEach(function(button){
             button.onclick=function(){
               target=null;
               openForm(records.find(function(r){return String(r.id)===button.dataset.cmRegEdit;}));
+            };
+          });
+          document.querySelectorAll("[data-cm-reg-correct]").forEach(function(button){
+            button.onclick=function(){
+              target=null;
+              openForm(records.find(function(r){return String(r.id)===button.dataset.cmRegCorrect;}),true);
             };
           });
           $("cm-reg-form").onsubmit=async function(event){
@@ -1837,14 +1849,17 @@
             if(!payload.cds||!payload.sede||!payload.presidente){
               note("CdS, sede e presidente sono obbligatori.",true);return;
             }
-            if(!confirm(editingId?
+            if(correctionMode)payload.expected_impronta=originalFingerprint;
+            if(!confirm(correctionMode?
+              "Salvare la correzione materiale? Le commissioni già registrate nei bandi resteranno invariate.":
+              editingId?
               "Confermare la nuova versione? La precedente resterà conservata e i bandi associati non cambieranno.":
               "Conservare la composizione nell’Anagrafica? Non verrà associata automaticamente a un bando."))return;
             var button=$("cm-reg-save");button.disabled=true;
             try{
               var endpoint="commissioni/anagrafica"+
-                (editingId?"/"+editingId+"/versioni":"");
-              var out=await api(endpoint,{method:"POST",
+                (editingId?"/"+editingId+(correctionMode?"/rettifica":"/versioni"):"");
+              var out=await api(endpoint,{method:correctionMode?"PUT":"POST",
                 headers:{"Content-Type":"application/json"},
                 body:JSON.stringify(payload)});
               note(out.avviso||"Composizione registrata in Anagrafica.",false);
