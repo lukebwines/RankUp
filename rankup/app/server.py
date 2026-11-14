@@ -2288,7 +2288,8 @@ async def preview_pica(request: Request, file: UploadFile = File(...),
             JOIN bandi_riferimenti r ON r.bando_id=b.id
             WHERE b.stato='In preparazione' AND r.anno_accademico=?
               AND b.codice<>? ORDER BY b.codice""",
-            (anno,parsed["code"])).fetchall() if anno else [])
+            (anno,parsed["code"])).fetchall()
+            if anno and not (exists and exists["stato"]=="In preparazione") else [])
         dictionary = _dizionario(db)
         possible_duplicates=overlap_alerts(db,parsed["rows"],parsed["code"])
     distinct = _tipologie(parsed)
@@ -2351,11 +2352,14 @@ def commit_pica(body: CommitRequest, request: Request):
                 (meta["sha256"],code)).fetchone()
             if same_file:
                 fail("File PICA identico già acquisito nel bando "+same_file["codice"],409)
+            exact_prepared=db.execute("""SELECT 1 FROM bandi
+                WHERE codice=? AND stato='In preparazione'""",(code,)).fetchone()
             others=(db.execute("""SELECT b.codice FROM bandi b
                 JOIN bandi_riferimenti r ON r.bando_id=b.id
                 WHERE b.stato='In preparazione' AND b.codice<>?
                   AND r.anno_accademico=? ORDER BY b.codice""",
-                (code,anno)).fetchall() if anno else [])
+                (code,anno)).fetchall()
+                if anno and not exact_prepared else [])
             if others and not body.conferma_bando_distinto:
                 fail("Esistono bandi in preparazione nell'A.A. selezionato: "+
                      ", ".join(r["codice"] for r in others[:8])+
