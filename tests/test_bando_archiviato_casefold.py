@@ -4,7 +4,7 @@ Tutti i dati dei test sono sintetici, senza effetti sui bandi reali.
 """
 import json
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from test_pdf_import import _setup, _post
 
@@ -96,7 +96,8 @@ def test_transaction_guard_covers_direct_handler_call(tmp_path,monkeypatch):
         with pytest.raises(HTTPException) as e:
             server.save_riferimenti_bando("abc-2026",server.RiferimentiBando(
                 repertorio="ATTO SOLO DI TEST",protocollo="",data_avviso="",
-                anno_accademico="",expected_updated_at=None))
+                anno_accademico="",expected_updated_at=None),
+                Request({"type":"http","headers":[],"method":"PUT"}))
         assert e.value.status_code==409
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM bandi_riferimenti").fetchone()[0]==0
