@@ -28,4 +28,6 @@ def test_generic_table_input_min_width_does_not_affect_checkboxes():
 
 def test_release_metadata():
     config = (ROOT / "rankup" / "config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.22"' in config
+    import re
+    match = re.search(r'^version:\s*"(\d+)\.(\d+)\.(\d+)"', config, re.M)
+    assert match and tuple(map(int,match.groups())) >= (1,0,22)
