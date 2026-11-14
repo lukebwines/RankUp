@@ -996,7 +996,7 @@
         $("ru-ops-task-list").innerHTML=rows.length?rows.map(function(r){
           var level=r.priorita===1?"high":r.priorita===2?"mid":"low";
           var label=r.priorita===1?"Alta":r.priorita===2?"Media":"Bassa";
-          return '<button type="button" class="ru-ops-task ru-ops-task--'+level+'"'+
+          return '<div class="ru-ops-task-wrap"><button type="button" class="ru-ops-task ru-ops-task--'+level+'"'+
             ' data-ops-nav="'+esc(r.pagina)+'" data-ops-bando="'+esc(r.bando)+'"'+
             ' data-ops-cds="'+esc(r.cds||"")+'" data-ops-sede="'+esc(r.sede||"")+'"'+
             ' aria-label="Apri '+esc(r.pagina)+' per '+esc(r.cds||r.titolo||r.bando)+'">'+
@@ -1004,8 +1004,36 @@
             '<span class="ru-ops-task-info"><strong>'+esc(r.kind==="ticket"?"Segnalazione · "+r.bando:(r.cds||"Procedura")+" · "+(r.sede||r.bando))+'</strong>'+
             '<small>'+esc(r.problema)+' · '+esc(r.bando)+
             (r.assegnato_a?" · A "+esc(r.assegnato_a):"")+'</small></span>'+
-            '<span class="ru-ops-task-badge">'+label+'</span><span aria-hidden="true">›</span></button>';
+            '<span class="ru-ops-task-badge">'+label+'</span><span aria-hidden="true">›</span></button>'+
+            (all&&r.kind==="cds"?
+             '<button type="button" class="ru-ops-verify" data-ops-verify-bando="'+esc(r.bando)+
+             '" data-ops-verify-cds="'+esc(r.cds)+'" data-ops-verify-sede="'+esc(r.sede)+
+             '">Verifica CdS</button>':'')+'</div>';
         }).join(""):'<div class="ru-ops-empty">Nessuna attività corrispondente ai filtri.</div>';
+        document.querySelectorAll("[data-ops-verify-bando]").forEach(function(button){
+          button.onclick=async function(){
+            var code=button.dataset.opsVerifyBando;
+            var cds=button.dataset.opsVerifyCds,sede=button.dataset.opsVerifySede;
+            var target=$("ru-ops-checks");if(!target)return;
+            target.innerHTML='<div class="ru-ops-checks">Controlli del CdS in corso…</div>';
+            try{
+              var result=await api("bandi/"+encodeURIComponent(code)+"/verifiche-cds?cds="+
+                encodeURIComponent(cds)+"&sede="+encodeURIComponent(sede));
+              if(state.page!=="dashboard"||!$("ru-ops-checks"))return;
+              var status=result.verifiche[0];
+              target.innerHTML='<section class="ru-ops-checks"><div class="ru-ops-card-header">'+
+                '<strong>'+esc(cds)+' · '+esc(sede)+'</strong>'+
+                '<button type="button" class="ru-ops-more" id="ru-ops-check-close">Chiudi</button></div>'+
+                '<p>Stato: <strong>'+esc(status.stato)+'</strong> · Schede validate: '+
+                esc(status.schede_validate)+' / '+esc(status.totale_candidature)+'</p>'+
+                (status.criticita.length?'<strong>Controlli ancora da completare</strong><ul>'+
+                  status.criticita.map(function(msg){return '<li>'+esc(msg)+'</li>';}).join("")+
+                  '</ul>':'<p>Nessuna criticità segnalata dai controlli della graduatoria.</p>')+
+                '<p class="ru-ops-footnote">La verifica non sostituisce l’approvazione amministrativa.</p></section>';
+              $("ru-ops-check-close").onclick=function(){target.innerHTML="";};
+            }catch(err){if(target)target.textContent=err.message;}
+          };
+        });
         document.querySelectorAll("[data-ops-nav]").forEach(function(button){
           button.onclick=function(){
             var page=button.dataset.opsNav,code=button.dataset.opsBando;
