@@ -36,7 +36,7 @@ def _scope(db, anno="", codice=""):
     return [dict(r) for r in db.execute(query,args)]
 
 
-def report_operativo(db: sqlite3.Connection, anno="", codice="", username=""):
+def report_operativo(db: sqlite3.Connection, anno="", codice="", username="", status_check=None):
     """Indicatori calcolati dai record presenti, non da stime."""
     bandi=_scope(db,anno,codice)
     if not bandi:
@@ -98,6 +98,11 @@ def report_operativo(db: sqlite3.Connection, anno="", codice="", username=""):
                   and commission.get("presidente") and commission.get("componenti"))
         acquired=int(validated.get(key,0))
         evaluations_ok=(g["candidature"]>0 and acquired==g["candidature"])
+        status=None
+        if has_comm and evaluations_ok and status_check is not None:
+            status=status_check(db,g["bando_id"],g["cds"],g["sede"])
+            # I PDF acquisiti possono nascondere parità o esiti non validati.
+            evaluations_ok=(status["schede_da_risolvere"]==0)
         has_verbale=key in verbali_keys
         grad=grad_map.get(key,"")
         for field,ok in (("commissioni",has_comm),("valutazioni",evaluations_ok),
@@ -111,6 +116,9 @@ def report_operativo(db: sqlite3.Connection, anno="", codice="", username=""):
             issue=(str(g["candidature"]-acquired)+" candidature ancora da validare"
                    if g["candidature"] else "Nessuna candidatura attiva da valutare")
             area="valutazioni";priority=2
+        elif status is not None and not status["pronta"] and not grad:
+            issue="Criticità della graduatoria da verificare"
+            area="verbali";priority=2
         elif not has_verbale and not grad:
             issue="Verbale descrittivo non acquisito";area="verbali";priority=2
         elif not grad:
@@ -126,6 +134,15 @@ def report_operativo(db: sqlite3.Connection, anno="", codice="", username=""):
                       "commissione_associata":bool(has_comm),
                       "verbale_presente":bool(has_verbale),
                       "graduatoria_stato":grad or "da_definire"})
+    for b in bandi:
+        if b["stato"]=="In preparazione":
+            tasks.append({
+                "bando":b["codice"],"cds":"","sede":"",
+                "problema":"Bando in preparazione: verifica PDF e riferimenti, poi importa PICA",
+                "pagina":"incarichi","priorita":3,
+                "candidature":0,"valutazioni_acquisite":0,
+                "commissione_associata":False,"verbale_presente":False,
+                "graduatoria_stato":"da_definire"})
     for ticket in tickets:
         b=by_code[ticket["bando_id"]]
         if b["stato"]=="Archiviato":continue
@@ -172,6 +189,15 @@ def _recent_activity(db, ids, by_code, limit=30):
             events.append({"tipo":category,"azione":r["azione"],
                            "quando":r["quando"],"autore":r["autore"],
                            "bando":by_code[r["bando_id"]]["codice"]})
+    if "bandi" in available:
+        for r in db.execute(f"""SELECT id,stato,created_at,import_at,source_filename
+            FROM bandi WHERE id IN ({bind}) ORDER BY import_at DESC LIMIT ?""",
+            [*ids,limit]):
+            events.append({"tipo":"Bandi","azione":(
+                "Preparazione bando" if r["stato"]=="In preparazione"
+                else "Registrazione/importazione PICA"),
+                "quando":r["import_at"],"autore":"sistema",
+                "bando":by_code[r["id"]]["codice"]})
     if "segnalazioni" in available:
         for r in db.execute(f"""SELECT bando_id,creata_il,autore FROM segnalazioni
             WHERE bando_id IN ({bind}) ORDER BY creata_il DESC LIMIT ?""",
@@ -221,6 +247,16 @@ def report_diagnostico(db: sqlite3.Connection, backups_dir=None):
           ("commissioni_catalogo_rettifiche","commissioni_catalogo"),
           """SELECT COUNT(*) FROM commissioni_catalogo_rettifiche r
              LEFT JOIN commissioni_catalogo c ON c.id=r.catalogo_id WHERE c.id IS NULL""")
+    if {"commissioni","bandi"}<=tables:
+        seen=set()
+        collisions=0
+        for row in db.execute("SELECT bando_id,cds,sede FROM commissioni"):
+            key=(row["bando_id"],course_key(row["cds"]),seat_key(row["sede"]))
+            if key in seen:collisions+=1
+            seen.add(key)
+        results["controlli"].append({
+            "nome":"Commissioni con CdS/sede equivalenti nello stesso bando",
+            "totale":collisions,"esito":"attenzione" if collisions else "ok"})
     if {"commissioni_catalogo","commissioni","bandi"}<=tables:
         all_catalog=[dict(r) for r in db.execute(
             """SELECT id,cds,sede,presidente,componenti,anno
