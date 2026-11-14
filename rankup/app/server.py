@@ -302,6 +302,16 @@ def initialize() -> None:
         );
         CREATE INDEX IF NOT EXISTS ix_catalogo_eventi_catalogo
           ON commissioni_catalogo_eventi(catalogo_id);
+        CREATE TABLE IF NOT EXISTS commissioni_catalogo_rettifiche (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            catalogo_id INTEGER NOT NULL REFERENCES commissioni_catalogo(id),
+            prima_json TEXT NOT NULL,
+            dopo_json TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_catalogo_rettifiche_catalogo
+          ON commissioni_catalogo_rettifiche(catalogo_id,id DESC);
         CREATE TABLE IF NOT EXISTS commissioni_eventi (
             id INTEGER PRIMARY KEY,
             bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -950,7 +960,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.29", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.30", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1374,7 +1384,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.29", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.30", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -2521,7 +2531,7 @@ def require_gestore_commissioni(request: Request) -> dict:
 def _elenco_commissioni_catalogo():
     with connect() as db:
         rows=db.execute("""
-            SELECT id,cds,sede,presidente,componenti,requisiti,anno,
+            SELECT id,impronta,cds,sede,presidente,componenti,requisiti,anno,
                    fonte_bando,conservata_il
             FROM commissioni_catalogo
             ORDER BY cds COLLATE NOCASE,sede COLLATE NOCASE,
@@ -2604,6 +2614,70 @@ def versione_commissione_in_anagrafica(catalogo_id: int, body: CommissioneInput,
         result=_salva_versione_catalogo(db,values,catalogo_id)
         db.commit()
     return {"ok":True,**result,"avviso":"Nuova versione conservata. I bandi già associati restano invariati."}
+
+
+class CommissioneRettificaInput(CommissioneInput):
+    expected_impronta: str = Field(min_length=64,max_length=64)
+
+
+@app.put("/api/commissioni/anagrafica/{catalogo_id}/rettifica")
+def rettifica_errore_materiale_catalogo(catalogo_id: int, body: CommissioneRettificaInput,
+                                       request: Request):
+    """Solo Admin: corregge un refuso senza creare una versione né toccare i bandi.
+
+    La rettifica è atomica e registra automaticamente i dati prima/dopo.
+    Il client trasmette l'impronta letta per impedire sovrascritture concorrenti.
+    """
+    require_admin(request)
+    values=_commission_fields(body.model_dump())
+    fields=("cds","sede","presidente","componenti","requisiti","anno")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        original=db.execute("SELECT * FROM commissioni_catalogo WHERE id=?",
+                            (catalogo_id,)).fetchone()
+        if original is None:
+            fail("Commissione non trovata in anagrafica",404)
+        if original["impronta"] != body.expected_impronta:
+            fail("La commissione è stata modificata da un altro utente. Ricaricare l'anagrafica.",409)
+        # Rettifica del solo contenuto: la chiave CdS/sede resta invariata.
+        if (course_key(values["cds"])!=course_key(original["cds"]) or
+                seat_key(values["sede"])!=seat_key(original["sede"])):
+            fail("La rettifica non può modificare il CdS o la sede",409)
+        latest=db.execute("""
+            SELECT id,cds,sede FROM commissioni_catalogo ORDER BY id DESC
+        """).fetchall()
+        same=next((r for r in latest
+                   if course_key(r["cds"])==course_key(original["cds"])
+                   and seat_key(r["sede"])==seat_key(original["sede"])),None)
+        if same is not None and same["id"]!=catalogo_id:
+            fail("Non è consentita la rettifica di una versione storica",409)
+        before={k:original[k] for k in fields}
+        if before==values:
+            return {"ok":True,"modificata":False}
+        canon=dict(values,cds_key=course_key(values["cds"]),
+                   sede_key=seat_key(values["sede"]))
+        fingerprint=hashlib.sha256(json.dumps(
+            canon,ensure_ascii=False,sort_keys=True).encode("utf-8")).hexdigest()
+        duplicate=db.execute(
+            "SELECT id FROM commissioni_catalogo WHERE impronta=? AND id<>?",
+            (fingerprint,catalogo_id)).fetchone()
+        if duplicate is not None:
+            fail("La composizione rettificata è già presente in anagrafica",409)
+        db.execute("""
+            UPDATE commissioni_catalogo SET
+              impronta=?,cds=?,sede=?,presidente=?,componenti=?,requisiti=?,anno=?
+            WHERE id=?
+        """,(fingerprint,*(values[k] for k in fields),catalogo_id))
+        db.execute("""
+            INSERT INTO commissioni_catalogo_rettifiche
+            (catalogo_id,prima_json,dopo_json,autore,quando)
+            VALUES(?,?,?,?,?)
+        """,(catalogo_id,json.dumps(before,ensure_ascii=False),
+             json.dumps(values,ensure_ascii=False),request_actor(),
+             datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+        db.commit()
+    return {"ok":True,"modificata":True,
+            "avviso":"Errore materiale corretto in anagrafica. Le commissioni dei bandi già registrate non sono state modificate."}
 
 
 @app.get("/api/commissioni/anagrafica")
