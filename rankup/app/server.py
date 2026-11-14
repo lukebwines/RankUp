@@ -280,6 +280,16 @@ def initialize() -> None:
         );
         CREATE INDEX IF NOT EXISTS ix_segnalazioni_risposte
           ON segnalazioni_risposte(segnalazione_id);
+        CREATE TABLE IF NOT EXISTS pica_import_eventi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            codice_pica TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_pica_import_eventi_bando
+          ON pica_import_eventi(bando_id,id DESC);
         CREATE TABLE IF NOT EXISTS commissioni_catalogo (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             impronta TEXT NOT NULL UNIQUE,
@@ -2445,6 +2455,10 @@ def commit_pica(body: CommitRequest, request: Request):
                 VALUES(?,?,?,?,?,?,?)
             """, (bando_id, meta["sha256"], "importazione",
                   len(assignment_ids), 0, metadata_count, now))
+            db.execute("""INSERT INTO pica_import_eventi
+                (bando_id,codice_pica,sha256,autore,quando)
+                VALUES(?,?,?,?,?)""",
+                (bando_id,code,meta["sha256"],who,now))
             db.commit()
         except sqlite3.IntegrityError:
             db.rollback()
