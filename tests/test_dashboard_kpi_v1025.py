@@ -53,17 +53,19 @@ def test_dashboard_card_links_and_version_are_in_ui():
     css = (ROOT / "rankup/app/static/workspace.css").read_text(encoding="utf-8")
     config = (ROOT / "rankup/config.yaml").read_text(encoding="utf-8")
     server = (ROOT / "rankup/app/server.py").read_text(encoding="utf-8")
-    assert 'version: "1.0.25"' in config
-    assert 'version="1.0.25"' in server
-    assert 'workspace.css?v=1.0.25' in html
-    assert 'RANKUP · v1.0.25' in html
-    assert 'var metrics=["bandi","candidature","incarichi","valutazioni","commissioni"]' in html
+    import re
+    version = re.search(r'^version:\s*"(\d+)\.(\d+)\.(\d+)"', config, re.M)
+    assert version and tuple(map(int, version.groups())) >= (1, 0, 25)
+    assert 'version="' + ".".join(version.groups()) + '"' in server
+    assert 'workspace.css?v=' + ".".join(version.groups()) in html
+    assert 'RANKUP · v' + ".".join(version.groups()) in html
+    assert 'var metrics=["bandi","incarichi","candidature","valutazioni","commissioni"]' in html
     for function in ("dashboardTotal", "dashboardMetricPanel", "openDashboardMetric",
                      "bindDashboardMetrics"):
         assert "function " + function + "(" in html
     assert "data-dashboard-metric" in html
     assert "data-dashboard-open" in html
-    assert "state.commissioniInLavorazioneOnly=metric===\"commissioni\"" in html
+    assert 'commissioni:{title:"Commissioni in lavorazione",field:"cds_in_lavorazione",page:"verbali"' in html
     assert 'data-page="commissioni"' in html
     assert '.ru-workspace .grid.ru-dashboard-metrics{' in css
     assert '.ru-workspace .card.ru-kpi{' in css
