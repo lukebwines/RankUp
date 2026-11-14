@@ -3328,7 +3328,7 @@
           '<div><h3 class="section-heading">Elenco CdS e sedi</h3>'+
           '<p class="caption" id="cm-roster-count">'+esc(pairs.length)+
           ' posizioni presenti negli incarichi PICA</p></div>'+
-          '<button type="button" class="btn secondary" id="cm-new"'+(missing&&!archived?'':' disabled')+'>Nuova commissione</button></div>'+
+          '<button type="button" class="btn secondary" id="cm-new"'+(archived?' disabled':'')+'>Nuova commissione in Anagrafica</button></div>'+
           '<div class="tablebox ru-cm-tablebox" data-ru-search-ready="1"><table>'+
           '<thead><tr><th>Corso di Studio e sede</th><th>Associazione commissione</th>'+
           '<th>Procedimento</th><th>Azioni</th></tr></thead>'+
@@ -3436,15 +3436,19 @@
               '<p><strong>Requisiti</strong> '+esc(cm.requisiti||"Non indicati")+'</p>'+
               '</div>':'<p class="caption">Non è presente una commissione associata con certezza a questo CdS/sede.</p>')+
             '<div class="ru-cm-panel-actions">'+
-            (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica composizione</button>':
-              p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>':'')+
+            (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica in Anagrafica</button>':
+              p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Crea nell’Anagrafica</button>':'')+
             '<button type="button" class="btn secondary" id="cm-ticket-pair">Segnalazioni</button>'+
             '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button>'+
             '<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>'+
             '</div>'+choices;
           $("cm-side-close").onclick=closeManagement;
-          if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){openEditor(cm,index);};
-          if($("cm-create-pair"))$("cm-create-pair").onclick=function(){openEditor(null,index);};
+          function goArchive(edit){
+            state.cmArchivePrefill={cds:p.cds,sede:p.sede,edit:!!edit};
+            go("commissioniarchivio");
+          }
+          if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){goArchive(true);};
+          if($("cm-create-pair"))$("cm-create-pair").onclick=function(){goArchive(false);};
           $("cm-ticket-pair").onclick=function(){apriSegnalazioni(cm?cm.id:"");};
           $("cm-verbali-pair").onclick=function(){
             state.verbaliCds=p.cds;state.verbaliSede=p.sede;go("verbali");
@@ -3496,7 +3500,7 @@
           $("commission-editor").style.display="block";
           $("commission-editor").scrollIntoView({behavior:"smooth",block:"start"});
         }
-        $("cm-new").onclick=function(){openEditor(null);};
+        $("cm-new").onclick=function(){state.cmArchivePrefill=null;go("commissioniarchivio");};
         $("cm-cancel").onclick=function(){selected=null;if(selectedPairIndex!==null)openManagement(selectedPairIndex);else closeManagement();};
         $("cm-manual-form").onsubmit=async function(event){
           event.preventDefault();
