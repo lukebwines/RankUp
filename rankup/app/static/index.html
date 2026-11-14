@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.26">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.27">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -239,7 +239,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.26<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.27<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -624,6 +624,7 @@
         state.incarichiQuery="";
         state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
+        state.cmFilter="tutte";state.cmSearch="";
         persistSelection();updateHeader();render();
       };
       function setAcademicYear(year){
@@ -633,6 +634,7 @@
         state.incarichiQuery="";
         state.candidatureFilter={cds:"",ente:"",query:"",stato:""};
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
+        state.cmFilter="tutte";state.cmSearch="";
         syncAcademicSelection();updateHeader();render();
       }
       function updateHeader(){
@@ -2778,8 +2780,39 @@
           var result=await api("pica/commit",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({token:state.preview.token,tipologie:mapped,
               anno_accademico:state.preview.anno_accademico})});
-          await reload();state.page="incarichi";state.active=result.codice_bando;localStorage.setItem("rankup_active",state.active);
-          updateHeader();render();note("Bando "+result.codice_bando+" importato con dizionario PICA.",false);
+          await reload();state.page="incarichi";state.active=result.codice_bando;
+          state.cmFilter="tutte";state.cmSearch="";localStorage.setItem("rankup_active",state.active);
+          updateHeader();render();
+          // Il PICA resta importato anche se la verifica accessoria delle
+          // commissioni fallisce. Nessuna associazione automatica.
+          try{
+            var commissions=await api("bandi/"+encodeURIComponent(result.codice_bando)+
+              "/commissioni/associazioni");
+            if(state.active===result.codice_bando){
+              var outstanding=Number(commissions.mancanti||0)+
+                Number(commissions.ambigue||0)+Number(commissions.incomplete||0);
+              if(outstanding){
+                $("notification").innerHTML='<div class="notice ru-pica-cm-notice">'+
+                  '<strong>Importazione PICA completata.</strong> '+
+                  esc(outstanding)+' CdS/sedi richiedono una commissione da associare o verificare. '+
+                  'Le candidature sono state acquisite e non sono state create nomine automatiche. '+
+                  '<button type="button" class="btn secondary" id="pica-cm-open">Gestisci commissioni</button>'+
+                  '</div>';
+                $("pica-cm-open").onclick=function(){
+                  state.cmFilter=Number(commissions.mancanti||0)?"mancante":"verifica";
+                  go("commissioni");
+                };
+              }else{
+                note("Bando "+result.codice_bando+
+                  " importato. Tutti i CdS/sedi hanno una commissione associata.",false);
+              }
+            }
+          }catch(checkError){
+            if(state.active===result.codice_bando){
+              note("Bando "+result.codice_bando+
+                " importato. Verifica le associazioni delle commissioni nella relativa sezione.",false);
+            }
+          }
         }catch(error){note(error.message,true);btn.disabled=false;}
       }
       function renderIncarichi(rows,code,acquisition){
@@ -3124,59 +3157,60 @@
       async function renderCommissioni(rows,code){
         var responses=await Promise.all([
           api("bandi/"+encodeURIComponent(code)+"/commissioni/associazioni"),
-          api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione")
+          api("bandi/"+encodeURIComponent(code)+"/commissioni/in-lavorazione"),
+          state.role==="admin"?
+            api("bandi/"+encodeURIComponent(code)+"/commissioni/suggerimenti")
+              .catch(function(){return {suggerimenti:[],non_disponibili:true};}):
+            Promise.resolve({suggerimenti:[]})
         ]);
         if(state.page!=="commissioni"||state.active!==code)return;
-        var report=responses[0],pending=responses[1].commissioni||[];
-        var onlyPending=!!state.commissioniInLavorazioneOnly;
-        function pairKey(cds,sede){return JSON.stringify([cds,sede]);}
-        var pendingKeys=new Set(pending.map(function(p){return pairKey(p.cds,p.sede);}));
+        var report=responses[0],pending=responses[1].commissioni||[],catalog=responses[2];
         var pairs=report.associazioni||[];
-        var unmatched=pairs.map(function(p,i){return {item:p,index:i};}).filter(function(x){
-          return x.item.stato!=="associata"&&
-            (!onlyPending||pendingKeys.has(pairKey(x.item.cds,x.item.sede)));
-        });
-        var shownRows=onlyPending?rows.filter(function(r){
-          return pendingKeys.has(pairKey(r.cds,r.sede));
-        }):rows;
-        var pendingFilter='<div class="card mb ru-cm-pending-filter">'+
-          '<div class="ru-dashboard-detail-heading"><div><h3 class="section-heading">Commissioni in lavorazione</h3>'+
-          '<p class="caption">'+esc(pending.length)+' CdS/sedi non ancora definitivi nel bando '+esc(code)+
-          '. Include quelli con commissione non ancora inserita; i bandi archiviati sono esclusi dal conteggio.</p></div>'+
-          '<button class="btn secondary" id="cm-only-pending" type="button" aria-pressed="'+onlyPending+'">'+
-          (onlyPending?'Mostra tutte le commissioni':'Mostra solo in lavorazione')+'</button></div>'+
-          (onlyPending?(pending.length?
-            '<div class="tablebox"><table><thead><tr><th>CdS</th><th>Sede</th><th>Commissione</th></tr></thead><tbody>'+
-            pending.map(function(p){
-              var association=pairs.find(function(x){return x.cds===p.cds&&x.sede===p.sede;});
-              var labels={associata:"Associata · chiusura CdS da completare",
-                mancante:"Commissione da inserire",incompleta:"Composizione incompleta",
-                ambigua:"Associazione ambigua"};
-              return '<tr><td>'+esc(p.cds)+'</td><td>'+esc(p.sede)+
-                '</td><td>'+esc(labels[association&&association.stato]||"Associazione da verificare")+
-                '</td></tr>';
-            }).join('')+'</tbody></table></div>':
-            '<p class="caption">Nessuna commissione in lavorazione per questo bando.</p>'):'')+
-          '<p class="caption">La conclusione si determina dalla graduatoria CdS definitiva non regredita, nella sezione Verbali.</p>'+
-          '<button class="btn secondary" id="cm-to-verbali" type="button">Vai ai Verbali</button></div>';
-        var summary='<div class="card"><h3 class="section-heading">Associazione commissioni a CdS e sede</h3>'+
-          '<div class="ru-quick-stats">'+
-          '<span class="ru-status-pill ru-status-pill--good">'+esc(report.associate)+' / '+esc(report.totale)+' CdS/sedi associati</span>'+
-          (report.mancanti?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.mancanti)+' mancanti</span>':'')+
-          (report.incomplete?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.incomplete)+' incompleti</span>':'')+
-          (report.ambigue?'<span class="ru-status-pill ru-status-pill--warning">'+esc(report.ambigue)+' ambigui</span>':'')+
+        var pendingKeys=new Set(pending.map(function(p){return JSON.stringify([p.cds,p.sede]);}));
+        var proposals=new Map((catalog.suggerimenti||[]).map(function(p){
+          return [JSON.stringify([p.cds,p.sede]),p.candidati||[]];
+        }));
+        var filter=state.cmFilter||"tutte",query=state.cmSearch||"";
+        var archived=!!(cur()&&cur().stato==="Archiviato");
+        function pairKey(p){return JSON.stringify([p.cds,p.sede]);}
+        function rowForPair(p){
+          if(!p.cds_commissione||!p.sede_commissione)return null;
+          return rows.find(function(r){
+            return r.cds===p.cds_commissione&&r.sede===p.sede_commissione;
+          })||null;
+        }
+        function associationLabel(stato){
+          return {associata:"Associata",mancante:"Non associata",
+            ambigua:"Associazione ambigua",incompleta:"Composizione incompleta"}[stato]||
+            "Da verificare";
+        }
+        var missing=pairs.filter(function(p){return p.stato==="mancante";}).length;
+        var verify=pairs.filter(function(p){
+          return p.stato==="incompleta"||p.stato==="ambigua";
+        }).length;
+        var associationCount=pairs.filter(function(p){return p.stato==="associata";}).length;
+        var summary='<div class="card mb ru-cm-overview">'+
+          '<div class="ru-cm-overview-head"><div><h3 class="section-heading">Centro gestione Commissioni</h3>'+
+          '<p class="caption">Un unico elenco per i CdS/sedi importati dal PICA del bando '+
+          esc(code)+'. Associazione e avanzamento del verbale sono due controlli distinti.</p></div>'+
+          '<button class="btn secondary" id="cm-to-verbali" type="button">Vai ai Verbali</button></div>'+
+          '<div class="ru-cm-stats">'+
+          '<div><strong>'+esc(pairs.length)+'</strong><span>CdS/sedi PICA</span></div>'+
+          '<div><strong>'+esc(associationCount)+'</strong><span>Associate</span></div>'+
+          '<div><strong>'+esc(missing)+'</strong><span>Non associate</span></div>'+
+          '<div><strong>'+esc(verify)+'</strong><span>Da verificare</span></div>'+
           '</div>'+
-          (unmatched.length?'<div class="tablebox"><table><thead><tr><th>CdS PICA</th><th>Sede</th><th>Incarichi</th><th>Stato</th><th></th></tr></thead><tbody>'+
-          unmatched.map(function(x){return '<tr><td>'+esc(x.item.cds)+'</td><td>'+esc(x.item.sede)+
-            '</td><td>'+esc(x.item.incarichi)+'</td><td>'+esc(x.item.stato==="ambigua"?"Associazione ambigua":(
-               x.item.stato==="incompleta"?"Composizione incompleta":"Commissione da inserire"))+
-            '</td><td>'+(x.item.stato==="mancante"?
-               '<button class="btn secondary cm-add-missing" data-pair="'+x.index+'" type="button">Inserisci</button>':
-               (x.item.stato==="incompleta"?
-               '<button class="btn secondary cm-edit-incomplete" data-pair="'+x.index+'" type="button">Completa</button>':
-               '<span class="caption">Da verificare</span>'))+'</td></tr>';}).join('')+
-          '</tbody></table></div>':'<p class="caption">'+(onlyPending?'Nessun CdS/sede in lavorazione ha associazioni mancanti.':'Tutti i CdS/sedi presenti nelle candidature sono associati.')+'</p>')+'</div>';
-
+          '<p class="caption">CdS/sedi senza graduatoria definitiva: '+esc(pending.length)+
+          '. Un verbale non concluso non significa che manchi la commissione.</p>'+
+          (catalog.non_disponibili?'<p class="caption">Suggerimenti dall’anagrafica non disponibili; nessuna associazione automatica.</p>':'')+
+          '<div class="ru-cm-toolbar"><div class="ru-cm-filters" role="group" aria-label="Filtra le associazioni">'+
+          '<button type="button" data-cm-filter="tutte">Tutte</button>'+
+          '<button type="button" data-cm-filter="mancante">Non associate</button>'+
+          '<button type="button" data-cm-filter="associata">Associate</button>'+
+          '<button type="button" data-cm-filter="verifica">Da verificare</button></div>'+
+          '<label class="ru-cm-search">Cerca CdS, sede o componente'+
+          '<input type="search" id="cm-search" placeholder="Cerca nella tabella..." value="'+
+          esc(query)+'"></label></div></div>';
         var upload='<div class="card"><h3 class="section-heading">Importazione massiva delle commissioni · Bando '+esc(code)+'</h3>'+
           '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">'+
           '<label for="cm-template-kind">Modello Excel</label><select id="cm-template-kind" style="padding:9px;border:1px solid #bdcddd;border-radius:7px">'+
@@ -3189,7 +3223,9 @@
           '<select id="cm-import-mode" aria-label="Modalità importazione" style="padding:9px;border:1px solid #bdcddd;border-radius:7px">'+
           '<option value="solo_nuove">Aggiungi solo le commissioni mancanti</option>'+
           '<option value="aggiorna">Aggiorna anche le commissioni già presenti</option></select>'+
-          '<button class="btn" id="commission-import" type="button">Importa commissioni</button></div>'+
+          '<button class="btn secondary" id="cm-preview-import" type="button">Analizza Excel</button></div>'+
+          '<div id="cm-import-preview" aria-live="polite"></div>'+
+          '<button class="btn" id="commission-import" type="button" hidden disabled>Conferma importazione</button>'+
           '<p class="caption">L’importazione non elimina le commissioni assenti dal file. Per modificare quelle presenti devi selezionare esplicitamente Aggiorna. Le modifiche restano nel singolo bando.</p></div>';
 
         var options=pairs.map(function(p,i){
@@ -3208,19 +3244,160 @@
           '<div style="display:flex;gap:10px;margin-top:14px"><button class="btn" id="cm-save" type="submit">Salva commissione</button>'+
           '<button class="btn secondary" id="cm-cancel" type="button">Annulla</button></div></form></div>';
 
-        var listing='<div class="card"><h3 class="section-heading">Commissioni del bando · '+esc(code)+'</h3>'+
-          '<p class="caption">'+shownRows.length+(onlyPending?' commissioni registrate fra i CdS/sedi in lavorazione.':' commissioni registrate.')+' Ogni modifica resta circoscritta a questo bando e richiede la rigenerazione dei PDF interessati.</p>'+
-          '<button class="btn" type="button" id="cm-new" style="margin-bottom:14px">Nuova commissione</button>'+
-          '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Presidente</th><th>Componenti</th><th>Anno accademico</th><th></th></tr></thead><tbody>'+
-          (shownRows.length?shownRows.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td><td>'+esc(r.presidente)+
-             '</td><td>'+esc(r.componenti)+'</td><td>'+esc(r.anno)+'</td><td><button type="button" class="btn secondary cm-edit" data-id="'+
-             esc(r.id)+'">Modifica</button> <button type="button" class="btn secondary cm-tickets" data-id="'+
-             esc(r.id)+'">Segnalazioni</button></td></tr>';}).join(''):'<tr><td colspan="6">Nessuna commissione registrata in questa selezione.</td></tr>')+
-          '</tbody></table></div></div>';
-        html(pendingFilter+summary+upload+editor+listing);
-        $("cm-only-pending").onclick=function(){state.commissioniInLavorazioneOnly=!onlyPending;renderCommissioni(rows,code);};
+        var orphans=rows.filter(function(r){
+          return !pairs.some(function(p){
+            return p.cds_commissione===r.cds&&p.sede_commissione===r.sede;
+          });
+        });
+        var listing='<section class="card ru-cm-roster"><div class="ru-cm-roster-head">'+
+          '<div><h3 class="section-heading">Elenco CdS e sedi</h3>'+
+          '<p class="caption" id="cm-roster-count">'+esc(pairs.length)+
+          ' posizioni presenti negli incarichi PICA</p></div>'+
+          '<button type="button" class="btn secondary" id="cm-new"'+(missing&&!archived?'':' disabled')+'>Nuova commissione</button></div>'+
+          '<div class="tablebox ru-cm-tablebox" data-ru-search-ready="1"><table>'+
+          '<thead><tr><th>Corso di Studio e sede</th><th>Associazione commissione</th>'+
+          '<th>Procedimento</th><th>Azioni</th></tr></thead>'+
+          '<tbody id="cm-unified-rows"></tbody></table></div></section>';
+        var advanced='<details class="card ru-cm-advanced"><summary>Strumenti avanzati · Importazione Excel</summary>'+
+          '<p class="caption">'+(archived?'Bando archiviato: importazione e modifiche non disponibili.':
+            'L’importazione Excel è facoltativa. Non associa automaticamente composizioni provenienti da altri bandi.')+'</p>'+
+          upload.replace('class="card"','class="ru-cm-import"')+
+          (orphans.length?'<div class="notice"><strong>'+esc(orphans.length)+
+            ' composizioni registrate non corrispondono univocamente ai CdS/sedi PICA.</strong>'+
+            '<p>Non vengono eliminate né riassociate automaticamente: verificare le denominazioni e le sedi.</p>'+
+            '<div class="ru-cm-orphans">'+orphans.map(function(r){
+              return '<div>'+esc(r.cds)+' · '+esc(r.sede)+' · '+esc(r.presidente)+'</div>';
+            }).join('')+'</div></div>':'')+'</details>';
+        html(summary+'<div class="ru-cm-layout">'+listing+
+          '<aside class="ru-cm-side" id="cm-manage-panel" hidden>'+
+          '<div id="cm-detail-panel"></div>'+editor+'</aside></div>'+advanced);
         $("cm-to-verbali").onclick=function(){go("verbali");};
-
+        var selectedPairIndex=null;
+        function drawRows(){
+          var term=($("cm-search").value||"").trim().toLocaleLowerCase("it");
+          state.cmFilter=filter;state.cmSearch=$("cm-search").value;
+          document.querySelectorAll("[data-cm-filter]").forEach(function(button){
+            var active=button.dataset.cmFilter===filter;
+            button.classList.toggle("active",active);
+            button.setAttribute("aria-pressed",active?"true":"false");
+          });
+          var visible=pairs.map(function(p,i){return {pair:p,index:i};}).filter(function(item){
+            var p=item.pair,r=rowForPair(p);
+            var search=[p.cds,p.sede,r&&r.presidente,r&&r.componenti].filter(Boolean)
+              .join(" ").toLocaleLowerCase("it");
+            var status=filter==="tutte"||filter===p.stato||
+              (filter==="verifica"&&(p.stato==="ambigua"||p.stato==="incompleta"));
+            return status&&(!term||search.includes(term));
+          });
+          $("cm-roster-count").textContent=visible.length+" di "+pairs.length+" CdS/sedi";
+          $("cm-unified-rows").innerHTML=visible.length?visible.map(function(item){
+            var p=item.pair,st=p.stato||"mancante",isPending=pendingKeys.has(pairKey(p));
+            var badge=st==="associata"?"ok":st==="mancante"?"missing":"review";
+            return '<tr><td><strong>'+esc(p.cds)+'</strong><div class="caption">'+esc(p.sede)+
+              ' · '+esc(p.incarichi)+' incarichi</div></td>'+
+              '<td><span class="ru-cm-badge ru-cm-badge--'+badge+'">'+
+              esc(associationLabel(st))+'</span></td>'+
+              '<td><span class="ru-cm-badge '+(isPending?'ru-cm-badge--pending':'ru-cm-badge--ok')+'">'+
+              (archived?'Bando archiviato':isPending?'In lavorazione':'Graduatoria definitiva')+'</span></td>'+
+              '<td><button type="button" class="btn secondary" data-cm-manage="'+item.index+
+              '">Gestisci</button></td></tr>';
+          }).join(''):'<tr><td colspan="4">Nessun CdS/sede corrispondente al filtro.</td></tr>';
+          document.querySelectorAll("[data-cm-manage]").forEach(function(button){
+            button.onclick=function(){openManagement(Number(button.dataset.cmManage));};
+          });
+        }
+        document.querySelectorAll("[data-cm-filter]").forEach(function(button){
+          button.onclick=function(){filter=button.dataset.cmFilter;drawRows();};
+        });
+        $("cm-search").oninput=drawRows;
+        function closeManagement(){
+          $("cm-manage-panel").hidden=true;
+          $("cm-detail-panel").innerHTML="";
+          $("commission-editor").style.display="none";
+          selectedPairIndex=null;
+        }
+        function openManagement(index){
+          var p=pairs[index];
+          if(!p)return;
+          selectedPairIndex=index;
+          var cm=rowForPair(p),pendingGroup=pendingKeys.has(pairKey(p));
+          var options=proposals.get(pairKey(p))||[];
+          var isMissing=p.stato==="mancante";
+          var choices=state.role==="admin"&&isMissing&&!archived?
+            '<div class="ru-cm-proposals"><h4>Composizioni nell’anagrafica generale</h4>'+
+            '<p class="caption">Solo corrispondenze esatte per CdS normalizzato e sede. Nessuna nomina è valida automaticamente per il nuovo bando.</p>'+
+            (options.length?options.map(function(c){
+              return '<label class="ru-cm-proposal">'+
+                '<input type="radio" name="cm-catalog-choice" value="'+esc(c.id)+'"'+
+                  (c.anno_compatibile?'':' disabled')+'>'+
+                '<span><strong>'+esc(c.presidente)+'</strong>'+
+                '<small>Componenti: '+esc(c.componenti||"Non indicati")+'</small>'+
+                '<small>Anno: '+esc(c.anno||"Non indicato")+
+                ' · Fonte: '+esc(c.fonte_bando||"Non indicata")+'</small>'+
+                (c.anno_compatibile?'':'<small class="ru-cm-warning">Anno accademico non corrispondente: associazione non consentita.</small>')+
+                '</span></label>';
+            }).join('')+
+            '<label class="ru-cm-verification"><input type="checkbox" id="cm-catalog-verified">'+
+              'Ho verificato l’atto e la validità della composizione per il bando corrente.</label>'+
+            '<button class="btn" type="button" id="cm-catalog-associate">Associa la composizione verificata</button>':
+            '<p class="caption">Nessuna composizione con CdS e sede corrispondenti. Inserisci una nuova commissione soltanto dopo verifica documentale.</p>')+
+            '</div>':''; 
+          $("cm-manage-panel").hidden=false;
+          $("commission-editor").style.display="none";
+          $("cm-detail-panel").hidden=false;
+          $("cm-detail-panel").innerHTML='<div class="ru-cm-side-head">'+
+            '<h3>Gestisci commissione</h3><button type="button" class="btn secondary" id="cm-side-close">Chiudi</button></div>'+
+            '<strong>'+esc(p.cds)+'</strong><p class="caption">Sede: '+esc(p.sede)+
+            ' · '+esc(p.incarichi)+' incarichi PICA</p>'+
+            '<p><span class="ru-cm-badge ru-cm-badge--'+
+              (p.stato==="associata"?"ok":p.stato==="mancante"?"missing":"review")+'">'+
+              esc(associationLabel(p.stato))+'</span> '+
+              '<span class="ru-cm-badge '+(pendingGroup?'ru-cm-badge--pending':'ru-cm-badge--ok')+'">'+
+              (archived?'Bando archiviato':pendingGroup?'Verbale / graduatoria da completare':'Graduatoria definitiva')+'</span></p>'+
+            (cm?'<div class="ru-cm-composition">'+
+              '<p><strong>Presidente</strong> '+esc(cm.presidente)+'</p>'+
+              '<p><strong>Componenti</strong> '+esc(cm.componenti||"Da verificare")+'</p>'+
+              '<p><strong>Anno</strong> '+esc(cm.anno||"Non indicato")+'</p>'+
+              '<p><strong>Requisiti</strong> '+esc(cm.requisiti||"Non indicati")+'</p>'+
+              '</div>':'<p class="caption">Non è presente una commissione associata con certezza a questo CdS/sede.</p>')+
+            '<div class="ru-cm-panel-actions">'+
+            (archived?'':cm?'<button type="button" class="btn secondary" id="cm-edit-pair">Modifica composizione</button>':
+              p.stato==="mancante"?'<button type="button" class="btn secondary" id="cm-create-pair">Inserisci nuova commissione</button>':'')+
+            '<button type="button" class="btn secondary" id="cm-ticket-pair">Segnalazioni</button>'+
+            '<button type="button" class="btn secondary" id="cm-verbali-pair">Verbali</button>'+
+            (state.role==="admin"?'<button type="button" class="btn secondary" id="cm-global-archive">Anagrafica generale</button>':'')+
+            '</div>'+choices;
+          $("cm-side-close").onclick=closeManagement;
+          if($("cm-edit-pair"))$("cm-edit-pair").onclick=function(){openEditor(cm,index);};
+          if($("cm-create-pair"))$("cm-create-pair").onclick=function(){openEditor(null,index);};
+          $("cm-ticket-pair").onclick=function(){apriSegnalazioni(cm?cm.id:"");};
+          $("cm-verbali-pair").onclick=function(){
+            state.verbaliCds=p.cds;state.verbaliSede=p.sede;go("verbali");
+          };
+          if($("cm-global-archive"))$("cm-global-archive").onclick=function(){go("commissioniarchivio");};
+          if($("cm-catalog-associate"))$("cm-catalog-associate").onclick=async function(){
+            var choice=document.querySelector('input[name="cm-catalog-choice"]:checked');
+            if(!choice){note("Seleziona una composizione dall’anagrafica.",true);return;}
+            if(!$("cm-catalog-verified").checked){
+              note("Conferma la verifica documentale prima dell’associazione.",true);return;
+            }
+            var chosen=options.find(function(o){return String(o.id)===choice.value;});
+            if(!chosen||!chosen.anno_compatibile){note("Composizione non valida per l’anno del bando.",true);return;}
+            if(!confirm("Associare la composizione verificata di "+chosen.presidente+
+              " a "+p.cds+" / "+p.sede+" per il bando "+code+"?"))return;
+            var button=this;button.disabled=true;
+            try{
+              await api("bandi/"+encodeURIComponent(code)+"/commissioni/recupera-globali",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({ids:[Number(chosen.id)],conferma_verifica:true})
+              });
+              note("Commissione associata al bando dopo conferma documentale.",false);
+              renderList("commissioni");
+            }catch(error){note(error.message,true);button.disabled=false;}
+          };
+          $("cm-manage-panel").scrollIntoView({behavior:"smooth",block:"nearest"});
+        }
+        drawRows();
         var selected=null;
         function openEditor(row, pairIndex){
           selected=row||null;
@@ -3230,7 +3407,11 @@
               return p.cds_commissione===row.cds && p.sede_commissione===row.sede;
             });
           }
-          if(found<0)found=typeof pairIndex==="number"?pairIndex:(unmatched.length?unmatched[0].index:0);
+          if(found<0)found=typeof pairIndex==="number"?pairIndex:pairs.findIndex(function(p){return p.stato==="mancante";});
+          if(found<0){note("Nessuna commissione mancante da inserire.",true);return;}
+          selectedPairIndex=found;
+          $("cm-manage-panel").hidden=false;
+          $("cm-detail-panel").hidden=true;
           $("cm-pair").value=String(found);
           $("cm-presidente").value=row?row.presidente||"":"";
           $("cm-componenti").value=row?row.componenti||"":"";
@@ -3241,25 +3422,7 @@
           $("commission-editor").scrollIntoView({behavior:"smooth",block:"start"});
         }
         $("cm-new").onclick=function(){openEditor(null);};
-        document.querySelectorAll(".cm-add-missing").forEach(function(button){
-          button.onclick=function(){openEditor(null,Number(button.dataset.pair));};
-        });
-        document.querySelectorAll(".cm-edit-incomplete").forEach(function(button){
-          button.onclick=function(){
-            var index=Number(button.dataset.pair),p=pairs[index];
-            var existing=rows.find(function(r){
-              return r.cds===p.cds_commissione && r.sede===p.sede_commissione;
-            });
-            if(existing)openEditor(existing,index);
-          };
-        });
-        document.querySelectorAll(".cm-edit").forEach(function(button){
-          button.onclick=function(){openEditor(rows.find(function(r){return String(r.id)===button.dataset.id;}));};
-        });
-        document.querySelectorAll(".cm-tickets").forEach(function(button){
-          button.onclick=function(){apriSegnalazioni(button.dataset.id);};
-        });
-        $("cm-cancel").onclick=function(){$("commission-editor").style.display="none";selected=null;};
+        $("cm-cancel").onclick=function(){selected=null;if(selectedPairIndex!==null)openManagement(selectedPairIndex);else closeManagement();};
         $("cm-manual-form").onsubmit=async function(event){
           event.preventDefault();
           var pair=pairs[Number($("cm-pair").value)];
@@ -3298,10 +3461,56 @@
             setTimeout(function(){URL.revokeObjectURL(url);},60000);
           }catch(err){note(err.message,true);}finally{button.disabled=false;}
         };
+        var cmPreviewKey="";
+        function resetCommissionPreview(){
+          cmPreviewKey="";
+          $("cm-import-preview").innerHTML="";
+          $("commission-import").hidden=true;
+          $("commission-import").disabled=true;
+        }
+        $("commission-file").onchange=resetCommissionPreview;
+        $("cm-import-mode").onchange=resetCommissionPreview;
+        $("cm-preview-import").onclick=async function(){
+          if(archived){note("Bando archiviato: importazione non consentita.",true);return;}
+          var file=$("commission-file").files[0];
+          if(!file){note("Seleziona prima un file Excel delle commissioni.",true);return;}
+          var mode=$("cm-import-mode").value;
+          resetCommissionPreview();
+          var button=this;button.disabled=true;
+          try{
+            var fd=new FormData();fd.append("file",file);fd.append("mode",mode);
+            var result=await api("bandi/"+encodeURIComponent(code)+
+              "/commissioni/import/anteprima",{method:"POST",body:fd});
+            if($("commission-file").files[0]!==file||$("cm-import-mode").value!==mode)return;
+            cmPreviewKey=file.name+":"+file.size+":"+file.lastModified+":"+mode;
+            $("cm-import-preview").innerHTML='<div class="ru-cm-preview-result">'+
+              '<strong>Anteprima delle modifiche previste</strong>'+
+              '<p>'+esc(result.aggiunte)+' da aggiungere · '+
+              esc(result.aggiornate)+' da aggiornare · '+
+              esc(result.inalterate)+' già presenti / inalterate · '+
+              esc(result.righe_da_compilare_omesse)+' righe incomplete omesse</p>'+
+              '<div class="ru-cm-preview-scroll"><table><thead><tr><th>CdS</th><th>Sede</th>'+
+              '<th>Presidente</th><th>Azione</th></tr></thead><tbody>'+
+              (result.anteprima||[]).map(function(r){
+                return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+
+                  '</td><td>'+esc(r.presidente)+'</td><td>'+esc(r.azione)+'</td></tr>';
+              }).join('')+'</tbody></table></div>'+
+              '<label class="ru-cm-verification"><input type="checkbox" id="cm-import-confirm-check">'+
+              'Ho controllato l’anteprima e confermo le operazioni indicate.</label></div>';
+            $("commission-import").hidden=false;
+            $("commission-import").disabled=false;
+          }catch(error){note(error.message,true);}
+          finally{button.disabled=false;}
+        };
         $("commission-import").onclick=async function(){
           var file=$("commission-file").files[0];
           if(!file){note("Seleziona un Excel delle commissioni (.xlsx)",true);return;}
           var mode=$("cm-import-mode").value;
+          var key=file.name+":"+file.size+":"+file.lastModified+":"+mode;
+          if(key!==cmPreviewKey){resetCommissionPreview();note("Riesegui l’anteprima prima di confermare.",true);return;}
+          if(!$("cm-import-confirm-check")||!$("cm-import-confirm-check").checked){
+            note("Conferma di aver verificato l’anteprima.",true);return;
+          }
           if(!confirm(mode==="aggiorna"
               ?"Aggiornare le commissioni già presenti nel bando "+code+"? I campi vuoti dell’Excel non cancelleranno quelli salvati."
               :"Importare solo le nuove commissioni nel bando "+code+"?"))return;

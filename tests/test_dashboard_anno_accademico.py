@@ -103,29 +103,30 @@ def test_import_pica_non_sovrascrive_anno_bando_gia_preparato(tmp_path,monkeypat
         assert row["cds_in_lavorazione"]==1
 
 
-def test_aa_first_ui_keeps_original_four_icons():
+def test_aa_first_ui_keeps_five_navigable_dashboard_indicators():
     html=(Path(__file__).resolve().parents[1]/
           "rankup/app/static/index.html").read_text(encoding="utf-8")
     assert 'id="academic-year-select"' in html
     assert 'id="band-select"' in html
     assert html.index('id="academic-year-select"') < html.index('id="band-select"')
     assert 'id="add-academic-year"' in html
-    assert 'var icons=[\u0027ri-folders\u0027,\u0027ri-users\u0027,\u0027ri-book\u0027,\u0027ri-clipboard\u0027];' in html
-    for label in ("Bandi aperti nell'A.A.","Candidature PICA del bando",
-                  "Incarichi nel bando","Candidature valutate",
-                  "CdS/sedi ancora in lavorazione"):
-        assert label in html
+    assert 'var metrics=["bandi","incarichi","candidature","valutazioni","commissioni"]' in html
+    for marker in (
+        'bandi:{title:"Bandi aperti nell\'A.A."',
+        'incarichi:{title:"Incarichi"',
+        'candidature:{title:"Candidature PICA"',
+        'valutazioni:{title:"Candidature valutate"',
+        'commissioni:{title:"Commissioni in lavorazione"',
+        'page:"verbali"', 'function dashboardTotal(metric)',
+        'function dashboardMetricPanel()', 'function bindDashboardMetrics()',
+    ):
+        assert marker in html
     assert 'state.preview.anno_accademico=state.year' in html
     assert 'anno_accademico:state.preview.anno_accademico' in html
     assert "anno_accademico:state.year" in html
     assert "Da associare (A.A. mancante)" in html
     assert "Tutti i bandi dell’A.A." in html
-    assert "var shown=selected?[selected]:scoped;" in html
-    assert 'scoped.reduce(' not in html
-    assert 'count("candidature")' in html
-    assert 'count("incarichi")' in html
-    assert 'count("valutazioni_acquisite")' in html
-    assert 'count("cds_in_lavorazione")' in html
+    assert 'var scope=metric==="bandi"?dashboardOpenProcedures()' in html
+    assert 'var field=dashboardMetricDefinition(metric).field' in html
     assert 'state.active=bandiAnno().length?bandiAnno()[0].codice:"";' not in html
-    assert "state.active=\"\";" in html
-
+    assert 'state.active="";' in html

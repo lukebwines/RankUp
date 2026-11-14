@@ -513,3 +513,36 @@ La Dashboard presenta cinque riquadri colorati e cliccabili: **Bandi aperti nell
 Il conteggio è solo un indicatore istruttorio: non attribuisce decisioni
 alle commissioni e non altera le posizioni, gli esiti o i verbali.
 L'aggiornamento non modifica lo schema SQLite e non reimporta i dati PICA.
+
+## Centro gestione Commissioni — v1.0.27
+
+La sezione Commissioni usa una sola riga per ogni CdS/sede proveniente
+dagli incarichi PICA. Per ogni posizione mostra **due stati distinti**:
+l'associazione della composizione (associata, non associata, incompleta
+o ambigua) e l'avanzamento della graduatoria (in lavorazione, definitiva,
+oppure bando archiviato).
+
+- **Elenco unico:** ricerca e filtri, contatori delle associazioni e pulsante
+  **Gestisci** per aprire un pannello contestuale. Qui sono visibili i
+  dettagli già salvati; l'inserimento e la modifica riusano le verifiche
+  e il controllo concorrenziale esistenti.
+- **Recupero dall'anagrafica:** solo l'amministratore può vedere
+  composizioni precedenti proposte per CdS normalizzato e sede esatta.
+  Vengono mostrati anno e bando di provenienza. Il sistema non
+  trasferisce nomine in automatico e richiede selezione, verifica
+  documentale e conferma esplicita prima del riutilizzo.
+- **Importazione Excel:** è in **Strumenti avanzati**. Una nuova
+  anteprima di sola lettura indica righe da aggiungere, aggiornare o
+  lasciare inalterate. L'importazione richiede la conferma delle
+  modifiche previste e richiama i controlli già presenti nel backend.
+- **Importazione PICA:** continua a importare candidature e incarichi
+  anche senza commissioni. Al termine RankUP segnala i CdS/sedi privi
+  di associazione certa e offre un accesso diretto a questa sezione.
+  Nessuna composizione viene creata o associata d'ufficio.
+- **Bandi archiviati:** le composizioni sono consultabili ma le azioni
+  di modifica non sono proposte. Nessuna migrazione del database è
+  necessaria per questa versione.
+
+La presenza di una commissione e la conclusione del verbale restano
+indipendenti: **Commissioni** gestisce le composizioni, **Verbali**
+gestisce le valutazioni e gli atti relativi.
