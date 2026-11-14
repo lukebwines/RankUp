@@ -50,6 +50,9 @@ def test_operators_manage_registry_and_versions_without_mutating_bandi(tmp_path,
 
             archive = operator.get("/api/commissioni/anagrafica").json()["commissioni"]
             assert {first,second}.issubset({r["id"] for r in archive})
+            by_id={r["id"]:r for r in archive}
+            assert by_id[first]["corrente"] is False
+            assert by_id[second]["corrente"] is True
             with server.connect() as db:
                 events=db.execute("""
                     SELECT catalogo_id,precedente_id,azione,autore
