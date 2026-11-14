@@ -585,3 +585,21 @@ consultare i suggerimenti e associare una composizione al bando
 
 Le operazioni sul catalogo non costituiscono nomine e non alterano
 automaticamente le commissioni già impiegate nei bandi.
+
+## Anni accademici — permessi v1.0.29
+
+La selezione di un anno accademico **già presente in RankUP** rimane
+accessibile a tutti gli utenti autenticati. La voce **«+ Seleziona un
+nuovo A.A.»** è visibile e utilizzabile esclusivamente dall'Admin.
+
+- L'operatore non può selezionare un anno mai registrato nei bandi,
+  nemmeno attraverso un valore rimasto nel browser da una precedente
+  sessione Admin. Il caricamento della pagina elimina dalla selezione
+  eventuali A.A. locali non riconosciuti.
+- L'API dei **Riferimenti del bando** rifiuta agli operatori la
+  registrazione di un A.A. che non compare già in nessun bando, anche
+  se inviata direttamente senza passare dal pulsante della dashboard.
+  La modifica degli altri riferimenti resta disponibile.
+- I nuovi bandi e l'importazione PICA sono già riservati all'Admin.
+- Gli A.A. esistenti non vengono cancellati o alterati da questa modifica;
+  nessuna migrazione del database.

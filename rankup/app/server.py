@@ -950,7 +950,7 @@ initialize()
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.28", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.29", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -1374,7 +1374,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.28", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.29", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1622,7 +1622,7 @@ def get_riferimenti_bando(code: str):
 
 
 @app.put("/api/bandi/{code}/riferimenti")
-def save_riferimenti_bando(code: str, body: RiferimentiBando):
+def save_riferimenti_bando(code: str, body: RiferimentiBando, request: Request):
     """Solo dati comunicati dall'operatore, non estratti dagli esempi PDF."""
     code = valid_code(code)
     values = {k: str(v or "").strip() for k, v in body.model_dump().items()
@@ -1654,6 +1654,14 @@ def save_riferimenti_bando(code: str, body: RiferimentiBando):
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
         _require_bando_aperto(db,code)
+        # La creazione di un A.A. non può aggirare il pulsante Admin passando
+        # direttamente dal form Riferimenti o dall'API.
+        if anno and AUTH.principal(request.cookies.get(COOKIE_NAME))["role"] != "admin":
+            registered=db.execute("""
+                SELECT 1 FROM bandi_riferimenti WHERE anno_accademico=? LIMIT 1
+            """,(anno,)).fetchone()
+            if registered is None:
+                fail("Solo l'Admin può registrare un nuovo anno accademico",403)
         b = db.execute("SELECT id FROM bandi WHERE codice=?", (code,)).fetchone()
         if not b:
             fail("Bando non trovato", 404)
