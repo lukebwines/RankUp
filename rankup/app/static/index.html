@@ -158,7 +158,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.23">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.24">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -2513,7 +2513,7 @@
             '<label>Assegnata a<select name="assegnato_a">'+assegnatari("")+'</select></label>'+
             '<div><button class="btn" type="submit">Apri segnalazione</button></div></form></details>')+'</section>';
           var elenco=mostrati.map(function(ticket){
-            var scope=ticket.commissione_id===null?"Bando":commissioni.get(String(ticket.commissione_id));
+            var scope=ticket.commissione_id===null?"Bando":(commissioni.get(String(ticket.commissione_id))||"Commissione non più presente");
             var editor=data.sola_lettura?"":'<details><summary>Gestisci segnalazione</summary><form data-ticket-update="'+ticket.id+'" class="ru-ticket-form">'+
               '<label>Stato<select name="stato">'+Object.entries(stati).map(([key,label])=>option(key,label,ticket.stato)).join("")+'</select></label>'+
               '<label>Assegnata a<select name="assegnato_a">'+assegnatari(ticket.assegnato_a)+'</select></label>'+
@@ -2521,7 +2521,7 @@
               '<form data-ticket-reply="'+ticket.id+'" class="ru-ticket-form"><label>Risposta'+
               '<textarea name="testo" rows="2" required maxlength="4000"></textarea></label>'+
               '<div><button class="btn secondary" type="submit">Aggiungi risposta</button></div></form></details>';
-            return '<article class="card mb ru-ticket"><div class="actions ru-ticket-controls"><span class="ru-status-pill">'+
+            return '<article class="card mb ru-ticket"><div class="actions ru-ticket-controls"><span class="ru-status-pill ru-ticket-status--'+esc(ticket.stato)+'">'+
               esc(stati[ticket.stato])+'</span><span class="caption">'+esc(scope)+'</span></div>'+
               '<h3 class="section-heading">'+esc(ticket.titolo)+'</h3><p class="caption">'+esc(ticket.autore)+
               ' · '+esc(stamp(ticket.creata_il))+' · '+(ticket.assegnato_a?"Assegnata a "+esc(ticket.assegnato_a):"Da assegnare")+
