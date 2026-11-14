@@ -1112,7 +1112,8 @@
           $("diag-output").innerHTML='<div class="ru-ops-card-header"><h3>Stato database</h3>'+
             '<span class="ru-ops-count">'+esc(diag.esito==="ok"?"Integrità verificata":"Verifiche necessarie")+'</span></div>'+
             '<p>SQLite: <strong>'+esc(diag.integrita)+'</strong> · Versione schema: '+
-            esc(diag.versione_schema)+' · Violazioni FK: '+esc(diag.violazioni_fk.length)+'</p>'+
+            esc(diag.versione_schema)+' · Journal: '+esc(diag.journal_mode)+
+            ' · Violazioni FK: '+esc(diag.violazioni_fk.length)+'</p>'+
             '<div class="tablebox"><table><thead><tr><th>Controllo</th><th>Esito</th></tr></thead><tbody>'+
             diag.controlli.map(function(c){return '<tr><td>'+esc(c.nome)+'</td><td>'+
               esc(c.esito==="non_applicabile"?"Non applicabile":c.esito==="ok"?"OK":c.totale+" da verificare")+
@@ -1122,6 +1123,10 @@
               diag.divergenze_commissioni.map(function(r){return '<tr><td>'+esc(r.bando)+'</td><td>'+
                 esc(r.cds)+' · '+esc(r.sede)+'</td><td>'+esc(r.nota)+'</td></tr>';}).join("")+
               '</tbody></table></div>':'<p class="caption">Nessuna divergenza individuata nelle composizioni corrispondenti.</p>')+
+            '<h4>Tracce delle operazioni</h4><p class="caption">'+
+            Object.entries(diag.conteggi_storici||{}).map(function(entry){
+              return esc(entry[0])+': '+esc(entry[1]);
+            }).join(' · ')+'</p>'+
             '<h4>Backup di schema rilevati</h4>'+
             (diag.backup_schema.length?'<p class="caption">'+
               diag.backup_schema.map(function(b){return esc(b.file)+' ('+esc(b.dimensione_byte)+' byte)';}).join(' · ')+
