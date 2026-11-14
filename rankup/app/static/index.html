@@ -1742,11 +1742,7 @@
               .replace(/\s*\(\s*ABILITANTE\b[^)]*\)\s*$/,"")+
               " / "+String(r.sede||"").trim().toLocaleUpperCase("it");
           }
-          var latest=new Map();
-          records.forEach(function(r){
-            var key=registryGroup(r);
-            if(!latest.has(key)||Number(r.id)>Number(latest.get(key)))latest.set(key,r.id);
-          });
+
           var content='<div class="card mb">'+
             '<div class="ru-cm-overview-head"><div>'+
             '<h3 class="section-heading">Anagrafica generale delle commissioni</h3>'+
@@ -1760,7 +1756,7 @@
             '<th>Presidente e componenti</th><th>Anno</th><th>Versione</th><th>Operazioni</th>'+
             '</tr></thead><tbody>'+
             (records.length?records.map(function(r){
-              var current=Number(latest.get(registryGroup(r)))===Number(r.id);
+              var current=!!r.corrente;
               return '<tr><td><strong>'+esc(r.cds)+'</strong><div class="caption">'+esc(r.sede)+'</div></td>'+
                 '<td><strong>'+esc(r.presidente)+'</strong>'+
                 '<div class="caption">'+esc(r.componenti||"Composizione da verificare")+'</div></td>'+
@@ -1839,8 +1835,7 @@
           };
           if(target){
             var prior=target.edit?records.find(function(r){
-              return registryGroup(r)===registryGroup(target)&&
-                Number(latest.get(registryGroup(r)))===Number(r.id);
+              return registryGroup(r)===registryGroup(target)&&!!r.corrente;
             }):null;
             openForm(prior||null);
           }
