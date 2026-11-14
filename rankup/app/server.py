@@ -2354,6 +2354,11 @@ def commit_pica(body: CommitRequest, request: Request):
     if meta.get("anno_accademico") and meta["anno_accademico"]!=anno:
         fail("Anno accademico cambiato dopo l'anteprima: ripetere l'analisi PICA",409)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    destination = SOURCES / code
+    extension = ".xlsx" if meta["filename"].lower().endswith(".xlsx") else ".xls"
+    original = destination / ("pica_originale" + extension)
+    staged = destination / (".pica_staging_" + secrets.token_hex(8) + extension)
+    written = False
     with connect() as db:
         try:
             db.execute("BEGIN IMMEDIATE")
@@ -2459,19 +2464,38 @@ def commit_pica(body: CommitRequest, request: Request):
                 (bando_id,codice_pica,sha256,autore,quando)
                 VALUES(?,?,?,?,?)""",
                 (bando_id,code,meta["sha256"],who,now))
+            # Conservare e verificare l'originale PRIMA del commit DB:
+            # altrimenti un errore sul filesystem lascerebbe candidature
+            # definitivamente registrate senza il PICA originale.
+            destination.mkdir(parents=True,exist_ok=True)
+            if original.exists():
+                fail("Originale PICA già presente: verificare prima di importare.",409)
+            try:
+                shutil.copy2(source_path,staged)
+                if hashlib.sha256(staged.read_bytes()).hexdigest()!=meta["sha256"]:
+                    fail("Il file PICA è cambiato dopo l'anteprima: importazione annullata.",409)
+                os.replace(staged,original)
+            except OSError:
+                fail("Impossibile conservare il file originale PICA: importazione annullata.",503)
+            written=True
             db.commit()
         except sqlite3.IntegrityError:
             db.rollback()
+            if written:original.unlink(missing_ok=True)
+            staged.unlink(missing_ok=True)
             fail("Importazione già esistente oppure dati duplicati: nessun dato sovrascritto", 409)
         except Exception:
             db.rollback()
+            if written:original.unlink(missing_ok=True)
+            staged.unlink(missing_ok=True)
             raise
-    destination = SOURCES / code
-    destination.mkdir(parents=True, exist_ok=True)
-    extension = ".xlsx" if meta["filename"].lower().endswith(".xlsx") else ".xls"
-    shutil.copy2(source_path, destination / ("pica_originale" + extension))
-    metadata_path.unlink(missing_ok=True)
-    source_path.unlink(missing_ok=True)
+    # Cleanup accessorio: il commit è già riuscito e non deve essere
+    # trasformato in un errore client da un problema temporaneo su pending.
+    try:
+        metadata_path.unlink(missing_ok=True)
+        source_path.unlink(missing_ok=True)
+    except OSError:
+        pass
     return {"ok": True, "codice_bando": code, "riepilogo": parsed["summary"]}
 
 
