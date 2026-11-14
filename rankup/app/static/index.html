@@ -159,6 +159,15 @@
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
   <link rel="stylesheet" href="static/workspace.css?v=1.0.23">
+  <style>
+    .ru-ticket-controls { flex-wrap: wrap; }
+    .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
+    .ru-ticket-form label { display: grid; gap: 4px; }
+    .ru-ticket-form input, .ru-ticket-form select, .ru-ticket-form textarea { width: 100%; }
+    .ru-ticket-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ru-ticket h3, .ru-ticket .caption { overflow-wrap: anywhere; }
+    .ru-ticket blockquote { border-inline-start: 2px solid currentColor; margin: 12px 0; padding-inline-start: 12px; }
+  </style>
 </head>
 <body>
   <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
@@ -222,6 +231,7 @@
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
         <button data-page="candidature"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Candidature</button>
         <button data-page="verificaenteai" id="band-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Verifica requisito ente</button>
+        <button data-page="segnalazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Segnalazioni</button>
         <button data-page="commissioni"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Commissioni</button>
         <button data-page="schede"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Schede PDF</button>
         <button data-page="valutazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Valutazioni</button>
@@ -696,7 +706,8 @@
         var scoped=bandiAnno(),validYear=annoValido(state.year);
         html('<div class="card brand-hero"><img src="static/rankup-icon.png" alt="Logo RankUp"><div><h3>RankUp · Dashboard generale</h3><p class="muted">Anno accademico: '+esc(annoLabel())+
           (cur()?' · Bando '+esc(state.active):' · Totali di tutti i bandi dell’A.A.')+
-          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
+          '. Nessun anno viene attribuito per supposizione.</p></div></div>'+cards()+
+          (cur()?'<div class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(state.active)+'</h3><div class="actions"><button id="dashboard-tickets" class="btn secondary">Tutte le segnalazioni</button><button id="dashboard-my-tickets" class="btn secondary">Assegnate a me</button></div></div>':'')+'<div class="split"><div class="card"><h3 class="section-heading">Bandi e procedure</h3>'+
           (scoped.length?scoped.map(row).join(''):'<div class="empty"><strong>Nessun bando per questo anno accademico</strong>Seleziona o registra l’A.A. corretto; i bandi preesistenti senza anno sono consultabili in «Da associare».</div>')+
           '<form id="new-bando" class="actions" style="margin-top:14px;align-items:end;flex-wrap:wrap"><label>Codice nuovo bando<input name="codice" required maxlength="50" placeholder="Codice del bando"></label><button class="btn secondary" type="submit"'+(validYear?'':' disabled')+'>Prepara bando</button></form>'+
           '<p class="caption">Per creare o importare un bando occorre scegliere prima un A.A. verificato. L’anno sarà registrato nei Riferimenti del bando. La preparazione consente di caricare il PDF ufficiale prima delle candidature PICA.</p></div>'+
@@ -705,6 +716,14 @@
           ['Importazione PICA e incarichi','Commissioni e generazione schede PDF','Reimportazione e validazione delle schede','Verbali per CdS','Graduatoria generale e approvazione','Archivio finale ZIP e chiusura del bando'].map(function(t,i){return '<div class="flow-step"><span>'+(i+1)+'</span>'+esc(t)+'</div>';}).join('')+
           '</div><p class="caption">Graduatorie CdS, PDF e approvazioni parziali ora disponibili nelle relative sezioni.</p></div></div>');
         bindBandButtons();$("preview-btn").onclick=preview;
+        if($("dashboard-tickets")){
+          $("dashboard-tickets").onclick=function(){apriSegnalazioni("");};
+          $("dashboard-my-tickets").onclick=function(){
+            state.ambitoSegnalazioni="";
+            state.soloMieSegnalazioni=true;
+            go("segnalazioni");
+          };
+        }
         $("new-bando").onsubmit=async function(event){
           event.preventDefault();
           if(state.role!=="admin"){note("La preparazione del bando è riservata all'Admin.",true);return;}
@@ -724,7 +743,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -735,7 +754,7 @@
           else n.removeAttribute("aria-current");
         });
         if(state.page==="dashboard")return dashboard();
-        if(!state.active && ["riferimenti","incarichi","candidature","commissioni",
+        if(!state.active && ["riferimenti","segnalazioni","incarichi","candidature","commissioni",
                             "schede","valutazioni","verbali","graduatorie","verificaenteai"].includes(state.page)){
           return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
         }
@@ -749,6 +768,7 @@
         if(state.page==="assistenteai")return state.role==="admin"?renderAISettings():html(panel("Accesso riservato","Impostazioni AI riservate all'Admin."));
         if(state.page==="verificaenteai")return state.role==="admin"?renderAIBando():html(panel("Accesso riservato","Verifica requisito ente riservata all'Admin."));
         if(state.page==="riferimenti")return renderBandoReferences();
+        if(state.page==="segnalazioni")return renderSegnalazioni();
         if(state.page==="incarichi"||state.page==="candidature"||state.page==="commissioni")return renderList(state.page);
         if(state.page==="schede")return renderSchede();
         if(state.page==="valutazioni")return renderValutazioni();
@@ -2450,6 +2470,110 @@
         poll();
       }
 
+      function apriSegnalazioni(ambito){
+        state.ambitoSegnalazioni=ambito;
+        state.soloMieSegnalazioni=false;
+        go("segnalazioni");
+      }
+
+      async function renderSegnalazioni(){
+        var code=state.active;
+        var endpoint="bandi/"+encodeURIComponent(code)+"/segnalazioni";
+        html(panel("Segnalazioni","Caricamento…"));
+        try{
+          var data=await api(endpoint);
+          if(state.page!=="segnalazioni"||state.active!==code)return;
+          var commissioni=new Map(data.commissioni.map(c=>[String(c.id),c.cds+" · "+c.sede]));
+          var ambito=state.ambitoSegnalazioni||"";
+          if(ambito!=="bando"&&!commissioni.has(ambito))ambito="";
+          var stati={aperta:"Aperta",in_carico:"In carico",risolta:"Risolta"};
+          var option=(key,label,selected)=>'<option value="'+esc(key)+'"'+
+            (key===selected?' selected':'')+'>'+esc(label)+'</option>';
+          var ambiti=selected=>option("bando","Bando",selected)+
+            [...commissioni].map(([id,label])=>option(id,label,selected)).join("");
+          var assegnatari=selected=>option("","Da assegnare",selected)+
+            data.assegnatari.map(user=>option(user,user,selected)).join("")+
+            (selected&&!data.assegnatari.includes(selected)?option(selected,selected+" (non attivo)",selected):"");
+          var mostrati=data.segnalazioni.filter(function(ticket){
+            var scope=ticket.commissione_id===null?"bando":String(ticket.commissione_id);
+            return (!ambito||scope===ambito)&&
+              (!state.soloMieSegnalazioni||ticket.assegnato_a===data.utente);
+          });
+          var stamp=value=>new Date(value).toLocaleString("it-IT",{dateStyle:"short",timeStyle:"short"});
+          var controlli='<section class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(code)+'</h3>'+
+            '<div class="actions ru-ticket-controls"><label>Ambito <select id="ticket-ambito">'+
+            option("","Tutte le segnalazioni",ambito)+ambiti(ambito)+'</select></label>'+
+            '<label><input type="checkbox" id="ticket-mie"'+
+            (state.soloMieSegnalazioni?' checked':'')+'> Assegnate a me</label></div>'+
+            (data.sola_lettura?'<p class="caption">Bando archiviato · Sola lettura</p>':
+            '<details><summary>Nuova segnalazione</summary><form id="ticket-nuovo" class="ru-ticket-form">'+
+            '<label>Ambito<select name="ambito">'+ambiti(ambito||"bando")+'</select></label>'+
+            '<label>Oggetto<input name="titolo" required maxlength="150"></label>'+
+            '<label>Descrizione<textarea name="testo" rows="3" required maxlength="4000"></textarea></label>'+
+            '<label>Assegnata a<select name="assegnato_a">'+assegnatari("")+'</select></label>'+
+            '<div><button class="btn" type="submit">Apri segnalazione</button></div></form></details>')+'</section>';
+          var elenco=mostrati.map(function(ticket){
+            var scope=ticket.commissione_id===null?"Bando":commissioni.get(String(ticket.commissione_id));
+            var editor=data.sola_lettura?"":'<details><summary>Gestisci segnalazione</summary><form data-ticket-update="'+ticket.id+'" class="ru-ticket-form">'+
+              '<label>Stato<select name="stato">'+Object.entries(stati).map(([key,label])=>option(key,label,ticket.stato)).join("")+'</select></label>'+
+              '<label>Assegnata a<select name="assegnato_a">'+assegnatari(ticket.assegnato_a)+'</select></label>'+
+              '<div><button class="btn secondary" type="submit">Salva stato e assegnazione</button></div></form>'+
+              '<form data-ticket-reply="'+ticket.id+'" class="ru-ticket-form"><label>Risposta'+
+              '<textarea name="testo" rows="2" required maxlength="4000"></textarea></label>'+
+              '<div><button class="btn secondary" type="submit">Aggiungi risposta</button></div></form></details>';
+            return '<article class="card mb ru-ticket"><div class="actions ru-ticket-controls"><span class="ru-status-pill">'+
+              esc(stati[ticket.stato])+'</span><span class="caption">'+esc(scope)+'</span></div>'+
+              '<h3 class="section-heading">'+esc(ticket.titolo)+'</h3><p class="caption">'+esc(ticket.autore)+
+              ' · '+esc(stamp(ticket.creata_il))+' · '+(ticket.assegnato_a?"Assegnata a "+esc(ticket.assegnato_a):"Da assegnare")+
+              '</p><p class="ru-ticket-text">'+esc(ticket.testo)+'</p>'+
+              ticket.risposte.map(r=>'<blockquote><p class="caption">'+esc(r.autore)+' · '+esc(stamp(r.creata_il))+
+                '</p><p class="ru-ticket-text">'+esc(r.testo)+'</p></blockquote>').join("")+editor+'</article>';
+          }).join("");
+          html(controlli+(elenco||panel("Nessuna segnalazione","Non ci sono segnalazioni per questa selezione.")));
+          $("ticket-ambito").onchange=function(){state.ambitoSegnalazioni=this.value;renderSegnalazioni();};
+          $("ticket-mie").onchange=function(){state.soloMieSegnalazioni=this.checked;renderSegnalazioni();};
+
+          function salva(form,suffix,method,payload,onSaved){
+            if(!form)return;
+            form.onsubmit=async function(event){
+              event.preventDefault();
+              var submit=form.querySelector("button");
+              submit.disabled=true;
+              try{
+                await api(endpoint+suffix,{method:method,headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify(payload(new FormData(form)))});
+                if(state.page==="segnalazioni"&&state.active===code){
+                  if(onSaved)onSaved();
+                  note("Segnalazione aggiornata.",false);
+                  renderSegnalazioni();
+                }
+              }catch(error){
+                if(state.page==="segnalazioni"&&state.active===code)note(error.message,true);
+              }finally{submit.disabled=false;}
+            };
+          }
+          var ambitoNuovo;
+          salva($("ticket-nuovo"),"","POST",function(fields){
+            ambitoNuovo=fields.get("ambito");
+            return {titolo:fields.get("titolo"),testo:fields.get("testo"),
+              assegnato_a:fields.get("assegnato_a"),
+              commissione_id:ambitoNuovo==="bando"?null:Number(ambitoNuovo)};
+          },function(){
+            state.ambitoSegnalazioni=ambitoNuovo;
+            state.soloMieSegnalazioni=false;
+          });
+          for(var ticket of mostrati){
+            let revisione=ticket.revisione;
+            salva(document.querySelector('[data-ticket-update="'+ticket.id+'"]'),"/"+ticket.id,"PUT",
+              fields=>({stato:fields.get("stato"),assegnato_a:fields.get("assegnato_a"),revisione:revisione}));
+            salva(document.querySelector('[data-ticket-reply="'+ticket.id+'"]'),"/"+ticket.id+"/risposte","POST",
+              fields=>({testo:fields.get("testo")}));
+          }
+        }catch(error){
+          if(state.page==="segnalazioni"&&state.active===code)html(panel("Segnalazioni",error.message));
+        }
+      }
+
       async function renderBandoReferences(){
         var code=state.active;
         if(state.page!=="riferimenti")return;
@@ -2481,6 +2605,8 @@
            esc(r.testo_verbale_bando||'')+'</textarea></div>'+
            '<div style="margin-top:14px"><button class="btn" id="refs-save" type="submit">Salva riferimenti del bando</button></div></form>'+
            '<p class="caption">Dopo ogni modifica, rigenera le schede PDF già scaricate. Le modifiche sono conservate nello storico del bando e non si propagano ad altri bandi.</p></div>';
+          dest.insertAdjacentHTML("afterbegin",'<div class="card mb"><button class="btn secondary" id="refs-tickets" type="button">Segnalazioni del bando</button></div>');
+          $("refs-tickets").onclick=function(){apriSegnalazioni("bando");};
           $("refs-form").onsubmit=async function(event){
             event.preventDefault();
             var button=$("refs-save");button.disabled=true;
@@ -2967,7 +3093,8 @@
           '<div class="tablebox"><table><thead><tr><th>Corso di Studio</th><th>Sede</th><th>Presidente</th><th>Componenti</th><th>Anno accademico</th><th></th></tr></thead><tbody>'+
           rows.map(function(r){return '<tr><td>'+esc(r.cds)+'</td><td>'+esc(r.sede)+'</td><td>'+esc(r.presidente)+
              '</td><td>'+esc(r.componenti)+'</td><td>'+esc(r.anno)+'</td><td><button type="button" class="btn secondary cm-edit" data-id="'+
-             esc(r.id)+'">Modifica</button></td></tr>';}).join('')+
+             esc(r.id)+'">Modifica</button> <button type="button" class="btn secondary cm-tickets" data-id="'+
+             esc(r.id)+'">Segnalazioni</button></td></tr>';}).join('')+
           '</tbody></table></div></div>';
         html(summary+upload+editor+listing);
 
@@ -3005,6 +3132,9 @@
         });
         document.querySelectorAll(".cm-edit").forEach(function(button){
           button.onclick=function(){openEditor(rows.find(function(r){return String(r.id)===button.dataset.id;}));};
+        });
+        document.querySelectorAll(".cm-tickets").forEach(function(button){
+          button.onclick=function(){apriSegnalazioni(button.dataset.id);};
         });
         $("cm-cancel").onclick=function(){$("commission-editor").style.display="none";selected=null;};
         $("cm-manual-form").onsubmit=async function(event){
@@ -3837,7 +3967,7 @@
         clearNote();setAcademicYear(value);
       };
       $("band-select").onchange=function(){setActive(this.value);};
-      document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){go(b.dataset.page);};});
+      document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){if(b.dataset.page==="segnalazioni")apriSegnalazioni("");else go(b.dataset.page);};});
       checkAuthentication();
     })();
   </script>

@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+from typing import Literal
 import time
 import unicodedata
 from datetime import datetime, timezone
@@ -255,6 +256,28 @@ def initialize() -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(bando_id, cds, sede)
         );
+        CREATE TABLE IF NOT EXISTS segnalazioni (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            commissione_id INTEGER REFERENCES commissioni(id),
+            titolo TEXT NOT NULL,
+            testo TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            assegnato_a TEXT NOT NULL DEFAULT '',
+            stato TEXT NOT NULL DEFAULT 'aperta' CHECK(stato IN ('aperta','in_carico','risolta')),
+            creata_il TEXT NOT NULL,
+            revisione INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX IF NOT EXISTS ix_segnalazioni_bando ON segnalazioni(bando_id);
+        CREATE TABLE IF NOT EXISTS segnalazioni_risposte (
+            id INTEGER PRIMARY KEY,
+            segnalazione_id INTEGER NOT NULL REFERENCES segnalazioni(id) ON DELETE CASCADE,
+            testo TEXT NOT NULL,
+            autore TEXT NOT NULL,
+            creata_il TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_segnalazioni_risposte
+          ON segnalazioni_risposte(segnalazione_id);
         CREATE TABLE IF NOT EXISTS commissioni_catalogo (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             impronta TEXT NOT NULL UNIQUE,
@@ -1418,6 +1441,149 @@ def detail_bando(code: str):
     return {"bando": {k: b[k] for k in ("codice", "stato", "source_filename", "import_at")},
             "cds_sedi": [dict(row) for row in groups]}
 
+
+
+class NuovaSegnalazione(BaseModel):
+    titolo: str = Field(min_length=1, max_length=150)
+    testo: str = Field(min_length=1, max_length=4000)
+    commissione_id: int | None = None
+    assegnato_a: str = Field(default="", max_length=128)
+
+
+class AggiornaSegnalazione(BaseModel):
+    stato: Literal["aperta", "in_carico", "risolta"]
+    assegnato_a: str = Field(max_length=128)
+    revisione: int = Field(ge=1)
+
+
+class RispostaSegnalazione(BaseModel):
+    testo: str = Field(min_length=1, max_length=4000)
+
+
+def _bando_segnalazioni(db, code):
+    bando = db.execute("SELECT id,stato FROM bandi WHERE codice=?", (code,)).fetchone()
+    if bando is None:
+        fail("Bando non trovato", 404)
+    return bando
+
+
+def _assegnatari_segnalazioni(db):
+    rows = db.execute("""
+        SELECT username FROM rankup_utenti WHERE attivo=1 AND eliminato=0
+        ORDER BY username COLLATE NOCASE
+    """)
+    return [AUTH.username, *(row["username"] for row in rows)]
+
+
+def _assegnatario_segnalazione(db, username, precedente=""):
+    username = username.strip()
+    if not username or username == precedente:
+        return username
+    for attivo in _assegnatari_segnalazioni(db):
+        if attivo.casefold() == username.casefold():
+            return attivo
+    fail("Seleziona un assegnatario attivo")
+
+
+def _testo_segnalazione(testo):
+    testo = testo.strip()
+    if not testo:
+        fail("Compila il titolo e il testo richiesti")
+    return testo
+
+
+def _segnalazione(db, bando_id, segnalazione_id):
+    row = db.execute("""
+        SELECT * FROM segnalazioni WHERE bando_id=? AND id=?
+    """, (bando_id, segnalazione_id)).fetchone()
+    if row is None:
+        fail("Segnalazione non trovata", 404)
+    return row
+
+
+@app.get("/api/bandi/{code}/segnalazioni")
+def elenco_segnalazioni(code: str):
+    with connect() as db:
+        db.execute("BEGIN")
+        bando = _bando_segnalazioni(db, valid_code(code))
+        params = (bando["id"],)
+        commissioni = db.execute("""
+            SELECT id,cds,sede FROM commissioni WHERE bando_id=?
+            ORDER BY cds COLLATE NOCASE,sede
+        """, params)
+        segnalazioni = {
+            row["id"]: dict(row, risposte=[]) for row in db.execute("""
+                SELECT * FROM segnalazioni WHERE bando_id=? ORDER BY id DESC
+            """, params)
+        }
+        for row in db.execute("""
+            SELECT r.* FROM segnalazioni_risposte r
+            JOIN segnalazioni s ON s.id=r.segnalazione_id
+            WHERE s.bando_id=? ORDER BY r.id
+        """, params):
+            segnalazioni[row["segnalazione_id"]]["risposte"].append(dict(row))
+        return {
+            "segnalazioni": list(segnalazioni.values()),
+            "commissioni": [dict(row) for row in commissioni],
+            "assegnatari": _assegnatari_segnalazioni(db),
+            "utente": request_actor(),
+            "sola_lettura": bando["stato"] == "Archiviato",
+        }
+
+
+@app.post("/api/bandi/{code}/segnalazioni", status_code=201)
+def crea_segnalazione(code: str, body: NuovaSegnalazione):
+    code = valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        bando = _bando_segnalazioni(db, code)
+        if body.commissione_id is not None and not db.execute("""
+            SELECT 1 FROM commissioni WHERE id=? AND bando_id=?
+        """, (body.commissione_id, bando["id"])).fetchone():
+            fail("Commissione non trovata in questo bando", 404)
+        cursor = db.execute("""
+            INSERT INTO segnalazioni
+            (bando_id,commissione_id,titolo,testo,autore,assegnato_a,creata_il)
+            VALUES (?,?,?,?,?,?,?)
+        """, (bando["id"], body.commissione_id, _testo_segnalazione(body.titolo),
+              _testo_segnalazione(body.testo), request_actor(),
+              _assegnatario_segnalazione(db, body.assegnato_a),
+              datetime.now(timezone.utc).isoformat()))
+        return {"id": cursor.lastrowid}
+
+
+@app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")
+def aggiorna_segnalazione(code: str, segnalazione_id: int, body: AggiornaSegnalazione):
+    code = valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        bando = _bando_segnalazioni(db, code)
+        row = _segnalazione(db, bando["id"], segnalazione_id)
+        if row["revisione"] != body.revisione:
+            fail("La segnalazione è stata aggiornata. Ricarica prima di salvare.", 409)
+        db.execute("""
+            UPDATE segnalazioni SET stato=?,assegnato_a=?,revisione=revisione+1 WHERE id=?
+        """, (body.stato, _assegnatario_segnalazione(db, body.assegnato_a, row["assegnato_a"]),
+              segnalazione_id))
+    return {"ok": True}
+
+
+@app.post("/api/bandi/{code}/segnalazioni/{segnalazione_id}/risposte", status_code=201)
+def rispondi_segnalazione(code: str, segnalazione_id: int, body: RispostaSegnalazione):
+    code = valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        bando = _bando_segnalazioni(db, code)
+        _segnalazione(db, bando["id"], segnalazione_id)
+        cursor = db.execute("""
+            INSERT INTO segnalazioni_risposte (segnalazione_id,testo,autore,creata_il)
+            VALUES (?,?,?,?)
+        """, (segnalazione_id, _testo_segnalazione(body.testo), request_actor(),
+              datetime.now(timezone.utc).isoformat()))
+        return {"id": cursor.lastrowid}
 
 
 class RiferimentiBando(BaseModel):

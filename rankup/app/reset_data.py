@@ -55,6 +55,8 @@ BUSINESS_TABLES = (
     "pica_tipo_cds_eventi",
     "valutazioni_pdf",
     "candidature",
+    "segnalazioni_risposte",
+    "segnalazioni",
     "commissioni",
     "bandi_riferimenti",
     "incarichi",

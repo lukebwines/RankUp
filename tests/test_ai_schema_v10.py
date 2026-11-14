@@ -22,7 +22,7 @@ def _ai_result(key,model,payload,guidance=None):
 
 
 def test_existing_v9_database_is_backed_up_and_migrated_non_destructively(tmp_path,monkeypatch):
-    assert SCHEMA_VERSION==10
+    assert SCHEMA_VERSION>=10
     server,client=_prepare(tmp_path,monkeypatch)
     with client:
         created=_post(client,"/api/admin/ai/lavori",json={
@@ -59,7 +59,7 @@ def test_existing_v9_database_is_backed_up_and_migrated_non_destructively(tmp_pa
         with server.connect() as db:
             after={r["name"] for r in db.execute("PRAGMA table_info(ai_ente_lavori)")}
             assert set(NEW_COLS).issubset(after)
-            assert db.execute("PRAGMA user_version").fetchone()[0]==10
+            assert db.execute("PRAGMA user_version").fetchone()[0]==SCHEMA_VERSION
             historical=db.execute(
                 "SELECT * FROM ai_ente_lavori WHERE id=?",(previous_id,)).fetchone()
             assert historical["stato"]=="completata"
