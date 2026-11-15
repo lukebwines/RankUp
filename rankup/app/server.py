@@ -1188,7 +1188,7 @@ def scarica_backup_azzeramento(filename: str, request: Request):
 
 class CreaUtente(BaseModel):
     username: str = Field(min_length=3,max_length=50)
-    password: str = Field(min_length=12,max_length=128)
+    password: str = Field(min_length=8,max_length=128)
 
 
 class CambiaPasswordPersonale(BaseModel):
@@ -1310,7 +1310,7 @@ def elenco_utenti(request: Request):
     return {"utenti":[dict(r) for r in rows],
             "utenti_eliminati":[dict(r) for r in deleted],
             "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
-            "password_minima":12}
+            "password_minima":8}
 
 
 @app.post("/api/utenti")
