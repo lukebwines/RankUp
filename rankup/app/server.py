@@ -61,6 +61,10 @@ from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf a
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
 from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
+from backup_manager import (create_backup as create_manual_backup, list_backups, verify_backup,
+                            import_backup as import_manual_backup, resolve_backup,
+                            queue_restore, pending_restore, apply_pending_restore,
+                            PHRASE as RESTORE_CONFIRMATION, NAME as BACKUP_FILENAME_RE)
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
 from audit_log import create_event_schema, create_policy_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
@@ -1003,14 +1007,19 @@ def backfill_incarichi_metadata() -> None:
             db.commit()
 
 
+RESTORE_AT_BOOT = apply_pending_restore(BASE)
 initialize()
 with audit_connect() as audit_db:
     create_event_schema(audit_db)
-
+    if RESTORE_AT_BOOT:
+        audit_insert(audit_db, "sicurezza",
+                     "ripristino_completato" if RESTORE_AT_BOOT["ripristinato"] else "ripristino_annullato",
+                     "ok", utente="admin", metodo="avvio",
+                     oggetto=RESTORE_AT_BOOT["origine"])
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.35", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.36", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 if AUTH.recovery_issued:
     try:
@@ -1197,6 +1206,100 @@ def auth_logout(request: Request):
     response = JSONResponse({"ok": True})
     response.delete_cookie(COOKIE_NAME, path=cookie_path(request))
     return response
+
+
+
+# Console di backup e azzeramento: esclusivamente Admin e nessuna
+# cancellazione automatica. Il ripristino e' applicato al riavvio.
+class RichiestaRipristino(BaseModel):
+    conferma: str = Field(min_length=1, max_length=100)
+    password_admin: str = Field(min_length=1, max_length=128)
+
+
+@app.get("/api/admin/backups")
+def elenco_backup_manual(request: Request):
+    require_admin(request)
+    return {"backups": list_backups(BASE / "backups_rankup"),
+            "ripristino_programmato": pending_restore(BASE),
+            "frase_ripristino": RESTORE_CONFIRMATION}
+
+
+@app.post("/api/admin/backups")
+def crea_backup_manual(request: Request):
+    actor=require_admin(request)
+    try:
+        name=create_manual_backup(BASE)
+    except (ValueError, sqlite3.Error, OSError, zipfile.BadZipFile) as exc:
+        fail("Backup non creato: " + str(exc), 409)
+    record_audit("operazioni","backup_creato","ok",request,utente=actor["username"],
+                 oggetto=name,metodo="POST",percorso="/api/admin/backups")
+    return {"ok":True,"nome":name,"verifica":verify_backup(resolve_backup(BASE/"backups_rankup",name))}
+
+
+@app.post("/api/admin/backups/import")
+def importa_backup_manual(request: Request, file: UploadFile = File(...)):
+    actor=require_admin(request)
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        fail("Selezionare un archivio ZIP di RankUP",400)
+    try:
+        name=import_manual_backup(BASE,file.file)
+    except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile,json.JSONDecodeError) as exc:
+        fail("Backup non importato: "+str(exc),400)
+    finally:
+        file.file.close()
+    record_audit("operazioni","backup_importato","ok",request,utente=actor["username"],
+                 oggetto=name,metodo="POST",percorso="/api/admin/backups/import")
+    return {"ok":True,"nome":name}
+
+
+@app.post("/api/admin/backups/{filename}/verify")
+def verifica_backup_manual(filename: str, request: Request):
+    require_admin(request)
+    try:
+        result=verify_backup(resolve_backup(BASE/"backups_rankup",filename))
+    except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile,json.JSONDecodeError) as exc:
+        fail("Backup non valido: "+str(exc),409)
+    return result
+
+
+@app.get("/api/admin/backups/{filename}/download")
+def scarica_backup_manual(filename: str, request: Request):
+    require_admin(request)
+    try:
+        path=resolve_backup(BASE/"backups_rankup",filename)
+    except ValueError as exc:
+        fail(str(exc),404)
+    return FileResponse(path, filename=filename, media_type="application/zip",
+                        headers={"Cache-Control":"no-store",
+                                 "X-Content-Type-Options":"nosniff"})
+
+
+@app.post("/api/admin/backups/{filename}/restore")
+def programma_ripristino_backup(filename: str, body: RichiestaRipristino, request: Request):
+    actor=require_admin(request)
+    if body.conferma != RESTORE_CONFIRMATION:
+        fail("Digitare esattamente la frase richiesta per il ripristino",400)
+    if not AUTH.verify_admin_password(body.password_admin):
+        fail("Password Admin attuale non corretta",403)
+    try:
+        result=queue_restore(BASE,filename)
+    except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile,json.JSONDecodeError) as exc:
+        fail("Ripristino non programmato: "+str(exc),409)
+    record_audit("sicurezza","ripristino_programmato","ok",request,utente=actor["username"],
+                 oggetto=filename,metodo="POST",percorso="/api/admin/backups/restore")
+    return result
+
+
+@app.post("/api/admin/backups/restore/cancel")
+def annulla_ripristino_backup(request: Request):
+    actor=require_admin(request)
+    marker=BASE/"backups_rankup"/"ripristino_programmato.json"
+    if not pending_restore(BASE):
+        fail("Nessun ripristino programmato",409)
+    marker.unlink()
+    record_audit("sicurezza","ripristino_annullato","ok",request,utente=actor["username"],
+                 metodo="POST",percorso="/api/admin/backups/restore/cancel")
+    return {"ok":True}
 
 
 # Account operativi: gestione riservata all'Admin, non delegabile agli utenti.
@@ -1636,7 +1739,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.35", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.36", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
