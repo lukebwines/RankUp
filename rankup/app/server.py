@@ -1384,9 +1384,10 @@ def ripristina_utente_eliminato(user_id: int,body: ReimpostaPasswordUtente,reque
         db.execute("""
             UPDATE rankup_utenti
             SET eliminato=0,attivo=1,password_salt=?,password_hash=?,
-                credenziali_versione=credenziali_versione+1,aggiornato_il=?
+                credenziali_versione=credenziali_versione+1,aggiornato_il=?,
+                password_modificata_il=?,password_cambio_obbligatorio=1
             WHERE id=? AND eliminato=1
-        """,(salt,digest,now,user_id))
+        """,(salt,digest,now,now,user_id))
         db.execute("""
             INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
             VALUES(?,?,?,?)
@@ -1442,9 +1443,10 @@ def password_utente(user_id: int,body: ReimpostaPasswordUtente,request: Request)
             UPDATE rankup_utenti SET
                 password_salt=?,password_hash=?,
                 credenziali_versione=credenziali_versione+1,
-                aggiornato_il=?
+                aggiornato_il=?,password_modificata_il=?,
+                password_cambio_obbligatorio=1
             WHERE id=?
-        """,(salt,digest,now,user_id))
+        """,(salt,digest,now,now,user_id))
         db.execute("""
             INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
             VALUES(?,?,?,?)
