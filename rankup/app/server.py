@@ -1097,9 +1097,10 @@ def auth_login(credentials: LoginRequest, request: Request):
     # L'indirizzo del peer è fornito dal server ASGI; non fidarsi di
     # CF-Connecting-IP/X-Forwarded-For forniti arbitrariamente dal client.
     source=request.client.host if request.client else "unknown"
+    limited=AUTH.rate_limited(source)
     token = AUTH.authenticate(credentials.username, credentials.password,source=source)
     if token is None:
-        record_audit("sicurezza","login_fallito","negato",request,
+        record_audit("sicurezza","login_limitato" if limited else "login_fallito","negato",request,
                      utente=credentials.username,metodo="POST",
                      percorso="/api/auth/login")
         fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
@@ -1220,6 +1221,8 @@ def cambia_password_personale(body: CambiaPasswordPersonale,request: Request):
     now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        if not AUTH.verify_operator_password(principal["id"],body.password_attuale):
+            fail("Password corrente modificata durante l'operazione",409)
         row=db.execute("""SELECT password_hash FROM rankup_utenti
             WHERE id=? AND attivo=1 AND eliminato=0""",(principal["id"],)).fetchone()
         if row is None:
