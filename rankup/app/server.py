@@ -62,6 +62,7 @@ from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
+from audit_log import create_schema as create_audit_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
@@ -78,6 +79,21 @@ CURRENT_ACTOR: ContextVar[str | None] = ContextVar("rankup_actor",default=None)
 def request_actor() -> str:
     """L'autore degli eventi è l'utente della richiesta corrente."""
     return CURRENT_ACTOR.get() or "sistema"
+
+
+def record_audit(ambito:str,evento:str,esito:str,request:Request,
+                 utente:str="",oggetto:str="",percorso:str="",metodo:str="")->None:
+    """Best effort: non interrompe la risposta già prodotta dal server."""
+    try:
+        peer=request.client.host if request.client else ""
+        with connect() as db:
+            audit_insert(db,ambito,evento,esito,utente=utente,
+                         metodo=metodo,percorso=percorso,oggetto=oggetto,
+                         origine=audit_origin(peer))
+    except (sqlite3.Error,OSError,ValueError):
+        # Il log non deve trasformare un accesso riuscito in un errore.
+        # Il controllo salute del DB e i log add-on restano disponibili.
+        pass
 
 
 for folder in (BASE, PENDING, SOURCES):
@@ -483,6 +499,12 @@ def initialize() -> None:
         user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
         if "eliminato" not in user_columns:
             db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
+        if "password_modificata_il" not in user_columns:
+            db.execute("ALTER TABLE rankup_utenti ADD COLUMN password_modificata_il TEXT")
+        if "password_cambio_obbligatorio" not in user_columns:
+            db.execute("""ALTER TABLE rankup_utenti ADD COLUMN
+                password_cambio_obbligatorio INTEGER NOT NULL DEFAULT 0
+                CHECK(password_cambio_obbligatorio IN (0,1))""")
         db.execute("""
             CREATE TABLE IF NOT EXISTS incarichi_ente_requisiti (
                 bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -772,6 +794,8 @@ def initialize() -> None:
         """)
         # v7: coda AI persistente; conserva gli esiti storici del vecchio flusso.
         ai_queue_schema(db)
+        # Registri separati dall'archivio operativo, non rimossi dall'azzeramento.
+        create_audit_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
