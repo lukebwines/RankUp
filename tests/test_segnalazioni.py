@@ -1,3 +1,4 @@
+from test_pdf_import import _complete_operator_onboarding
 """Segnalazioni interne di bando e commissione."""
 import importlib
 import json
@@ -28,6 +29,7 @@ def test_segnalazioni_operatore_admin_e_isolamento(tmp_path, monkeypatch):
         assert _up(operatore, "/api/auth/login", json={
             "username": "operatore", "password": password,
         }).status_code == 200
+        _complete_operator_onboarding(operatore,"operatore",password)
         with server.connect() as db:
             bando_id = db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()[0]
             commissione_id = db.execute("""
