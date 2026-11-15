@@ -1,3 +1,4 @@
+from test_pdf_import import _complete_operator_onboarding
 """RankUP 1.0.27 — Centro Commissioni e importazione PICA.
 
 Dati sintetici, senza nomine o candidature reali.
@@ -41,6 +42,7 @@ def test_catalog_suggestions_are_available_to_authenticated_operators_without_au
             assert _post(user, "/api/auth/login", json={
                 "username": "test-operatore", "password": "PasswordDiTest123!"
             }).status_code == 200
+            _complete_operator_onboarding(user,"test-operatore","PasswordDiTest123!")
             available = user.get("/api/bandi/26-02/commissioni/suggerimenti")
             assert available.status_code == 200, available.text
             registry = user.get("/api/commissioni/anagrafica")

@@ -62,12 +62,14 @@ from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
+from audit_log import create_event_schema, create_policy_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
 SOURCES = BASE / "sources"
 ARCHIVI = BASE / "archivi_bandi"
 DB = BASE / "rankup.sqlite3"
+AUDIT_DB = BASE / "rankup_audit.sqlite3"
 GROQ = GroqSecrets(BASE)
 ASSETS = Path(__file__).resolve().parent / "static"
 CODE_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
@@ -78,6 +80,21 @@ CURRENT_ACTOR: ContextVar[str | None] = ContextVar("rankup_actor",default=None)
 def request_actor() -> str:
     """L'autore degli eventi è l'utente della richiesta corrente."""
     return CURRENT_ACTOR.get() or "sistema"
+
+
+def record_audit(ambito:str,evento:str,esito:str,request:Request,
+                 utente:str="",oggetto:str="",percorso:str="",metodo:str="")->None:
+    """Best effort: non interrompe la risposta già prodotta dal server."""
+    try:
+        peer=request.client.host if request.client else ""
+        with audit_connect() as db:
+            audit_insert(db,ambito,evento,esito,utente=utente,
+                         metodo=metodo,percorso=percorso,oggetto=oggetto,
+                         origine=audit_origin(peer))
+    except (sqlite3.Error,OSError,ValueError):
+        # Il log non deve trasformare un accesso riuscito in un errore.
+        # Il controllo salute del DB e i log add-on restano disponibili.
+        pass
 
 
 for folder in (BASE, PENDING, SOURCES):
@@ -93,6 +110,14 @@ def connect() -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=20000")
+    return db
+
+
+def audit_connect() -> sqlite3.Connection:
+    """Database tecnico separato: il log non invalida snapshot e archivi."""
+    db=sqlite3.connect(AUDIT_DB,timeout=10,factory=AutoClosingConnection)
+    db.row_factory=sqlite3.Row
+    db.execute("PRAGMA busy_timeout=10000")
     return db
 
 
@@ -483,6 +508,12 @@ def initialize() -> None:
         user_columns={r["name"] for r in db.execute("PRAGMA table_info(rankup_utenti)")}
         if "eliminato" not in user_columns:
             db.execute("ALTER TABLE rankup_utenti ADD COLUMN eliminato INTEGER NOT NULL DEFAULT 0")
+        if "password_modificata_il" not in user_columns:
+            db.execute("ALTER TABLE rankup_utenti ADD COLUMN password_modificata_il TEXT")
+        if "password_cambio_obbligatorio" not in user_columns:
+            db.execute("""ALTER TABLE rankup_utenti ADD COLUMN
+                password_cambio_obbligatorio INTEGER NOT NULL DEFAULT 0
+                CHECK(password_cambio_obbligatorio IN (0,1))""")
         db.execute("""
             CREATE TABLE IF NOT EXISTS incarichi_ente_requisiti (
                 bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
@@ -772,6 +803,8 @@ def initialize() -> None:
         """)
         # v7: coda AI persistente; conserva gli esiti storici del vecchio flusso.
         ai_queue_schema(db)
+        # Registri separati dall'archivio operativo, non rimossi dall'azzeramento.
+        create_policy_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -968,11 +1001,13 @@ def backfill_incarichi_metadata() -> None:
 
 
 initialize()
+with audit_connect() as audit_db:
+    create_event_schema(audit_db)
 
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.31", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.32", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
@@ -990,6 +1025,11 @@ async def require_rankup_login(request: Request, call_next):
     principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
     if not public and principal is None:
         return JSONResponse({"detail": "Autenticazione richiesta"}, status_code=401)
+    if (not public and principal and principal.get("password_change_required") and
+            path not in ("/api/auth/change-password","/api/auth/status",
+                         "/api/auth/logout","/api/auth/login")):
+        return JSONResponse({"detail":"Cambio password obbligatorio prima di proseguire",
+                             "code":"PASSWORD_CHANGE_REQUIRED"},status_code=403)
     # Un bando archiviato e' bloccato: solo un Admin puo' riaprirlo
     # formalmente. La barriera vale anche per gli operatori e le API.
     if request.method not in ("GET","HEAD","OPTIONS") and path.startswith("/api/bandi/"):
@@ -1018,6 +1058,17 @@ async def require_rankup_login(request: Request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    if principal:
+        route=request.scope.get("route")
+        template=getattr(route,"path","") if route else ""
+        event=audit_route(request.method,template)
+        if event:
+            kind,category=event
+            outcome=("ok" if response.status_code<400 else
+                     "negato" if response.status_code in (401,403,409) else "errore")
+            record_audit(category,kind,outcome,request,
+                         utente=principal["username"],metodo=request.method,
+                         percorso=template,oggetto=audit_target(path))
     return response
 
 
@@ -1034,6 +1085,8 @@ def auth_status(request: Request):
         "authenticated": principal is not None,
         "username": principal["username"] if principal else None,
         "role": principal["role"] if principal else None,
+        "password_change_required":bool(principal and
+                                         principal.get("password_change_required")),
     }
 
 
@@ -1044,15 +1097,23 @@ def auth_login(credentials: LoginRequest, request: Request):
     # L'indirizzo del peer è fornito dal server ASGI; non fidarsi di
     # CF-Connecting-IP/X-Forwarded-For forniti arbitrariamente dal client.
     source=request.client.host if request.client else "unknown"
+    limited=AUTH.rate_limited(source)
     token = AUTH.authenticate(credentials.username, credentials.password,source=source)
     if token is None:
+        record_audit("sicurezza","login_limitato" if limited else "login_fallito","negato",request,
+                     utente=credentials.username,metodo="POST",
+                     percorso="/api/auth/login")
         fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
     identity=AUTH.principal(token)
     if not identity:
         AUTH.revoke(token)
         fail("Sessione non disponibile: ripetere l'accesso",401)
+    record_audit("sicurezza","login_ok","ok",request,utente=identity["username"],
+                 metodo="POST",percorso="/api/auth/login")
     response = JSONResponse({"ok": True, "username": identity["username"],
-                             "role": identity["role"]})
+                             "role": identity["role"],
+                             "password_change_required":
+                                 bool(identity.get("password_change_required"))})
     response.set_cookie(
         key=COOKIE_NAME, value=token, path=cookie_path(request),
         max_age=SESSION_SECONDS, secure=secure_cookie(request),
@@ -1063,7 +1124,11 @@ def auth_login(credentials: LoginRequest, request: Request):
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request):
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
     AUTH.revoke(request.cookies.get(COOKIE_NAME))
+    if principal:
+        record_audit("sicurezza","logout","ok",request,utente=principal["username"],
+                     metodo="POST",percorso="/api/auth/logout")
     response = JSONResponse({"ok": True})
     response.delete_cookie(COOKIE_NAME, path=cookie_path(request))
     return response
@@ -1099,7 +1164,7 @@ def esegui_azzeramento(request: Request, body: RichiestaAzzeramento):
     if not AUTH.verify_admin_password(body.password_admin):
         fail("Password amministratore non corretta",403)
     try:
-        archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup")
+        archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup",AUDIT_DB)
     except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile) as exc:
         fail("Azzeramento non eseguito o incompleto: "+str(exc),409)
     # Ricrea le corrispondenze PICA di sistema; account, opzioni e SSD restano.
@@ -1127,6 +1192,103 @@ class CreaUtente(BaseModel):
     password: str = Field(min_length=8,max_length=128)
 
 
+class CambiaPasswordPersonale(BaseModel):
+    password_attuale: str = Field(min_length=1,max_length=128)
+    nuova_password: str = Field(min_length=12,max_length=128)
+
+
+class PoliticaPasswordAdmin(BaseModel):
+    password_max_giorni: Literal[0,180]
+
+
+@app.post("/api/auth/change-password")
+def cambia_password_personale(body: CambiaPasswordPersonale,request: Request):
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal:
+        fail("Autenticazione richiesta",401)
+    if principal["role"]!="user":
+        fail("La password Admin è gestita nella configurazione dell'add-on Home Assistant",403)
+    if body.password_attuale==body.nuova_password:
+        fail("La nuova password deve essere diversa da quella corrente")
+    if principal["username"].casefold() in body.nuova_password.casefold():
+        fail("La password non deve contenere il nome utente")
+    if not AUTH.verify_operator_password(principal["id"],body.password_attuale):
+        record_audit("sicurezza","password_personale","negato",request,
+                     utente=principal["username"],metodo="POST",
+                     percorso="/api/auth/change-password")
+        fail("Password corrente non valida",403)
+    salt,digest=AUTH.password_record(body.nuova_password)
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if not AUTH.verify_operator_password(principal["id"],body.password_attuale):
+            fail("Password corrente modificata durante l'operazione",409)
+        row=db.execute("""SELECT password_hash FROM rankup_utenti
+            WHERE id=? AND attivo=1 AND eliminato=0""",(principal["id"],)).fetchone()
+        if row is None:
+            fail("Account non attivo",403)
+        # Confronto concorrente: un reset avvenuto dopo la verifica deve
+        # invalidare il cambio anziché accettare credenziali superate.
+        changed=db.execute("""UPDATE rankup_utenti
+           SET password_salt=?,password_hash=?,credenziali_versione=credenziali_versione+1,
+               password_modificata_il=?,password_cambio_obbligatorio=0,aggiornato_il=?
+           WHERE id=? AND password_hash=?""",
+           (salt,digest,now,now,principal["id"],row["password_hash"]))
+        if changed.rowcount!=1:
+            fail("Credenziali modificate durante l'operazione",409)
+        db.execute("""INSERT INTO rankup_utenti_eventi
+            (utente_id,azione,autore,quando) VALUES(?,?,?,?)""",
+            (principal["id"],"Cambio password personale",principal["username"],now))
+        db.commit()
+    record_audit("sicurezza","password_personale","ok",request,
+                 utente=principal["username"],metodo="POST",
+                 percorso="/api/auth/change-password")
+    AUTH.revoke_user(principal["id"])
+    return {"ok":True,"messaggio":"Password aggiornata. Esegui nuovamente l'accesso."}
+
+
+@app.get("/api/admin/sicurezza/politica")
+def leggi_politica_password(request: Request):
+    require_admin(request)
+    with connect() as db:
+        days=db.execute("""SELECT password_max_giorni FROM rankup_politiche_sicurezza
+                           WHERE id=1""").fetchone()[0]
+    return {"password_max_giorni":days,"predefinito":0,
+            "nota":"Nessuna rotazione arbitraria per impostazione predefinita"}
+
+
+@app.put("/api/admin/sicurezza/politica")
+def modifica_politica_password(body:PoliticaPasswordAdmin,request: Request):
+    principal=require_admin(request)
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("""UPDATE rankup_politiche_sicurezza
+            SET password_max_giorni=?,aggiornato_il=? WHERE id=1""",
+            (body.password_max_giorni,now))
+        db.commit()
+    record_audit("sicurezza","policy","ok",request,
+                 utente=principal["username"],metodo="PUT",
+                 percorso="/api/admin/sicurezza/politica",
+                 oggetto=str(body.password_max_giorni))
+    return {"ok":True,"password_max_giorni":body.password_max_giorni}
+
+
+@app.get("/api/admin/sicurezza/eventi")
+def registro_sicurezza_admin(request: Request,ambito:str="",evento:str="",
+                            utente:str="",esito:str="",pagina:int=1,limite:int=50):
+    require_admin(request)
+    if len(evento)>80 or len(utente)>50:
+        fail("Filtro non valido")
+    with audit_connect() as db:
+        try:
+            return audit_page(db,ambito=ambito,evento=evento,utente=utente,
+                              esito=esito,page=pagina,limit=limite)
+        except ValueError as exc:
+            fail(str(exc))
+
+
+
 class CambiaStatoUtente(BaseModel):
     attivo: bool
 
@@ -1140,7 +1302,8 @@ def elenco_utenti(request: Request):
     require_admin(request)
     with connect() as db:
         rows=db.execute("""
-            SELECT id,username,attivo,creato_il,aggiornato_il,creato_da
+            SELECT id,username,attivo,creato_il,aggiornato_il,creato_da,
+                   password_modificata_il,password_cambio_obbligatorio
             FROM rankup_utenti WHERE eliminato=0 ORDER BY username COLLATE NOCASE
         """).fetchall()
         deleted=db.execute("""
@@ -1178,9 +1341,10 @@ def crea_utente(body: CreaUtente,request: Request):
             cur=db.execute("""
                 INSERT INTO rankup_utenti
                  (username,password_salt,password_hash,attivo,credenziali_versione,
-                  creato_il,aggiornato_il,creato_da)
-                VALUES(?,?,?,1,1,?,?,?)
-            """,(username,salt,digest,now,now,who["username"]))
+                  creato_il,aggiornato_il,creato_da,
+                  password_modificata_il,password_cambio_obbligatorio)
+                VALUES(?,?,?,1,1,?,?,?,?,1)
+            """,(username,salt,digest,now,now,who["username"],now))
         except sqlite3.IntegrityError:
             fail("Nome utente già presente; riattivalo o reimposta la sua password",409)
         uid=cur.lastrowid
@@ -1233,15 +1397,19 @@ def ripristina_utente_eliminato(user_id: int,body: ReimpostaPasswordUtente,reque
         db.execute("""
             UPDATE rankup_utenti
             SET eliminato=0,attivo=1,password_salt=?,password_hash=?,
-                credenziali_versione=credenziali_versione+1,aggiornato_il=?
+                credenziali_versione=credenziali_versione+1,aggiornato_il=?,
+                password_modificata_il=?,password_cambio_obbligatorio=1
             WHERE id=? AND eliminato=1
-        """,(salt,digest,now,user_id))
+        """,(salt,digest,now,now,user_id))
         db.execute("""
             INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
             VALUES(?,?,?,?)
         """,(user_id,"Ripristinato account eliminato con nuova password",
               who["username"],now))
         db.commit()
+    record_audit("sicurezza","password_riattivazione","ok",request,
+                 utente=who["username"],oggetto=row["username"],metodo="PUT",
+                 percorso="/api/utenti/{user_id}/ripristina")
     AUTH.revoke_user(user_id)
     return {"ok":True,"utente":{"id":user_id,"username":row["username"],"attivo":1},
             "avviso":"Account ripristinato con nuova password. Storico precedente conservato."}
@@ -1291,14 +1459,18 @@ def password_utente(user_id: int,body: ReimpostaPasswordUtente,request: Request)
             UPDATE rankup_utenti SET
                 password_salt=?,password_hash=?,
                 credenziali_versione=credenziali_versione+1,
-                aggiornato_il=?
+                aggiornato_il=?,password_modificata_il=?,
+                password_cambio_obbligatorio=1
             WHERE id=?
-        """,(salt,digest,now,user_id))
+        """,(salt,digest,now,now,user_id))
         db.execute("""
             INSERT INTO rankup_utenti_eventi(utente_id,azione,autore,quando)
             VALUES(?,?,?,?)
         """,(user_id,"Password reimpostata",who["username"],now))
         db.commit()
+    record_audit("sicurezza","password_reset","ok",request,
+                 utente=who["username"],oggetto=row["username"],metodo="PUT",
+                 percorso="/api/utenti/{user_id}/password")
     AUTH.revoke_user(user_id)
     return {"ok":True,"id":user_id,"username":row["username"],
             "avviso":"Password aggiornata. Tutte le sessioni precedenti dell'utente sono revocate."}
@@ -1396,7 +1568,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.31", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.32", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):

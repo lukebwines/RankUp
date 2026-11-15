@@ -3,7 +3,7 @@ import importlib
 import json
 from pathlib import Path
 from fastapi.testclient import TestClient
-from test_pdf_import import _post, _setup
+from test_pdf_import import _post, _setup, _complete_operator_onboarding
 
 
 def _empty_setup(tmp_path,monkeypatch):
@@ -81,6 +81,7 @@ def test_admin_creates_operational_user_with_eight_character_password(tmp_path,m
             assert login.status_code==200,login.text
             assert login.json()["role"]=="user"
             assert login.json()["username"]=="operatore"
+            _complete_operator_onboarding(user,"operatore","Abc12345")
             status=user.get("/api/auth/status").json()
             assert status["authenticated"] is True
             assert status["role"]=="user"
@@ -110,6 +111,7 @@ def test_user_can_manage_bando_but_audit_uses_actual_identity(tmp_path,monkeypat
                 "username":"staff_test","password":"12345678"
             })
             assert auth.status_code==200,auth.text
+            _complete_operator_onboarding(user,"staff_test","12345678")
             assert user.get("/api/bandi/26-02/commissioni").status_code==200
             assert user.get("/api/bandi/26-02/valutazioni").status_code==200
             changed=user.put("/api/bandi/26-02/riferimenti",

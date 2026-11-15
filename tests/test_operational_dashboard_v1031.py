@@ -1,3 +1,4 @@
+from test_pdf_import import _complete_operator_onboarding
 """Regressioni V3: vista operativa e pre-importazioni sicure, dati sintetici."""
 from io import BytesIO
 import json
@@ -51,6 +52,7 @@ def test_operator_can_read_operational_dashboard_but_not_diagnostics(tmp_path, m
             logged=_post(operator,"/api/auth/login",json={
                 "username":"operatore-ops","password":"PasswordOperatore123!"})
             assert logged.status_code==200
+            _complete_operator_onboarding(operator,"operatore-ops","PasswordOperatore123!")
             assert operator.get("/api/dashboard/operativo").status_code==200
             assert operator.get("/api/bandi/26-02/verifiche-cds").status_code==200
             assert operator.get("/api/admin/diagnostica").status_code==403

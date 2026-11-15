@@ -1,3 +1,4 @@
+from test_pdf_import import _complete_operator_onboarding
 """Un bando archiviato deve essere immutabile anche con URL minuscoli o misti.
 
 Tutti i dati dei test sono sintetici, senza effetti sui bandi reali.
@@ -115,6 +116,7 @@ def test_operator_is_blocked_but_formal_admin_reopening_still_works(tmp_path,mon
                 "username":"operatore_test","password":"PasswordTest123!"})
             assert authenticated.status_code==200,authenticated.text
             assert authenticated.json()["role"]=="user"
+            _complete_operator_onboarding(user,"operatore_test","PasswordTest123!")
             denied=_post(user,"/api/bandi/abc-2026/commissioni/manuale",json={
                 "cds":"CDS TEST","sede":"VERONA","presidente":"TEST",
                 "componenti":"TEST"})
