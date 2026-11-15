@@ -1025,7 +1025,7 @@ async def require_rankup_login(request: Request, call_next):
     principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
     if not public and principal is None:
         return JSONResponse({"detail": "Autenticazione richiesta"}, status_code=401)
-    if (principal and principal.get("password_change_required") and
+    if (not public and principal and principal.get("password_change_required") and
             path not in ("/api/auth/change-password","/api/auth/status",
                          "/api/auth/logout","/api/auth/login")):
         return JSONResponse({"detail":"Cambio password obbligatorio prima di proseguire",
