@@ -438,7 +438,7 @@
         $("login-error").textContent=message||"";
         $("login-pass").value="";
       }
-      async function authenticatedBoot(role, username){
+      async function authenticatedBoot(role, username, changeRequired){
         state.role=role==="admin"?"admin":"user";
         state.username=username||"";
         $("account-info").textContent=(state.role==="admin"?"Admin":"Utente")+" · "+state.username;
@@ -455,6 +455,16 @@
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
         if(["utenti","ssdconfig","diagnostica","audit","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(state.role==="user"&&changeRequired){
+          $("app-layout").style.display="none";
+          $("auth-screen").style.display="grid";
+          $("login-form").style.display="none";
+          $("forced-password-form").style.display="block";
+          $("forced-error").textContent="";
+          return;
+        }
+        $("forced-password-form").style.display="none";
+        $("login-form").style.display="block";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -468,7 +478,7 @@
             showLogin("L'amministratore non è configurato. Imposta username e password nella scheda Configurazione dell'add-on e riavvialo.");
             $("login-submit").disabled=true;
           }else if(status.authenticated){
-            await authenticatedBoot(status.role,status.username);
+            await authenticatedBoot(status.role,status.username,status.password_change_required);
           }else{
             showLogin("");
           }
@@ -482,9 +492,26 @@
           var login=await api("auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({username:$("login-user").value,password:$("login-pass").value})});
           $("login-pass").value="";
-          await authenticatedBoot(login.role,login.username);
+          await authenticatedBoot(login.role,login.username,login.password_change_required);
         }catch(error){showLogin(error.message);}
         finally{button.disabled=false;}
+      };
+      $("forced-password-form").onsubmit=async function(event){
+        event.preventDefault();
+        var form=this,button=form.querySelector('button[type="submit"]');
+        var now=$("forced-old").value,next=$("forced-new").value,confirmPass=$("forced-confirm").value;
+        if(next!==confirmPass){$("forced-error").textContent="Le due nuove password non coincidono.";return;}
+        button.disabled=true;
+        try{
+          await api("auth/change-password",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({password_attuale:now,nuova_password:next})});
+          form.reset();showLogin("Password modificata. Effettua un nuovo accesso.");
+        }catch(err){$("forced-error").textContent=err.message;}
+        finally{button.disabled=false;}
+      };
+      $("forced-logout").onclick=async function(){
+        try{await api("auth/logout",{method:"POST"});}catch(err){}
+        $("forced-password-form").reset();showLogin("");
       };
       $("logout-btn").onclick=async function(){
         try{await api("auth/logout",{method:"POST"});}
