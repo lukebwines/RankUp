@@ -65,7 +65,7 @@ BUSINESS_TABLES = (
     "pica_tipo_cds_dizionario",
 )
 OPTIONAL_LEGACY_TABLES = frozenset({"ai_occupazione_lavori", "valutazioni_occupazione_ai"})
-PRESERVED_TABLES = ("rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "commissioni_catalogo_eventi", "commissioni_catalogo_rettifiche", "bandi_archivi")
+PRESERVED_TABLES = ("rankup_audit_eventi", "rankup_politiche_sicurezza", "rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "commissioni_catalogo_eventi", "commissioni_catalogo_rettifiche", "bandi_archivi")
 RESET_CONFIRMATION = "AZZERA TUTTI I DATI RANKUP"
 
 
