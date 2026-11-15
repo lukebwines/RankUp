@@ -103,7 +103,7 @@ def change_password(db_path:Path,old_password:str,new_password:str)->None:
             bytes.fromhex(row["password_hash"]))
         if not old_ok:
             raise PermissionError("Password Admin corrente non valida")
-        if hmac.compare_digest(digest, row["password_hash"]):
+        if hmac.compare_digest(derive(new_password,bytes.fromhex(row["password_salt"])),bytes.fromhex(row["password_hash"])):
             raise ValueError("La nuova password deve essere diversa")
         db.execute("""UPDATE rankup_admin_auth
             SET password_salt=?,password_hash=?,password_modificata_il=? WHERE id=1""",
