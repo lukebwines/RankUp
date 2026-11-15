@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from datetime import datetime,timezone,timedelta
 from db_lifecycle import AutoClosingConnection
 
 COOKIE_NAME = "rankup_session"
@@ -77,6 +78,22 @@ class Authentication:
                 return dict(row) if row else None
         except (sqlite3.Error, OSError):
             return None
+
+    def verify_operator_password(self,user_id:int,password:str)->bool:
+        """Verifica la password corrente dell'operatore, senza creare sessioni."""
+        if not isinstance(password,str):
+            return False
+        try:
+            with sqlite3.connect(self._db_path,timeout=10,factory=AutoClosingConnection) as db:
+                db.row_factory=sqlite3.Row
+                row=db.execute("""SELECT password_salt,password_hash FROM rankup_utenti
+                    WHERE id=? AND attivo=1 AND eliminato=0""",(user_id,)).fetchone()
+            if not row:
+                return False
+            calculated=self._derive(password,bytes.fromhex(row["password_salt"]))
+            return hmac.compare_digest(calculated,bytes.fromhex(row["password_hash"]))
+        except (sqlite3.Error,OSError,ValueError,TypeError):
+            return False
 
     def verify_admin_password(self, password: str) -> bool:
         """Richiede la password Admin senza creare una nuova sessione."""
@@ -167,7 +184,8 @@ class Authentication:
             with sqlite3.connect(self._db_path, timeout=10, factory=AutoClosingConnection) as db:
                 db.row_factory = sqlite3.Row
                 row = db.execute("""
-                    SELECT username,attivo,credenziali_versione
+                    SELECT username,attivo,credenziali_versione,
+                           password_modificata_il,password_cambio_obbligatorio
                     FROM rankup_utenti WHERE id=?
                 """,(user_id,)).fetchone()
         except (sqlite3.Error,OSError):
@@ -176,7 +194,25 @@ class Authentication:
             with self._lock:
                 self._sessions.pop(digest, None)
             return None
-        return {"username": row["username"], "role": "user", "id": user_id}
+        change_required=bool(row["password_cambio_obbligatorio"])
+        try:
+            with sqlite3.connect(self._db_path,timeout=10,factory=AutoClosingConnection) as db:
+                policy=db.execute("""SELECT password_max_giorni FROM rankup_politiche_sicurezza
+                                     WHERE id=1""").fetchone()
+            days=policy[0] if policy else 0
+            if days and not change_required:
+                modified=row["password_modificata_il"]
+                if not modified:
+                    change_required=True  # data storica sconosciuta, non inventarla
+                else:
+                    when=datetime.fromisoformat(modified)
+                    if when.tzinfo is None:
+                        when=when.replace(tzinfo=timezone.utc)
+                    change_required=datetime.now(timezone.utc)>=when+timedelta(days=days)
+        except (sqlite3.Error,ValueError,TypeError,OverflowError):
+            change_required=True  # incertezza sulla policy: blocca operazioni
+        return {"username": row["username"], "role": "user", "id": user_id,
+                "password_change_required":change_required}
 
     def valid(self, cookie: str | None) -> bool:
         return self.principal(cookie) is not None
