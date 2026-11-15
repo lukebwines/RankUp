@@ -1,3 +1,4 @@
+from test_pdf_import import _complete_operator_onboarding
 """RankUP 1.0.28: anagrafica commissioni condivisa e versionamento.
 
 Tutti i dati e nomi qui sono esclusivamente sintetici.
@@ -24,6 +25,7 @@ def test_operators_manage_registry_and_versions_without_mutating_bandi(tmp_path,
                 "username":"commissionista-test","password":"PasswordLungaDiTest123!"
             })
             assert login.status_code == 200 and login.json()["role"] == "user"
+            _complete_operator_onboarding(operator,"commissionista-test","PasswordLungaDiTest123!")
             assert operator.get("/api/admin/commissioni-globali").status_code == 403
             catalog = operator.get("/api/commissioni/anagrafica")
             assert catalog.status_code == 200, catalog.text
@@ -89,6 +91,7 @@ def test_operator_can_associate_only_with_documentary_confirmation(tmp_path, mon
             assert _post(operator,"/api/auth/login",json={
                 "username":"operatore-verifica", "password":"PasswordLungaDiTest123!"
             }).status_code == 200
+            _complete_operator_onboarding(operator,"operatore-verifica","PasswordLungaDiTest123!")
             declined=_post(operator,"/api/bandi/26-02/commissioni/recupera-globali",
                            json={"ids":[catalog_id],"conferma_verifica":False})
             assert declined.status_code == 400
