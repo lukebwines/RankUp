@@ -41,6 +41,7 @@ class Authentication:
         # non possono impedire ad altri indirizzi di autenticarsi.
         # Nessun lockout globale: evita denial-of-service per account noti.
         self._failures = deque(maxlen=3000)
+        self._recovery_calls = deque(maxlen=1500)
         self._lock = threading.Lock()
 
         settings=admin_store.options(data_dir)
@@ -123,6 +124,18 @@ class Authentication:
         except (ValueError,TypeError):
             return False
         return hmac.compare_digest(calculated,self._verifier)
+
+    def allow_recovery_attempt(self,source:str)->bool:
+        """Limite alle richieste pubbliche di recupero, senza usare proxy headers."""
+        address=str(source or "unknown")[:100]
+        now=time.monotonic()
+        with self._lock:
+            while self._recovery_calls and now-self._recovery_calls[0][0]>60:
+                self._recovery_calls.popleft()
+            if sum(1 for _,peer in self._recovery_calls if peer==address)>=10:
+                return False
+            self._recovery_calls.append((now,address))
+        return True
 
     def rate_limited(self,source:str)->bool:
         origin=str(source or "unknown")[:100]
