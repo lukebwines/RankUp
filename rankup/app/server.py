@@ -1014,6 +1014,11 @@ async def require_rankup_login(request: Request, call_next):
     principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
     if not public and principal is None:
         return JSONResponse({"detail": "Autenticazione richiesta"}, status_code=401)
+    if (principal and principal.get("password_change_required") and
+            path not in ("/api/auth/change-password","/api/auth/status",
+                         "/api/auth/logout","/api/auth/login")):
+        return JSONResponse({"detail":"Cambio password obbligatorio prima di proseguire",
+                             "code":"PASSWORD_CHANGE_REQUIRED"},status_code=403)
     # Un bando archiviato e' bloccato: solo un Admin puo' riaprirlo
     # formalmente. La barriera vale anche per gli operatori e le API.
     if request.method not in ("GET","HEAD","OPTIONS") and path.startswith("/api/bandi/"):
@@ -1042,6 +1047,17 @@ async def require_rankup_login(request: Request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    if principal:
+        route=request.scope.get("route")
+        template=getattr(route,"path","") if route else ""
+        event=audit_route(request.method,template)
+        if event:
+            kind,category=event
+            outcome=("ok" if response.status_code<400 else
+                     "negato" if response.status_code in (401,403,409) else "errore")
+            record_audit(category,kind,outcome,request,
+                         utente=principal["username"],metodo=request.method,
+                         percorso=template,oggetto=audit_target(path))
     return response
 
 
@@ -1058,6 +1074,8 @@ def auth_status(request: Request):
         "authenticated": principal is not None,
         "username": principal["username"] if principal else None,
         "role": principal["role"] if principal else None,
+        "password_change_required":bool(principal and
+                                         principal.get("password_change_required")),
     }
 
 
@@ -1070,13 +1088,20 @@ def auth_login(credentials: LoginRequest, request: Request):
     source=request.client.host if request.client else "unknown"
     token = AUTH.authenticate(credentials.username, credentials.password,source=source)
     if token is None:
+        record_audit("sicurezza","login_fallito","negato",request,
+                     utente=credentials.username,metodo="POST",
+                     percorso="/api/auth/login")
         fail("Credenziali non valide oppure troppi tentativi: riprovare più tardi", 401)
     identity=AUTH.principal(token)
     if not identity:
         AUTH.revoke(token)
         fail("Sessione non disponibile: ripetere l'accesso",401)
+    record_audit("sicurezza","login_ok","ok",request,utente=identity["username"],
+                 metodo="POST",percorso="/api/auth/login")
     response = JSONResponse({"ok": True, "username": identity["username"],
-                             "role": identity["role"]})
+                             "role": identity["role"],
+                             "password_change_required":
+                                 bool(identity.get("password_change_required"))})
     response.set_cookie(
         key=COOKIE_NAME, value=token, path=cookie_path(request),
         max_age=SESSION_SECONDS, secure=secure_cookie(request),
@@ -1087,7 +1112,11 @@ def auth_login(credentials: LoginRequest, request: Request):
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request):
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
     AUTH.revoke(request.cookies.get(COOKIE_NAME))
+    if principal:
+        record_audit("sicurezza","logout","ok",request,utente=principal["username"],
+                     metodo="POST",percorso="/api/auth/logout")
     response = JSONResponse({"ok": True})
     response.delete_cookie(COOKIE_NAME, path=cookie_path(request))
     return response
