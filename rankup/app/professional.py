@@ -41,6 +41,21 @@ AREA5 = ("P18", "Indicatore Q12 relativo alla soddisfazione complessiva >3", ind
 AREA6 = ("P19", "Valorizzazione dell’esperienza e della competenza nel settore specifico richiesto dall’insegnamento del corso di laurea", indicator_limit("professionalizzante", "P19"))
 PRO_ACTIVITY = list(PRO_ACTIVITY_OPTIONS)
 PRO_PLUS = list(PRO_PLUS_OPTIONS)
+def _anni_attivita_professionale(anno_accademico: str) -> list[str]:
+    """Cinque anni solari precedenti all'anno iniziale dell'A.A. del bando.
+
+    Non presupporre mai A.A. o quinquenni non validi: in tal caso mantenere
+    segnaposto espliciti da verificare nel PDF.
+    """
+    matched = re.fullmatch(r"(\d{4})[-/](\d{4})", str(anno_accademico or "").strip())
+    if not matched:
+        return ["[DA VER.]"] * 5
+    first, second = map(int, matched.groups())
+    if second != first + 1 or first < 5:
+        return ["[DA VER.]"] * 5
+    return [str(year) for year in range(first - 1, first - 6, -1)]
+
+
 # Esiti selezionabili nelle tre schede di valutazione.
 # La Commissione dichiara l'idoneità; RankUP determina la posizione in graduatoria.
 STATUSES = [
@@ -254,12 +269,9 @@ def make_professional(record: dict) -> bytes:
         "Attività", "professionale svolta", "con continuità e in",
         "settori pertinenti", "all’insegnamento", "(ultimi 5 anni)",
     ], 6.6, leading=8.5)
-    # L'unico quinquennio verificato nel modello fornito è il 2021-2025
-    # per l'A.A. 2026-2027. Per altri bandi servono anni approvati.
-    years = (
-        ["2025", "2024", "2023", "2022", "2021"]
-        if re.fullmatch(r"2026[-/]2027", aa) else ["[DA VER.]"] * 5
-    )
+    # Derivare il quinquennio dal solo A.A. salvato nel bando; nessuna
+    # variazione di righe, campi AcroForm, coordinate o massimali.
+    years = _anni_attivita_professionale(aa)
     for i, year_label in enumerate(years):
         top = 373 + 17*i
         for x, width in [(134, 46), (181, 141), (324, 121), (446, 53)]:
