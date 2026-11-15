@@ -1,7 +1,7 @@
 """Autenticazione locale RankUp per Ingress e accesso diretto.
 
-L'account amministratore resta nelle opzioni di Home Assistant (password
-minima preesistente di 12 caratteri). Gli account operativi vengono conservati
+L'account amministratore viene migrato dalle opzioni Home Assistant a un hash
+persistente, con recupero monouso avviato solo dalle opzioni HA. Gli operatori sono
 nel database persistente /data/rankup.sqlite3, con PBKDF2-HMAC-SHA256,
 salt casuale per utente e password minima di 8 caratteri.
 
@@ -21,6 +21,7 @@ import threading
 import time
 from datetime import datetime,timezone,timedelta
 from db_lifecycle import AutoClosingConnection
+import admin_credentials as admin_store
 
 COOKIE_NAME = "rankup_session"
 SESSION_SECONDS = 8 * 60 * 60
@@ -42,17 +43,35 @@ class Authentication:
         self._failures = deque(maxlen=3000)
         self._lock = threading.Lock()
 
-        path = data_dir / "options.json"
-        try:
-            options = json.loads(path.read_text(encoding="utf-8"))
-            username = str(options.get("admin_username", "")).strip()
-            password = str(options.get("admin_password", ""))
-            if 3 <= len(username) <= 50 and len(password) >= 12:
-                self.username = username
-                self._verifier = self._derive(password, self._salt)
-                self.configured = True
-        except (FileNotFoundError, ValueError, TypeError, OSError):
-            pass
+        settings=admin_store.options(data_dir)
+        # Schema gia' aggiornato dal server prima di istanziare Authentication.
+        admin_store.bootstrap(self._db_path,settings)
+        self.reload_admin()
+        request_number=settings.get("admin_recovery_request",0)
+        code=admin_store.issue_recovery(self._db_path,request_number)
+        if code is not None:
+            # Visibile solo nel log privilegiato dell'add-on Home Assistant.
+            # Mai restituito da un endpoint pubblico o memorizzato in chiaro.
+            print("RANKUP RECUPERO ADMIN (Home Assistant) — codice monouso:",code,
+                  "— valido 10 minuti. Non condividere questo codice.",flush=True)
+
+    def reload_admin(self)->None:
+        record=admin_store.get_admin(self._db_path)
+        self.username=record["username"]
+        self.configured=bool(record["password_hash"] and record["password_salt"])
+        if self.configured:
+            self._salt=bytes.fromhex(record["password_salt"])
+            self._verifier=bytes.fromhex(record["password_hash"])
+        else:
+            self._salt=secrets.token_bytes(20)
+            self._verifier=b""
+
+    def revoke_admin(self)->None:
+        with self._lock:
+            for digest,entry in list(self._sessions.items()):
+                if entry[2]=="admin":
+                    self._sessions.pop(digest,None)
+        self.reload_admin()
 
     @staticmethod
     def _derive(password: str, salt: bytes) -> bytes:
