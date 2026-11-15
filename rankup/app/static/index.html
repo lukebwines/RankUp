@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.34">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.35">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.34">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.35">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -248,15 +248,16 @@
       <nav id="nav">
         <div class="nav-separator">GESTIONE GENERALE</div>
         <button data-page="dashboard" class="active"><svg class="navicon" aria-hidden="true"><use href="#ri-dashboard"></use></svg> Dashboard</button>
+        <button data-page="profilo" id="operator-profile-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> La mia password</button>
+        <div class="nav-separator">CONFIGURAZIONE OPERATIVA</div>
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
+        <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
-        <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica database</button>
-        <button data-page="audit" id="admin-audit-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Registro attività</button>
-        <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
+        <button data-page="audit" id="admin-audit-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Registro attività</button>
+        <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica database</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
-        <button data-page="profilo" id="operator-profile-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> La mia password</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
@@ -270,7 +271,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.34<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.35<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
