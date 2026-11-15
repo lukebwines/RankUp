@@ -200,6 +200,19 @@
       <div id="login-error" class="auth-error" role="alert" aria-live="polite"></div>
       <button class="btn" id="login-submit" type="submit">Accedi</button>
     </form>
+    <form id="forced-password-form" class="auth-card" style="display:none" autocomplete="off">
+      <h2>Cambio password obbligatorio</h2>
+      <p class="caption">È necessario impostare una password personale prima di utilizzare RankUP.</p>
+      <label for="forced-old">Password attuale</label>
+      <input id="forced-old" name="current" type="password" autocomplete="current-password" required>
+      <label for="forced-new">Nuova password (almeno 12 caratteri)</label>
+      <input id="forced-new" name="new" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+      <label for="forced-confirm">Conferma nuova password</label>
+      <input id="forced-confirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+      <div id="forced-error" class="auth-error" role="alert" aria-live="polite"></div>
+      <button class="btn" type="submit">Salva password e torna al login</button>
+      <button class="btn secondary" id="forced-logout" type="button">Esci</button>
+    </form>
   </section>
   <div class="layout" id="app-layout" style="display:none">
     <aside class="sidebar">
@@ -224,10 +237,12 @@
         <button data-page="commissioniarchivio" id="admin-commissioni-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Anagrafica commissioni</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
-        <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica e registro</button>
+        <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica database</button>
+        <button data-page="audit" id="admin-audit-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Registro attività</button>
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
+        <button data-page="profilo" id="operator-profile-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> La mia password</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
@@ -407,6 +422,10 @@
         $("admin-users-link").style.display="none";
         $("admin-ssd-link").style.display="none";
         $("admin-diagnostica-link").style.display="none";
+        $("admin-audit-link").style.display="none";
+        $("operator-profile-link").style.display="none";
+        $("forced-password-form").style.display="none";
+        $("login-form").style.display="block";
         $("admin-commissioni-link").style.display="none";
         $("add-academic-year").style.display="none";
         $("admin-ai-link").style.display="none";
@@ -426,6 +445,8 @@
         $("admin-users-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-ssd-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-diagnostica-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-audit-link").style.display=state.role==="admin"?"flex":"none";
+        $("operator-profile-link").style.display=state.role==="user"?"flex":"none";
         $("admin-commissioni-link").style.display="flex";
         $("add-academic-year").style.display=state.role==="admin"?"block":"none";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
@@ -433,7 +454,7 @@
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","diagnostica","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","diagnostica","audit","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
         try{await reload();render();}
@@ -1142,7 +1163,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica e registro",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica database",audit:"Registro attività",profilo:"La mia password",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -1157,6 +1178,10 @@
                             "schede","valutazioni","verbali","graduatorie","verificaenteai"].includes(state.page)){
           return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
         }
+        if(state.page==="audit")return state.role==="admin"?renderAuditAdmin():
+          html(panel("Accesso riservato","Il registro è riservato all'Admin."));
+        if(state.page==="profilo")return state.role==="user"?renderProfilo():
+          html(panel("Password amministratore","La password Admin è gestita nelle opzioni Home Assistant."));
         if(state.page==="diagnostica")return state.role==="admin"?renderDiagnostica():
           html(panel("Accesso riservato","La diagnostica è riservata all'Admin."));
         if(state.page==="ssdconfig")return state.role==="admin"?renderSSDGenerali():
