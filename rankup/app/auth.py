@@ -50,6 +50,7 @@ class Authentication:
         self.reload_admin()
         request_number=settings.get("admin_recovery_request",0)
         code=admin_store.issue_recovery(self._db_path,request_number)
+        self.recovery_issued=code is not None
         if code is not None:
             # Visibile solo nel log privilegiato dell'add-on Home Assistant.
             # Mai restituito da un endpoint pubblico o memorizzato in chiaro.
