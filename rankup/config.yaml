@@ -1,7 +1,7 @@
 name: RankUp
 slug: rankup
 description: Gestione candidature e graduatorie per bandi di docenza
-version: "1.0.32"
+version: "1.0.33"
 url: https://github.com/lukebwines/RankUp
 arch:
   - aarch64
@@ -20,7 +20,9 @@ ports_description:
   8095/tcp: Accesso diretto per Cloudflare Tunnel (configurare porta host nella sezione Rete)
 options:
   admin_username: admin
+  admin_recovery_request: 0
 schema:
   admin_username: str(3,50)
-  admin_password: password(12,128)
+  admin_password: password?
+  admin_recovery_request: int(0,999999999)
 stage: stable
