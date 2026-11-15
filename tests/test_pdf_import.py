@@ -636,3 +636,16 @@ def test_admin_manual_button_remains_visible_for_every_pending_document():
     assert 'r.manuale_possibile?' not in archive
     # Anche il rendering del modulo è protetto.
     assert 'if(state.role!=="admin")' in html
+
+
+def _complete_operator_onboarding(client,username,temporary_password):
+    """Conclude il cambio iniziale obbligatorio nei test di ruolo non dedicati all'autenticazione."""
+    personal_password="NuovaCredenzialePersonale987!_" + str(len(temporary_password))
+    changed=_post(client,"/api/auth/change-password",json={
+        "password_attuale":temporary_password,"nuova_password":personal_password})
+    assert changed.status_code==200,changed.text
+    logged=_post(client,"/api/auth/login",json={
+        "username":username,"password":personal_password})
+    assert logged.status_code==200,logged.text
+    assert logged.json()["password_change_required"] is False
+    return personal_password
