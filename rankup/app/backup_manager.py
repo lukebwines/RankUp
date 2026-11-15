@@ -77,6 +77,11 @@ def _snapshot(src: Path, dst: Path):
     dst.chmod(0o600)
 
 
+def _schema_version(db_path: Path) -> int:
+    with sqlite3.connect(db_path, factory=AutoClosingConnection) as db:
+        return int(db.execute("PRAGMA user_version").fetchone()[0])
+
+
 def _add_tree(z: ZipFile, root: Path, prefix: str):
     z.writestr(prefix + "/", b"")
     if not root.exists():
@@ -114,7 +119,7 @@ def create_backup(base: Path, *, prefix: str = "rankup_backup_") -> str:
                     "creato_il": datetime.now(timezone.utc).isoformat(),
                     "database_sha256": _sha(snapshot),
                     "audit_sha256": _sha(audit) if audit.exists() else None,
-                    "schema_versione": sqlite3.connect(snapshot).execute("PRAGMA user_version").fetchone()[0],
+                    "schema_versione": _schema_version(snapshot),
                     "include": "Database RankUP, audit, PICA/PDF, file temporanei e ZIP archivio finale",
                     "esclusi": "Opzioni Home Assistant, chiavi AI e cartella backup",
                     "ripristino": "I dati amministrativi di accesso e l'audit corrente sono preservati",
@@ -146,6 +151,8 @@ def _entries(z: ZipFile):
                 or any(p in ("", ".", "..") for p in key.rstrip("/").split("/"))):
             raise ValueError("Percorso non consentito nello ZIP")
         root = name.parts[0]
+        if root in ("sources", "pending", "archivi_bandi") and len(name.parts) == 1 and not item.is_dir():
+            raise ValueError("La cartella dei documenti non può essere un file")
         if not ((root in ("rankup.sqlite3", "rankup_audit.sqlite3", MANIFEST) and len(name.parts) == 1)
                 or (root in ("sources", "pending", "archivi_bandi") and len(name.parts) >= 1)):
             raise ValueError("Contenuto estraneo al formato backup")
@@ -234,7 +241,10 @@ def import_backup(base: Path, source) -> str:
                 if size > MAX_UPLOAD:
                     raise ValueError("ZIP superiore al limite di 2 GB")
                 f.write(chunk)
-        verify_backup(temp)
+        try:
+            verify_backup(temp)
+        except BadZipFile as exc:
+            raise ValueError("Il file caricato non è un archivio ZIP valido") from exc
         temp.chmod(0o600)
         os.replace(temp, folder / name)
         return name
