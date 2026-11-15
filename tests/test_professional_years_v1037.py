@@ -24,7 +24,7 @@ def _pdf(aa):
         "requisiti": "[DA VERIFICARE]",
         "tipo_cds": "[DA VERIFICARE]",
         "scheda_id": "RU-TEST-PDF-SINTETICO",
-    }, "professionalizzante")))
+    })))
 
 
 def _rects(pdf):
