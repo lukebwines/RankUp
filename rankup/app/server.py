@@ -62,13 +62,14 @@ from incarichi_fields import EXTRA_DB_FIELDS, incarico_extra_db
 from reset_data import RESET_CONFIRMATION, preview as reset_preview, reset_with_backup
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
-from audit_log import create_schema as create_audit_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
+from audit_log import create_event_schema, create_policy_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
 PENDING = BASE / "pending"
 SOURCES = BASE / "sources"
 ARCHIVI = BASE / "archivi_bandi"
 DB = BASE / "rankup.sqlite3"
+AUDIT_DB = BASE / "rankup_audit.sqlite3"
 GROQ = GroqSecrets(BASE)
 ASSETS = Path(__file__).resolve().parent / "static"
 CODE_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
@@ -86,7 +87,7 @@ def record_audit(ambito:str,evento:str,esito:str,request:Request,
     """Best effort: non interrompe la risposta già prodotta dal server."""
     try:
         peer=request.client.host if request.client else ""
-        with connect() as db:
+        with audit_connect() as db:
             audit_insert(db,ambito,evento,esito,utente=utente,
                          metodo=metodo,percorso=percorso,oggetto=oggetto,
                          origine=audit_origin(peer))
@@ -109,6 +110,14 @@ def connect() -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=20000")
+    return db
+
+
+def audit_connect() -> sqlite3.Connection:
+    """Database tecnico separato: il log non invalida snapshot e archivi."""
+    db=sqlite3.connect(AUDIT_DB,timeout=10,factory=AutoClosingConnection)
+    db.row_factory=sqlite3.Row
+    db.execute("PRAGMA busy_timeout=10000")
     return db
 
 
@@ -795,7 +804,7 @@ def initialize() -> None:
         # v7: coda AI persistente; conserva gli esiti storici del vecchio flusso.
         ai_queue_schema(db)
         # Registri separati dall'archivio operativo, non rimossi dall'azzeramento.
-        create_audit_schema(db)
+        create_policy_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -992,6 +1001,8 @@ def backfill_incarichi_metadata() -> None:
 
 
 initialize()
+with audit_connect() as audit_db:
+    create_event_schema(audit_db)
 
 
 backfill_ssd_from_saved_pica()
@@ -1225,11 +1236,10 @@ def cambia_password_personale(body: CambiaPasswordPersonale,request: Request):
         db.execute("""INSERT INTO rankup_utenti_eventi
             (utente_id,azione,autore,quando) VALUES(?,?,?,?)""",
             (principal["id"],"Cambio password personale",principal["username"],now))
-        audit_insert(db,"sicurezza","password_personale","ok",
-                     utente=principal["username"],metodo="POST",
-                     percorso="/api/auth/change-password",
-                     origine=audit_origin(request.client.host if request.client else ""))
         db.commit()
+    record_audit("sicurezza","password_personale","ok",request,
+                 utente=principal["username"],metodo="POST",
+                 percorso="/api/auth/change-password")
     AUTH.revoke_user(principal["id"])
     return {"ok":True,"messaggio":"Password aggiornata. Esegui nuovamente l'accesso."}
 
@@ -1253,11 +1263,11 @@ def modifica_politica_password(body:PoliticaPasswordAdmin,request: Request):
         db.execute("""UPDATE rankup_politiche_sicurezza
             SET password_max_giorni=?,aggiornato_il=? WHERE id=1""",
             (body.password_max_giorni,now))
-        audit_insert(db,"sicurezza","policy","ok",utente=principal["username"],
-                     metodo="PUT",percorso="/api/admin/sicurezza/politica",
-                     oggetto=str(body.password_max_giorni),
-                     origine=audit_origin(request.client.host if request.client else ""))
         db.commit()
+    record_audit("sicurezza","policy","ok",request,
+                 utente=principal["username"],metodo="PUT",
+                 percorso="/api/admin/sicurezza/politica",
+                 oggetto=str(body.password_max_giorni))
     return {"ok":True,"password_max_giorni":body.password_max_giorni}
 
 
@@ -1267,7 +1277,7 @@ def registro_sicurezza_admin(request: Request,ambito:str="",evento:str="",
     require_admin(request)
     if len(evento)>80 or len(utente)>50:
         fail("Filtro non valido")
-    with connect() as db:
+    with audit_connect() as db:
         try:
             return audit_page(db,ambito=ambito,evento=evento,utente=utente,
                               esito=esito,page=pagina,limit=limite)
