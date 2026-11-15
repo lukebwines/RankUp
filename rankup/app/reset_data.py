@@ -120,11 +120,13 @@ def _archive_tree(archive:ZipFile, root:Path, prefix:str):
             archive.write(path,prefix+"/"+path.relative_to(root).as_posix())
 
 
-def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
+def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path,
+                      audit_db:Path|None=None):
     """Ritorna il nome del backup dopo reset; genera eccezione senza reset se fallisce."""
     if not RESET_LOCK.acquire(blocking=False):
         raise ValueError("Un azzeramento e' gia' in corso")
     temp_db=None
+    temp_audit=None
     temp_zip=None
     try:
         backups.mkdir(parents=True,exist_ok=True)
@@ -142,8 +144,18 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
                 if integrity!="ok":
                     raise ValueError("Backup SQLite non integro; azzeramento annullato")
         temp_db.chmod(0o600)
+        if audit_db is not None and audit_db.is_file():
+            temp_audit=backups/("audit_snapshot_"+secrets.token_hex(8)+".sqlite3")
+            with sqlite3.connect(audit_db,timeout=20,factory=AutoClosingConnection) as a:
+                with sqlite3.connect(temp_audit,factory=AutoClosingConnection) as copy:
+                    a.backup(copy)
+                    if copy.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
+                        raise ValueError("Backup registro sicurezza non integro")
+            temp_audit.chmod(0o600)
         with ZipFile(temp_zip,"w",ZIP_DEFLATED,compresslevel=6) as archive:
             archive.write(temp_db,"rankup.sqlite3")
+            if temp_audit is not None:
+                archive.write(temp_audit,"rankup_audit.sqlite3")
             _archive_tree(archive,sources,"sources")
             _archive_tree(archive,pending,"pending")
             archive.writestr("manifest.json",json.dumps({
@@ -151,7 +163,7 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
                 "creato_il":datetime.now(timezone.utc).isoformat(),
                 "tabelle":counts_before,
                 "database_sha256":hashlib.sha256(temp_db.read_bytes()).hexdigest(),
-                "include":"SQLite, originali PICA/PDF, file temporanei",
+                "include":"SQLite, registro tecnico se presente, originali PICA/PDF e file temporanei",
                 "preservati_dopo_reset":"opzioni, account, SSD, commissioni e archivi finali ZIP conservati nel percorso dedicato",
             },ensure_ascii=False,indent=2))
         with ZipFile(temp_zip) as archive:
@@ -186,6 +198,8 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path):
     finally:
         if temp_db is not None:
             temp_db.unlink(missing_ok=True)
+        if temp_audit is not None:
+            temp_audit.unlink(missing_ok=True)
         if temp_zip is not None:
             temp_zip.unlink(missing_ok=True)
         RESET_LOCK.release()
