@@ -192,13 +192,27 @@
         <img src="static/rankup-icon.png" alt="RankUp">
         <div><h1>RankUp</h1><div class="muted">Accesso riservato RankUP</div></div>
       </div>
-      <p class="caption">Admin: credenziali configurate nell'add-on Home Assistant. Operatori: credenziali RankUP.</p>
+      <p class="caption">Accesso RankUP. Il recupero dell'Admin richiede Home Assistant.</p>
       <label for="login-user">Nome utente</label>
       <input id="login-user" name="username" autocomplete="username" required maxlength="50">
       <label for="login-pass">Password</label>
       <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
       <div id="login-error" class="auth-error" role="alert" aria-live="polite"></div>
       <button class="btn" id="login-submit" type="submit">Accedi</button>
+      <button class="btn secondary" id="recovery-open" type="button" style="margin-top:10px;width:100%">Password Admin dimenticata?</button>
+    </form>
+    <form id="recovery-form" class="auth-card" style="display:none" autocomplete="off">
+      <h2>Recupero Admin</h2>
+      <p class="caption">Da Home Assistant apri la configurazione dell'add-on RankUP, aumenta admin_recovery_request, salva e riavvia. Il codice compare nel registro dell'add-on e dura 10 minuti.</p>
+      <label for="recovery-code">Codice monouso da Home Assistant</label>
+      <input id="recovery-code" type="text" autocomplete="off" required minlength="32" maxlength="100">
+      <label for="recovery-new">Nuova password Admin</label>
+      <input id="recovery-new" type="password" autocomplete="new-password" required minlength="12" maxlength="128">
+      <label for="recovery-confirm">Conferma nuova password</label>
+      <input id="recovery-confirm" type="password" autocomplete="new-password" required minlength="12" maxlength="128">
+      <div id="recovery-error" class="auth-error" role="alert" aria-live="polite"></div>
+      <button class="btn" type="submit">Imposta nuova password Admin</button>
+      <button class="btn secondary" id="recovery-cancel" type="button">Torna al login</button>
     </form>
     <form id="forced-password-form" class="auth-card" style="display:none" autocomplete="off">
       <h2>Cambio password obbligatorio</h2>
@@ -425,7 +439,9 @@
         $("admin-audit-link").style.display="none";
         $("operator-profile-link").style.display="none";
         $("forced-password-form").style.display="none";
+        $("recovery-form").style.display="none";
         $("login-form").style.display="block";
+        $("login-submit").disabled=false;
         $("admin-commissioni-link").style.display="none";
         $("add-academic-year").style.display="none";
         $("admin-ai-link").style.display="none";
@@ -460,10 +476,12 @@
           $("auth-screen").style.display="grid";
           $("login-form").style.display="none";
           $("forced-password-form").style.display="block";
+          $("recovery-form").style.display="none";
           $("forced-error").textContent="";
           return;
         }
         $("forced-password-form").style.display="none";
+        $("recovery-form").style.display="none";
         $("login-form").style.display="block";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
@@ -475,7 +493,7 @@
           var response=await fetch("api/auth/status",{cache:"no-store"});
           var status=await response.json();
           if(!status.configured){
-            showLogin("L'amministratore non è configurato. Imposta username e password nella scheda Configurazione dell'add-on e riavvialo.");
+            showLogin("L'Admin non è inizializzato: attiva il recupero da Home Assistant per impostare una password.");
             $("login-submit").disabled=true;
           }else if(status.authenticated){
             await authenticatedBoot(status.role,status.username,status.password_change_required);
@@ -494,6 +512,31 @@
           $("login-pass").value="";
           await authenticatedBoot(login.role,login.username,login.password_change_required);
         }catch(error){showLogin(error.message);}
+        finally{button.disabled=false;}
+      };
+      $("recovery-open").onclick=function(){
+        $("login-form").style.display="none";
+        $("forced-password-form").style.display="none";
+        $("recovery-form").style.display="block";
+        $("recovery-error").textContent="";
+      };
+      $("recovery-cancel").onclick=function(){
+        $("recovery-form").reset();showLogin("");
+      };
+      $("recovery-form").onsubmit=async function(event){
+        event.preventDefault();
+        if($("recovery-new").value!==$("recovery-confirm").value){
+          $("recovery-error").textContent="Le password non coincidono.";return;
+        }
+        var button=this.querySelector('button[type="submit"]');
+        button.disabled=true;
+        try{
+          await api("auth/admin/recover",{method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({codice:$("recovery-code").value.trim(),
+                                  nuova_password:$("recovery-new").value})});
+          this.reset();showLogin("Password Admin ripristinata. Accedi con la nuova password.");
+        }catch(error){$("recovery-error").textContent=error.message;}
         finally{button.disabled=false;}
       };
       $("forced-password-form").onsubmit=async function(event){
