@@ -1166,6 +1166,7 @@
       async function renderAuditAdmin(){
         if(state.role!=="admin")return html(panel("Accesso riservato","Registro riservato all’Admin."));
         var selected=state.auditTab||"sicurezza";
+        state.auditTab=selected;
         html('<div class="ru-ops"><div class="ru-ops-hero"><div>'+
           '<span class="ru-ops-eyebrow">Amministrazione · Solo Admin</span>'+
           '<h3>Registro sicurezza e operazioni</h3>'+
@@ -2373,23 +2374,25 @@
             '<p class="muted">Gli utenti possono gestire bandi, incarichi, candidature, commissioni, schede PDF e valutazioni automatiche. L’acquisizione manuale e la gestione account sono riservate all’Admin.</p>'+
             '<form id="new-user-form" autocomplete="off"><div class="actions" style="align-items:end;gap:14px;flex-wrap:wrap">'+
             '<label>Nome utente<input class="rankup-user-input" id="new-user-name" name="username" autocomplete="off" maxlength="50" minlength="3" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,49}" required placeholder="Nome per l’accesso"></label>'+
-            '<label>Password iniziale<input class="rankup-user-input" id="new-user-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required placeholder="Minimo 8 caratteri"></label>'+
+            '<label>Password iniziale<input class="rankup-user-input" id="new-user-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Minimo 12 caratteri"></label>'+
             '<button type="submit" class="btn" id="new-user-submit">Crea utente</button></div></form>'+
-            '<p class="caption">La password non sarà più visualizzata dopo il salvataggio. Comunica le credenziali con un canale riservato.</p></div>'+
+            '<p class="caption">La password non sarà più visualizzata dopo il salvataggio. Comunica le credenziali con un canale riservato. L’operatore dovrà modificarla al primo accesso.</p></div>'+
             '<div class="card"><h3 class="section-heading">Utenti operativi ('+users.length+')</h3>';
           if(!users.length)content+='<p class="muted">Nessun utente operativo registrato.</p>';
           else{
             content+='<div class="tablebox"><table><thead><tr><th>Utente</th><th>Stato</th><th>Creato il</th><th>Azioni</th></tr></thead><tbody>'+
               users.map(function(u){
                 return '<tr><td><strong>'+esc(u.username)+'</strong><div class="caption">Ruolo: Utente operativo</div></td>'+
-                '<td>'+esc(u.attivo?"Attivo":"Disattivato")+'</td><td>'+esc(u.creato_il||"—")+'</td>'+
+                '<td>'+esc(u.attivo?"Attivo":"Disattivato")+
+                 (u.password_cambio_obbligatorio?'<div class="caption">Cambio password obbligatorio</div>':'')+
+                 '</td><td>'+esc(u.creato_il||"—")+'</td>'+
                 '<td><div class="actions">'+
                 '<button type="button" class="btn secondary" data-user-state="'+esc(u.id)+'" data-active="'+(u.attivo?"1":"0")+'">'+(u.attivo?"Disattiva":"Riattiva")+'</button>'+
                 '<button type="button" class="btn secondary" data-user-reset="'+esc(u.id)+'">Reimposta password</button>'+
                 '<button type="button" class="btn secondary" data-user-delete="'+esc(u.id)+'" data-name="'+esc(u.username)+'" style="color:#ef6372">Elimina utente</button></div>'+
                 '<form data-password-form="'+esc(u.id)+'" style="display:none;margin-top:10px" autocomplete="off">'+
-                '<label>Nuova password (minimo 8 caratteri)'+
-                '<input class="rankup-user-input" type="password" name="password" minlength="8" maxlength="128" required autocomplete="new-password" placeholder="Nuova password"></label>'+
+                '<label>Nuova password (minimo 12 caratteri)'+
+                '<input class="rankup-user-input" type="password" name="password" minlength="12" maxlength="128" required autocomplete="new-password" placeholder="Nuova password (almeno 12 caratteri)"></label>'+
                 '<button type="submit" class="btn">Salva nuova password</button></form></td></tr>';
               }).join('')+'</tbody></table></div>';
           }
@@ -2410,8 +2413,8 @@
                   '<form data-restore-form="'+esc(u.id)+'" style="display:none;margin-top:10px" autocomplete="off">'+
                   '<label>Nuova password (minimo 8 caratteri)'+
                   '<input class="rankup-user-input" type="password" name="password" '+
-                  'minlength="8" maxlength="128" required autocomplete="new-password" '+
-                  'placeholder="Nuova password"></label>'+
+                  'minlength="12" maxlength="128" required autocomplete="new-password" '+
+                  'placeholder="Nuova password (almeno 12 caratteri)"></label>'+
                   '<button type="submit" class="btn">Conferma ripristino</button></form></td></tr>';
               }).join('')+'</tbody></table></div>';
           }
@@ -2424,7 +2427,7 @@
             try{
               var data={username:$("new-user-name").value.trim(),
                         password:$("new-user-password").value};
-              if(data.password.length<8){note("Password: almeno 8 caratteri",true);return;}
+              if(data.password.length<12){note("Password: almeno 12 caratteri",true);return;}
               await api("utenti",{method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify(data)});
               $("new-user-password").value="";
