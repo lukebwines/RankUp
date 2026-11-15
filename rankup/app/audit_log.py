@@ -25,7 +25,7 @@ TYPES={
     "http_download":"Download protetto",
 }
 
-def create_schema(db:sqlite3.Connection)->None:
+def create_event_schema(db:sqlite3.Connection)->None:
     db.executescript("""
     CREATE TABLE IF NOT EXISTS rankup_audit_eventi (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,6 +43,11 @@ def create_schema(db:sqlite3.Connection)->None:
         ON rankup_audit_eventi(quando DESC,id DESC);
     CREATE INDEX IF NOT EXISTS ix_audit_filtro
         ON rankup_audit_eventi(ambito,evento,quando DESC);
+    """)
+
+
+def create_policy_schema(db:sqlite3.Connection)->None:
+    db.executescript("""
     CREATE TABLE IF NOT EXISTS rankup_politiche_sicurezza (
         id INTEGER PRIMARY KEY CHECK(id=1),
         password_max_giorni INTEGER NOT NULL DEFAULT 0
@@ -52,6 +57,7 @@ def create_schema(db:sqlite3.Connection)->None:
     INSERT OR IGNORE INTO rankup_politiche_sicurezza
       (id,password_max_giorni,aggiornato_il) VALUES(1,0,'');
     """)
+
 
 def coarse_origin(host:str|None)->str:
     """Origine ASGI, deliberatamente non fidarsi di header arbitrari."""
