@@ -53,6 +53,7 @@ from pdf_import import (
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_template
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
+import admin_credentials as admin_store
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
 from pdf_definitivo import verbale_definitivo
@@ -803,6 +804,8 @@ def initialize() -> None:
         """)
         # v7: coda AI persistente; conserva gli esiti storici del vecchio flusso.
         ai_queue_schema(db)
+        # Registro Admin persistente; lo schema e' protetto dal backup pre-migrazione.
+        admin_store.schema(db)
         # Registri separati dall'archivio operativo, non rimossi dall'azzeramento.
         create_policy_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
@@ -1015,7 +1018,8 @@ app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 async def require_rankup_login(request: Request, call_next):
     path = request.url.path
     public = (
-        path in ("/", "/api/health", "/api/auth/status", "/api/auth/login")
+        path in ("/", "/api/health", "/api/auth/status", "/api/auth/login",
+                 "/api/auth/admin/recover")
         or path.startswith("/static/")
     )
     # Evita che un sito esterno invii form non autorizzati usando i cookie.
@@ -1093,7 +1097,7 @@ def auth_status(request: Request):
 @app.post("/api/auth/login")
 def auth_login(credentials: LoginRequest, request: Request):
     if not AUTH.configured:
-        fail("Configurare amministratore e password nella scheda Configurazione dell'add-on", 503)
+        fail("Admin non inizializzato: usa il recupero da Home Assistant", 503)
     # L'indirizzo del peer è fornito dal server ASGI; non fidarsi di
     # CF-Connecting-IP/X-Forwarded-For forniti arbitrariamente dal client.
     source=request.client.host if request.client else "unknown"
@@ -1312,7 +1316,8 @@ def elenco_utenti(request: Request):
         """).fetchall()
     return {"utenti":[dict(r) for r in rows],
             "utenti_eliminati":[dict(r) for r in deleted],
-            "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
+            "admin":{"username":AUTH.username,"gestito_da":"Credenziali protette RankUP",
+                     "recupero":"Home Assistant (codice temporaneo)"},
             "password_minima":8}
 
 
