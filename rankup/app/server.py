@@ -1365,7 +1365,9 @@ def elenco_utenti(request: Request):
     return {"utenti":[dict(r) for r in rows],
             "utenti_eliminati":[dict(r) for r in deleted],
             "admin":{"username":AUTH.username,"gestito_da":"Credenziali protette RankUP",
-                     "recupero":"Home Assistant (codice temporaneo)"},
+                     "recupero":"Home Assistant (codice temporaneo)",
+                     "password_legacy_nelle_opzioni":bool(
+                         admin_store.options(BASE).get("admin_password"))},
             "password_minima":8}
 
 
