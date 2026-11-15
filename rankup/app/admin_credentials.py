@@ -150,6 +150,7 @@ def consume_recovery(db_path:Path,code:str,new_password:str)->str:
                 db.execute("""UPDATE rankup_admin_auth SET recovery_tentativi=?,
                     recovery_sha256=CASE WHEN ?>=? THEN '' ELSE recovery_sha256 END
                     WHERE id=1""",(attempt,attempt,RECOVERY_MAX_ATTEMPTS))
+            db.commit()  # Persist the failed-attempt counter before returning an error.
             raise PermissionError("Codice non valido o scaduto")
         db.execute("""UPDATE rankup_admin_auth SET password_salt=?,password_hash=?,
             password_modificata_il=?,recovery_sha256='',recovery_scade=0,
