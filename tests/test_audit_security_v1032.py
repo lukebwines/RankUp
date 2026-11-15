@@ -86,7 +86,7 @@ def test_operation_audit_is_paged_and_preserved(tmp_path,monkeypatch):
                    r["percorso"]=="/api/bandi" for r in full.json()["eventi"]) is False
         assert any(r["evento"]=="http_modifica" for r in full.json()["eventi"])
         assert admin.get("/api/admin/sicurezza/eventi?limite=10000").status_code==400
-        with server.connect() as db:
+        with server.audit_connect() as db:
             assert db.execute("SELECT COUNT(*) FROM rankup_audit_eventi").fetchone()[0]>0
 
 
