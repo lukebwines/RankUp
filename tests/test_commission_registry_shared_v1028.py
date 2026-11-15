@@ -65,7 +65,7 @@ def test_operators_manage_registry_and_versions_without_mutating_bandi(tmp_path,
                 assert events[0]["autore"] == "commissionista-test"
                 assert events[1]["precedente_id"] == first
                 assert events[1]["autore"] == "commissionista-test"
-                assert int(db.execute("PRAGMA user_version").fetchone()[0]) == 14
+                assert int(db.execute("PRAGMA user_version").fetchone()[0]) == 15
 
             # Non devono esserci modifiche implicite alle commissioni dei bandi.
             assert operator.get("/api/bandi/26-02/commissioni").json()["commissioni"] == original
