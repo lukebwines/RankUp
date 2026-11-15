@@ -1051,6 +1051,23 @@ async def require_rankup_login(request: Request, call_next):
                          "/api/auth/logout","/api/auth/login")):
         return JSONResponse({"detail":"Cambio password obbligatorio prima di proseguire",
                              "code":"PASSWORD_CHANGE_REQUIRED"},status_code=403)
+    # Dal momento in cui e' prenotato il ripristino non accettare scritture
+    # che potrebbero essere perse all'avvio successivo. Resta possibile
+    # autenticarsi, annullare il ripristino e verificare gli ZIP.
+    if (principal and request.method not in ("GET", "HEAD", "OPTIONS")
+            and pending_restore(BASE)
+            and path not in ("/api/auth/login", "/api/auth/logout",
+                             "/api/auth/admin/recover", "/api/auth/change-password",
+                             "/api/admin/backups/restore/cancel")
+            and not (path.startswith("/api/admin/backups/") and
+                     path.endswith("/verify"))):
+        record_audit("sicurezza","scrittura_bloccata_ripristino","negato",request,
+                     utente=principal["username"],metodo=request.method,
+                     percorso=path)
+        return JSONResponse({"detail":
+            "Ripristino programmato: modifiche bloccate fino al riavvio di RankUP "
+            "oppure all'annullamento dalla sezione Backup e azzeramento archivi."},
+            status_code=423)
     # Un bando archiviato e' bloccato: solo un Admin puo' riaprirlo
     # formalmente. La barriera vale anche per gli operatori e le API.
     if request.method not in ("GET","HEAD","OPTIONS") and path.startswith("/api/bandi/"):
