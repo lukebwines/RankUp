@@ -1,3 +1,4 @@
+from test_pdf_import import _complete_operator_onboarding
 """Regressioni dei permessi sull'archivio ZIP finale (dati sintetici)."""
 from pathlib import Path
 from zipfile import ZipFile
@@ -24,6 +25,7 @@ def test_operatore_puo_usare_zip_schede_ma_non_archivio_finale(tmp_path, monkeyp
             })
             assert login.status_code == 200, login.text
             assert login.json()["role"] == "user"
+            _complete_operator_onboarding(operatore,"operatore_test","PasswordTest123!")
 
             # Lo ZIP operativo delle schede resta disponibile.
             working_zip = operatore.get(base + "/schede/zip")
