@@ -1126,6 +1126,54 @@ def auth_login(credentials: LoginRequest, request: Request):
     return response
 
 
+class CambiaPasswordAdmin(BaseModel):
+    password_attuale: str = Field(min_length=1,max_length=128)
+    nuova_password: str = Field(min_length=12,max_length=128)
+
+
+class RecuperoAdminHomeAssistant(BaseModel):
+    codice: str = Field(min_length=32,max_length=100)
+    nuova_password: str = Field(min_length=12,max_length=128)
+
+
+@app.post("/api/auth/admin/change-password")
+def cambia_password_admin(body:CambiaPasswordAdmin,request:Request):
+    principal=require_admin(request)
+    try:
+        admin_store.change_password(DB,body.password_attuale,body.nuova_password)
+    except PermissionError:
+        record_audit("sicurezza","password_admin","negato",request,
+                     utente=principal["username"],metodo="POST",
+                     percorso="/api/auth/admin/change-password")
+        fail("Password Admin attuale non valida",403)
+    except ValueError as exc:
+        fail(str(exc))
+    AUTH.revoke_admin()
+    record_audit("sicurezza","password_admin","ok",request,
+                 utente=principal["username"],metodo="POST",
+                 percorso="/api/auth/admin/change-password")
+    return {"ok":True,"messaggio":"Password Admin modificata. Accedi di nuovo."}
+
+
+@app.post("/api/auth/admin/recover")
+def recupero_admin_ha(body:RecuperoAdminHomeAssistant,request:Request):
+    try:
+        identity=admin_store.consume_recovery(DB,body.codice,body.nuova_password)
+    except PermissionError:
+        record_audit("sicurezza","recupero_admin","negato",request,
+                     utente="",metodo="POST",percorso="/api/auth/admin/recover")
+        fail("Codice non valido, scaduto o gia' utilizzato",403)
+    except ValueError as exc:
+        fail(str(exc))
+    AUTH.revoke_admin()
+    record_audit("sicurezza","recupero_admin","ok",request,
+                 utente=identity,metodo="POST",percorso="/api/auth/admin/recover")
+    response=JSONResponse({"ok":True,
+       "messaggio":"Credenziali Admin aggiornate. Accedi con la nuova password."})
+    response.delete_cookie(COOKIE_NAME,path=cookie_path(request))
+    return response
+
+
 @app.post("/api/auth/logout")
 def auth_logout(request: Request):
     principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
