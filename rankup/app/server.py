@@ -1177,7 +1177,103 @@ def scarica_backup_azzeramento(filename: str, request: Request):
 
 class CreaUtente(BaseModel):
     username: str = Field(min_length=3,max_length=50)
-    password: str = Field(min_length=8,max_length=128)
+    password: str = Field(min_length=12,max_length=128)
+
+
+class CambiaPasswordPersonale(BaseModel):
+    password_attuale: str = Field(min_length=1,max_length=128)
+    nuova_password: str = Field(min_length=12,max_length=128)
+
+
+class PoliticaPasswordAdmin(BaseModel):
+    password_max_giorni: Literal[0,180]
+
+
+@app.post("/api/auth/change-password")
+def cambia_password_personale(body: CambiaPasswordPersonale,request: Request):
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal:
+        fail("Autenticazione richiesta",401)
+    if principal["role"]!="user":
+        fail("La password Admin è gestita nella configurazione dell'add-on Home Assistant",403)
+    if body.password_attuale==body.nuova_password:
+        fail("La nuova password deve essere diversa da quella corrente")
+    if principal["username"].casefold() in body.nuova_password.casefold():
+        fail("La password non deve contenere il nome utente")
+    if not AUTH.verify_operator_password(principal["id"],body.password_attuale):
+        record_audit("sicurezza","password_personale","negato",request,
+                     utente=principal["username"],metodo="POST",
+                     percorso="/api/auth/change-password")
+        fail("Password corrente non valida",403)
+    salt,digest=AUTH.password_record(body.nuova_password)
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute("""SELECT password_hash FROM rankup_utenti
+            WHERE id=? AND attivo=1 AND eliminato=0""",(principal["id"],)).fetchone()
+        if row is None:
+            fail("Account non attivo",403)
+        # Confronto concorrente: un reset avvenuto dopo la verifica deve
+        # invalidare il cambio anziché accettare credenziali superate.
+        changed=db.execute("""UPDATE rankup_utenti
+           SET password_salt=?,password_hash=?,credenziali_versione=credenziali_versione+1,
+               password_modificata_il=?,password_cambio_obbligatorio=0,aggiornato_il=?
+           WHERE id=? AND password_hash=?""",
+           (salt,digest,now,now,principal["id"],row["password_hash"]))
+        if changed.rowcount!=1:
+            fail("Credenziali modificate durante l'operazione",409)
+        db.execute("""INSERT INTO rankup_utenti_eventi
+            (utente_id,azione,autore,quando) VALUES(?,?,?,?)""",
+            (principal["id"],"Cambio password personale",principal["username"],now))
+        audit_insert(db,"sicurezza","password_personale","ok",
+                     utente=principal["username"],metodo="POST",
+                     percorso="/api/auth/change-password",
+                     origine=audit_origin(request.client.host if request.client else ""))
+        db.commit()
+    AUTH.revoke_user(principal["id"])
+    return {"ok":True,"messaggio":"Password aggiornata. Esegui nuovamente l'accesso."}
+
+
+@app.get("/api/admin/sicurezza/politica")
+def leggi_politica_password(request: Request):
+    require_admin(request)
+    with connect() as db:
+        days=db.execute("""SELECT password_max_giorni FROM rankup_politiche_sicurezza
+                           WHERE id=1""").fetchone()[0]
+    return {"password_max_giorni":days,"predefinito":0,
+            "nota":"Nessuna rotazione arbitraria per impostazione predefinita"}
+
+
+@app.put("/api/admin/sicurezza/politica")
+def modifica_politica_password(body:PoliticaPasswordAdmin,request: Request):
+    principal=require_admin(request)
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("""UPDATE rankup_politiche_sicurezza
+            SET password_max_giorni=?,aggiornato_il=? WHERE id=1""",
+            (body.password_max_giorni,now))
+        audit_insert(db,"sicurezza","policy","ok",utente=principal["username"],
+                     metodo="PUT",percorso="/api/admin/sicurezza/politica",
+                     oggetto=str(body.password_max_giorni),
+                     origine=audit_origin(request.client.host if request.client else ""))
+        db.commit()
+    return {"ok":True,"password_max_giorni":body.password_max_giorni}
+
+
+@app.get("/api/admin/sicurezza/eventi")
+def registro_sicurezza_admin(request: Request,ambito:str="",evento:str="",
+                            utente:str="",esito:str="",pagina:int=1,limite:int=50):
+    require_admin(request)
+    if len(evento)>80 or len(utente)>50:
+        fail("Filtro non valido")
+    with connect() as db:
+        try:
+            return audit_page(db,ambito=ambito,evento=evento,utente=utente,
+                              esito=esito,page=pagina,limit=limite)
+        except ValueError as exc:
+            fail(str(exc))
+
 
 
 class CambiaStatoUtente(BaseModel):
@@ -1193,7 +1289,8 @@ def elenco_utenti(request: Request):
     require_admin(request)
     with connect() as db:
         rows=db.execute("""
-            SELECT id,username,attivo,creato_il,aggiornato_il,creato_da
+            SELECT id,username,attivo,creato_il,aggiornato_il,creato_da,
+                   password_modificata_il,password_cambio_obbligatorio
             FROM rankup_utenti WHERE eliminato=0 ORDER BY username COLLATE NOCASE
         """).fetchall()
         deleted=db.execute("""
@@ -1203,7 +1300,7 @@ def elenco_utenti(request: Request):
     return {"utenti":[dict(r) for r in rows],
             "utenti_eliminati":[dict(r) for r in deleted],
             "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
-            "password_minima":8}
+            "password_minima":12}
 
 
 @app.post("/api/utenti")
@@ -1231,9 +1328,10 @@ def crea_utente(body: CreaUtente,request: Request):
             cur=db.execute("""
                 INSERT INTO rankup_utenti
                  (username,password_salt,password_hash,attivo,credenziali_versione,
-                  creato_il,aggiornato_il,creato_da)
-                VALUES(?,?,?,1,1,?,?,?)
-            """,(username,salt,digest,now,now,who["username"]))
+                  creato_il,aggiornato_il,creato_da,
+                  password_modificata_il,password_cambio_obbligatorio)
+                VALUES(?,?,?,1,1,?,?,?,?,1)
+            """,(username,salt,digest,now,now,who["username"],now))
         except sqlite3.IntegrityError:
             fail("Nome utente già presente; riattivalo o reimposta la sua password",409)
         uid=cur.lastrowid
