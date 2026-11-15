@@ -2411,7 +2411,15 @@
           var users=result.utenti||[],deletedUsers=result.utenti_eliminati||[];
           var content='<div class="card mb"><h3 class="section-heading">Amministratore del sistema</h3>'+
             '<p><strong>'+esc(result.admin.username)+'</strong> · Admin</p>'+
-            '<p class="caption">Le credenziali dell’amministratore rimangono nella Configurazione dell’add-on Home Assistant. Gli utenti creati qui non possono attribuirsi privilegi amministrativi.</p>'+
+            '<p class="caption">Password custodita come hash in RankUP. Home Assistant serve soltanto per il recupero d’emergenza tramite codice monouso.</p>'+
+            (result.admin.password_legacy_nelle_opzioni?
+              '<p class="notice">Nelle vecchie opzioni Home Assistant è ancora presente una password Admin: dopo aver verificato l’accesso con la nuova versione, svuota/rimuovi admin_password nella configurazione dell’add-on. Il valore non è più usato per autenticarsi.</p>':'')+
+            '<details style="margin-top:12px"><summary>Modifica password Admin</summary>'+
+            '<form id="admin-change-password" autocomplete="off" class="ru-ticket-form" style="margin-top:12px">'+
+            '<label>Password Admin corrente<input class="rankup-user-input" type="password" name="current" required autocomplete="current-password"></label>'+
+            '<label>Nuova password (almeno 12 caratteri)<input class="rankup-user-input" type="password" name="next" required minlength="12" maxlength="128" autocomplete="new-password"></label>'+
+            '<label>Conferma nuova password<input class="rankup-user-input" type="password" name="confirm" required minlength="12" maxlength="128" autocomplete="new-password"></label>'+
+            '<button class="btn" type="submit">Aggiorna password Admin</button></form></details>'+
             '</div>'+
             '<div class="card mb"><h3 class="section-heading">Crea un utente operativo</h3>'+
             '<p class="muted">Gli utenti possono gestire bandi, incarichi, candidature, commissioni, schede PDF e valutazioni automatiche. L’acquisizione manuale e la gestione account sono riservate all’Admin.</p>'+
@@ -2463,6 +2471,22 @@
           }
           content+='</div>';
           html(content);
+          $("admin-change-password").onsubmit=async function(event){
+            event.preventDefault();
+            var form=this,button=form.querySelector('button[type="submit"]');
+            if(form.elements.next.value!==form.elements.confirm.value){
+              note("Le due nuove password Admin non coincidono.",true);return;
+            }
+            if(!confirm("Cambiare la password Admin e chiudere tutte le sessioni amministrative?"))return;
+            button.disabled=true;
+            try{
+              await api("auth/admin/change-password",{method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({password_attuale:form.elements.current.value,
+                                     nuova_password:form.elements.next.value})});
+              form.reset();showLogin("Password Admin modificata. Accedi di nuovo.");
+            }catch(err){note(err.message,true);button.disabled=false;}
+          };
           $("new-user-form").onsubmit=async function(event){
             event.preventDefault();
             var button=$("new-user-submit");
