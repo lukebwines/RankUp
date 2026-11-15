@@ -105,6 +105,13 @@ class Authentication:
             return False
         return hmac.compare_digest(calculated,self._verifier)
 
+    def rate_limited(self,source:str)->bool:
+        origin=str(source or "unknown")[:100]
+        now=time.monotonic()
+        with self._lock:
+            return sum(1 for when,address in self._failures
+                       if address==origin and now-when<=60)>=24
+
     def authenticate(self, username: str, password: str,
                      source: str = "local") -> str | None:
         if not self.configured:
@@ -188,6 +195,8 @@ class Authentication:
                            password_modificata_il,password_cambio_obbligatorio
                     FROM rankup_utenti WHERE id=?
                 """,(user_id,)).fetchone()
+                policy=db.execute("""SELECT password_max_giorni FROM rankup_politiche_sicurezza
+                                     WHERE id=1""").fetchone()
         except (sqlite3.Error,OSError):
             return None
         if not row or not row["attivo"] or row["credenziali_versione"] != version:
@@ -196,9 +205,6 @@ class Authentication:
             return None
         change_required=bool(row["password_cambio_obbligatorio"])
         try:
-            with sqlite3.connect(self._db_path,timeout=10,factory=AutoClosingConnection) as db:
-                policy=db.execute("""SELECT password_max_giorni FROM rankup_politiche_sicurezza
-                                     WHERE id=1""").fetchone()
             days=policy[0] if policy else 0
             if days and not change_required:
                 modified=row["password_modificata_il"]
