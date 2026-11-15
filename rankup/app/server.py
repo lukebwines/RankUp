@@ -1407,6 +1407,9 @@ def ripristina_utente_eliminato(user_id: int,body: ReimpostaPasswordUtente,reque
         """,(user_id,"Ripristinato account eliminato con nuova password",
               who["username"],now))
         db.commit()
+    record_audit("sicurezza","password_riattivazione","ok",request,
+                 utente=who["username"],oggetto=row["username"],metodo="PUT",
+                 percorso="/api/utenti/{user_id}/ripristina")
     AUTH.revoke_user(user_id)
     return {"ok":True,"utente":{"id":user_id,"username":row["username"],"attivo":1},
             "avviso":"Account ripristinato con nuova password. Storico precedente conservato."}
@@ -1465,6 +1468,9 @@ def password_utente(user_id: int,body: ReimpostaPasswordUtente,request: Request)
             VALUES(?,?,?,?)
         """,(user_id,"Password reimpostata",who["username"],now))
         db.commit()
+    record_audit("sicurezza","password_reset","ok",request,
+                 utente=who["username"],oggetto=row["username"],metodo="PUT",
+                 percorso="/api/utenti/{user_id}/password")
     AUTH.revoke_user(user_id)
     return {"ok":True,"id":user_id,"username":row["username"],
             "avviso":"Password aggiornata. Tutte le sessioni precedenti dell'utente sono revocate."}
