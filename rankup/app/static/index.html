@@ -2374,7 +2374,7 @@
             '<p class="muted">Gli utenti possono gestire bandi, incarichi, candidature, commissioni, schede PDF e valutazioni automatiche. L’acquisizione manuale e la gestione account sono riservate all’Admin.</p>'+
             '<form id="new-user-form" autocomplete="off"><div class="actions" style="align-items:end;gap:14px;flex-wrap:wrap">'+
             '<label>Nome utente<input class="rankup-user-input" id="new-user-name" name="username" autocomplete="off" maxlength="50" minlength="3" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,49}" required placeholder="Nome per l’accesso"></label>'+
-            '<label>Password iniziale<input class="rankup-user-input" id="new-user-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required placeholder="Minimo 12 caratteri"></label>'+
+            '<label>Password iniziale<input class="rankup-user-input" id="new-user-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required placeholder="Minimo 8 caratteri (temporanea)"></label>'+
             '<button type="submit" class="btn" id="new-user-submit">Crea utente</button></div></form>'+
             '<p class="caption">La password non sarà più visualizzata dopo il salvataggio. Comunica le credenziali con un canale riservato. L’operatore dovrà modificarla al primo accesso.</p></div>'+
             '<div class="card"><h3 class="section-heading">Utenti operativi ('+users.length+')</h3>';
@@ -2427,7 +2427,7 @@
             try{
               var data={username:$("new-user-name").value.trim(),
                         password:$("new-user-password").value};
-              if(data.password.length<12){note("Password: almeno 12 caratteri",true);return;}
+              if(data.password.length<8){note("Password: almeno 8 caratteri",true);return;}
               await api("utenti",{method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify(data)});
               $("new-user-password").value="";
