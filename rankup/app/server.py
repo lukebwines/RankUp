@@ -1163,7 +1163,7 @@ def esegui_azzeramento(request: Request, body: RichiestaAzzeramento):
     if not AUTH.verify_admin_password(body.password_admin):
         fail("Password amministratore non corretta",403)
     try:
-        archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup")
+        archive=reset_with_backup(DB,SOURCES,PENDING,BASE/"backups_rankup",AUDIT_DB)
     except (ValueError,sqlite3.Error,OSError,zipfile.BadZipFile) as exc:
         fail("Azzeramento non eseguito o incompleto: "+str(exc),409)
     # Ricrea le corrispondenze PICA di sistema; account, opzioni e SSD restano.
