@@ -190,9 +190,9 @@
     <form id="login-form" class="auth-card" autocomplete="on">
       <div class="auth-brand">
         <img src="static/rankup-icon.png" alt="RankUp">
-        <div><h1>RankUp</h1><div class="muted">Accesso amministratore</div></div>
+        <div><h1>RankUp</h1><div class="muted">Accesso riservato RankUP</div></div>
       </div>
-      <p class="caption">Utilizza le credenziali configurate nell'add-on di Home Assistant.</p>
+      <p class="caption">Admin: credenziali configurate nell'add-on Home Assistant. Operatori: credenziali RankUP.</p>
       <label for="login-user">Nome utente</label>
       <input id="login-user" name="username" autocomplete="username" required maxlength="50">
       <label for="login-pass">Password</label>
@@ -1137,6 +1137,140 @@
           '<strong>Scadenze registrate</strong>'+
           scadenze.slice(0,4).map(function(r){return '<small>'+esc(r.bando)+' · '+esc(r.tipo)+
             ': '+esc(r.data)+'</small>';}).join("")+'</div></div>':"";
+      }
+      function renderProfilo(){
+        if(state.role!=="user")return html(panel("Password Admin","Le credenziali Admin sono gestite tramite Home Assistant."));
+        html('<div class="ru-ops"><section class="ru-ops-card" style="max-width:650px">'+
+          '<h3>Modifica la tua password</h3>'+
+          '<p class="caption">Riservato al tuo account operativo. Dopo il cambio tutte le sessioni saranno revocate.</p>'+
+          '<form id="profile-change" autocomplete="off" class="ru-ticket-form">'+
+          '<label>Password corrente<input class="rankup-user-input" type="password" name="old" required autocomplete="current-password"></label>'+
+          '<label>Nuova password (almeno 12 caratteri)<input class="rankup-user-input" type="password" name="next" minlength="12" maxlength="128" required autocomplete="new-password"></label>'+
+          '<label>Conferma nuova password<input class="rankup-user-input" type="password" name="confirm" minlength="12" maxlength="128" required autocomplete="new-password"></label>'+
+          '<button class="btn" type="submit">Aggiorna password</button></form></section></div>');
+        $("profile-change").onsubmit=async function(event){
+          event.preventDefault();
+          var form=this,button=form.querySelector("button");
+          if(form.elements.next.value!==form.elements.confirm.value){
+            note("Le due nuove password non coincidono.",true);return;
+          }
+          button.disabled=true;
+          try{
+            await api("auth/change-password",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({password_attuale:form.elements.old.value,
+                                   nuova_password:form.elements.next.value})});
+            form.reset();showLogin("Password modificata. Accedi nuovamente.");
+          }catch(err){note(err.message,true);button.disabled=false;}
+        };
+      }
+      async function renderAuditAdmin(){
+        if(state.role!=="admin")return html(panel("Accesso riservato","Registro riservato all’Admin."));
+        var selected=state.auditTab||"sicurezza";
+        html('<div class="ru-ops"><div class="ru-ops-hero"><div>'+
+          '<span class="ru-ops-eyebrow">Amministrazione · Solo Admin</span>'+
+          '<h3>Registro sicurezza e operazioni</h3>'+
+          '<p>Eventi essenziali, senza password, token o dati personali delle candidature.</p>'+
+          '</div></div>'+
+          '<section class="ru-ops-card"><div class="ru-ops-tabs">'+
+          '<button type="button" data-audit-tab="sicurezza" aria-pressed="'+(selected==="sicurezza")+'">Accessi e sicurezza</button>'+
+          '<button type="button" data-audit-tab="operazioni" aria-pressed="'+(selected==="operazioni")+'">Operazioni applicative</button>'+
+          '<button type="button" data-audit-tab="storico" aria-pressed="'+(selected==="storico")+'">Storico amministrativo</button></div>'+
+          '<div class="ru-ops-filters">'+
+          '<label>Utente<input id="audit-user" placeholder="Filtra per account" maxlength="50"></label>'+
+          '<label>Esito<select id="audit-result"><option value="">Tutti</option>'+
+          '<option value="ok">Riuscito</option><option value="negato">Negato</option>'+
+          '<option value="errore">Errore</option></select></label>'+
+          '<label>Evento<input id="audit-event" placeholder="Codice evento" maxlength="80"></label>'+
+          '<button type="button" class="btn secondary" id="audit-apply">Applica filtri</button></div>'+
+          '<div id="audit-list"><p class="caption">Caricamento registro…</p></div>'+
+          '<div class="actions" style="align-items:center;justify-content:space-between;margin-top:14px">'+
+          '<button class="btn secondary" id="audit-prev">Precedente</button>'+
+          '<span id="audit-counter" class="caption"></span>'+
+          '<button class="btn secondary" id="audit-next">Successiva</button></div>'+
+          '</section>'+
+          '<section class="ru-ops-card" style="margin-top:18px"><div class="ru-ops-card-header">'+
+          '<h3>Politica password operatori</h3><span class="caption">La password Admin è gestita nell’add-on Home Assistant</span></div>'+
+          '<div class="actions" style="align-items:end;gap:14px;flex-wrap:wrap">'+
+          '<label>Scadenza password degli operatori<select id="audit-policy" class="rankup-user-input">'+
+          '<option value="0">Nessuna scadenza automatica</option>'+
+          '<option value="180">Ogni 180 giorni (solo se previsto dall’organizzazione)</option></select></label>'+
+          '<button type="button" class="btn secondary" id="audit-policy-save">Salva politica</button></div>'+
+          '<p class="caption">L’attivazione dei 180 giorni impone il cambio anche agli account storici privi di data verificata. Il criterio predefinito è nessuna scadenza.</p>'+
+          '</section></div>');
+        var page=1,total=0,limit=30;
+        async function load(){
+          var root=$("audit-list");
+          root.innerHTML='<p class="caption">Caricamento eventi…</p>';
+          var params=new URLSearchParams({pagina:String(page),limite:String(limit)});
+          var user=$("audit-user").value.trim();
+          var event=$("audit-event").value.trim();
+          var result=$("audit-result").value;
+          if(user)params.set("utente",user);
+          if(event)params.set("evento",event);
+          if(result)params.set("esito",result);
+          try{
+            if(state.auditTab==="storico"){
+              var hist=await api("admin/registro-attivita");
+              if(state.page!=="audit"||state.auditTab!=="storico")return;
+              var all=(hist.attivita||[]).filter(function(r){
+                return (!user||r.autore.toLowerCase().includes(user.toLowerCase()))&&
+                  (!event||r.azione.toLowerCase().includes(event.toLowerCase()));
+              });
+              total=all.length;
+              root.innerHTML=all.length?
+                '<div class="tablebox"><table><thead><tr><th>Quando</th><th>Utente</th>'+
+                '<th>Operazione</th><th>Ambito</th><th>Bando</th></tr></thead><tbody>'+
+                all.slice((page-1)*limit,page*limit).map(function(e){
+                  return '<tr><td>'+esc(e.quando)+'</td><td>'+esc(e.autore)+'</td>'+
+                    '<td>'+esc(e.azione)+'</td><td>'+esc(e.tipo)+'</td>'+
+                    '<td>'+esc(e.bando)+'</td></tr>';}).join("")+'</tbody></table></div>':
+                '<div class="ru-ops-empty">Nessuna operazione amministrativa presente.</div>';
+              $("audit-counter").textContent="Pagina "+page+" · fino a 100 operazioni storiche";
+            }else{
+              params.set("ambito",state.auditTab);
+              var data=await api("admin/sicurezza/eventi?"+params.toString());
+              if(state.page!=="audit")return;
+              total=data.totale;
+              root.innerHTML=data.eventi.length?
+                '<div class="tablebox"><table><thead><tr><th>Quando</th><th>Account</th>'+
+                '<th>Evento</th><th>Esito</th><th>Percorso / bando</th><th>Origine ASGI</th></tr></thead><tbody>'+
+                data.eventi.map(function(e){return '<tr><td>'+esc(e.quando)+'</td>'+
+                  '<td>'+esc(e.utente||"—")+'</td><td>'+esc(e.evento)+'</td>'+
+                  '<td>'+esc(e.esito)+'</td><td>'+esc(e.metodo+" "+(e.percorso||"")+
+                  (e.oggetto?" · "+e.oggetto:""))+'</td>'+
+                  '<td>'+esc(e.origine||"—")+'</td></tr>';}).join("")+'</tbody></table></div>':
+                '<div class="ru-ops-empty">Nessun evento per i filtri selezionati.</div>';
+              $("audit-counter").textContent="Pagina "+page+" · "+total+" eventi";
+            }
+            $("audit-prev").disabled=page<=1;
+            $("audit-next").disabled=page*limit>=total;
+          }catch(err){if(state.page==="audit")root.textContent="Registro non disponibile: "+err.message;}
+        }
+        document.querySelectorAll("[data-audit-tab]").forEach(function(b){
+          b.onclick=function(){state.auditTab=b.dataset.auditTab;page=1;renderAuditAdmin();};
+        });
+        $("audit-apply").onclick=function(){page=1;load();};
+        $("audit-prev").onclick=function(){if(page>1){page--;load();}};
+        $("audit-next").onclick=function(){if(page*limit<total){page++;load();}};
+        (async function(){
+          try{
+            var r=await api("admin/sicurezza/politica");
+            if(state.page==="audit")$("audit-policy").value=String(r.password_max_giorni);
+          }catch(err){note(err.message,true);}
+        })();
+        $("audit-policy-save").onclick=async function(){
+          var days=Number($("audit-policy").value);
+          if(days===180&&!confirm("Attivare il cambio password ogni 180 giorni? Le date sconosciute comporteranno un cambio obbligatorio."))return;
+          this.disabled=true;
+          try{
+            await api("admin/sicurezza/politica",{method:"PUT",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({password_max_giorni:days})});
+            note("Politica password aggiornata.",false);
+          }catch(err){note(err.message,true);}
+          finally{this.disabled=false;}
+        };
+        load();
       }
       async function renderDiagnostica(){
         if(state.role!=="admin")return html(panel("Accesso riservato","Diagnostica riservata all'Admin."));
