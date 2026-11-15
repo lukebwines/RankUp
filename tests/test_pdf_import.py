@@ -585,6 +585,7 @@ def test_only_admin_can_manually_acquire_a_pdf(tmp_path, monkeypatch):
             })
             assert login.status_code==200,login.text
             assert login.json()["role"]=="user"
+            _complete_operator_onboarding(other_client,"operatore_test","Password8!")
             status=other_client.get("/api/auth/status")
             assert status.status_code==200
             assert status.json()["role"]=="user"
