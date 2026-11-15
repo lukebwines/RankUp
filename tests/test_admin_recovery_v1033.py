@@ -151,3 +151,44 @@ def test_ui_marks_admin_recovery_and_hash_without_exposing_old_option():
     assert "auth/admin/change-password" in index
     assert "admin_recovery_request: int(0,999999999)" in config
     assert "admin_password: password?" in config
+
+
+
+def test_unconfigured_fresh_install_recovers_without_plaintext_option(
+        tmp_path,monkeypatch,capsys):
+    monkeypatch.setenv("RANKUP_DATA_DIR",str(tmp_path))
+    (tmp_path/"options.json").write_text(json.dumps({
+        "admin_username":"test-admin","admin_recovery_request":1}))
+    import server
+    importlib.reload(server)
+    logged=capsys.readouterr().out
+    match=re.search(r"codice monouso:\s+([A-Za-z0-9_-]+)",logged)
+    assert match is not None
+    with TestClient(server.app) as guest:
+        status=guest.get("/api/auth/status")
+        assert status.json()["configured"] is False
+        assert _post(guest,"/api/auth/login",json={
+            "username":"test-admin","password":NEW}).status_code==503
+        issued=_post(guest,"/api/auth/admin/recover",json={
+            "codice":match.group(1),"nuova_password":NEW})
+        assert issued.status_code==200,issued.text
+        assert _post(guest,"/api/auth/login",json={
+            "username":"test-admin","password":NEW}).status_code==200
+        assert guest.get("/api/utenti").status_code==200
+
+
+def test_ha_recovery_revokes_live_admin_session(tmp_path,monkeypatch,capsys):
+    server,admin,_=_setup(tmp_path,monkeypatch)
+    module,code=_issue_from_home_assistant(tmp_path,monkeypatch,capsys,1)
+    with TestClient(module.app) as existing,TestClient(module.app) as guest:
+        assert _post(existing,"/api/auth/login",json={
+            "username":"test-admin","password":OLD}).status_code==200
+        assert existing.get("/api/bandi").status_code==200
+        done=_post(guest,"/api/auth/admin/recover",json={
+            "codice":code,"nuova_password":NEW})
+        assert done.status_code==200
+        assert existing.get("/api/bandi").status_code==401
+        assert _post(existing,"/api/auth/login",json={
+            "username":"test-admin","password":OLD}).status_code==401
+        assert _post(existing,"/api/auth/login",json={
+            "username":"test-admin","password":NEW}).status_code==200
