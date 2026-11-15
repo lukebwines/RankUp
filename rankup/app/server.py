@@ -1157,6 +1157,11 @@ def cambia_password_admin(body:CambiaPasswordAdmin,request:Request):
 
 @app.post("/api/auth/admin/recover")
 def recupero_admin_ha(body:RecuperoAdminHomeAssistant,request:Request):
+    source=request.client.host if request.client else "unknown"
+    if not AUTH.allow_recovery_attempt(source):
+        record_audit("sicurezza","recupero_admin_limitato","negato",request,
+                     metodo="POST",percorso="/api/auth/admin/recover")
+        fail("Troppe richieste di recupero: riprova tra un minuto",429)
     try:
         identity=admin_store.consume_recovery(DB,body.codice,body.nuova_password)
     except PermissionError:
