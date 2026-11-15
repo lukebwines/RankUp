@@ -40,7 +40,7 @@ def test_password_policy_has_safe_default_and_explicit_confirmation():
 
 
 def test_server_keeps_admin_guard_for_password_policy():
-    source=(INDEX.parents[1]/"app/server.py").read_text(encoding="utf-8")
+    source=(INDEX.parents[1]/"server.py").read_text(encoding="utf-8")
     for name in ("def leggi_politica_password(","def modifica_politica_password("):
         block=source.split(name,1)[1].split("\n\n",1)[0]
         assert "require_admin(request)" in block
