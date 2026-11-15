@@ -69,9 +69,9 @@ def test_admin_change_revokes_sessions_and_legacy_config_cannot_reset(tmp_path,m
                 "username":"test-admin","password":OLD}).status_code==401
             assert _post(after_restart,"/api/auth/login",json={
                 "username":"test-admin","password":NEW}).status_code==200
-        audit=admin.get("/api/admin/sicurezza/eventi?ambito=sicurezza")
-        assert audit.status_code==200
-        assert "password_admin" in audit.text
+            audit=after_restart.get("/api/admin/sicurezza/eventi?ambito=sicurezza")
+            assert audit.status_code==200
+            assert "password_admin" in audit.text
 
 
 def test_admin_recovery_requires_ha_request_is_once_only_and_survives_restart(
