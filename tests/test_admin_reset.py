@@ -61,11 +61,14 @@ def test_admin_reset_requires_password_and_preserves_backup_and_accounts(tmp_pat
         with zipfile.ZipFile(BytesIO(backup.content)) as z:
             assert z.testzip() is None
             assert "rankup.sqlite3" in z.namelist()
+            assert "rankup_audit.sqlite3" in z.namelist()
             assert "manifest.json" in z.namelist()
             assert any(f.startswith("sources/") for f in z.namelist())
             assert any(f.endswith(".pdf") for f in z.namelist())
             assert "rankup_utenti" in z.read("rankup.sqlite3").decode("latin1")
 
+        with server.audit_connect() as db:
+            assert db.execute("SELECT COUNT(*) FROM rankup_audit_eventi").fetchone()[0]>=1
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM bandi").fetchone()[0]==0
             assert db.execute("SELECT COUNT(*) FROM valutazioni_pdf").fetchone()[0]==0
