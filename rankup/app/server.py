@@ -53,6 +53,7 @@ from pdf_import import (
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_template
 from commission_match import commission_index, resolve_commission, course_key, seat_key
 from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secure_cookie
+import admin_credentials as admin_store
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
 from pdf_definitivo import verbale_definitivo
@@ -803,6 +804,8 @@ def initialize() -> None:
         """)
         # v7: coda AI persistente; conserva gli esiti storici del vecchio flusso.
         ai_queue_schema(db)
+        # Registro Admin persistente; lo schema e' protetto dal backup pre-migrazione.
+        admin_store.schema(db)
         # Registri separati dall'archivio operativo, non rimossi dall'azzeramento.
         create_policy_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
@@ -1007,15 +1010,24 @@ with audit_connect() as audit_db:
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.32", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.33", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
+if AUTH.recovery_issued:
+    try:
+        with audit_connect() as audit_db:
+            audit_insert(audit_db,"sicurezza","recupero_admin_avviato","ok",
+                         utente=AUTH.username,metodo="HA",
+                         percorso="Configurazione Home Assistant")
+    except (sqlite3.Error,OSError):
+        pass
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
 
 @app.middleware("http")
 async def require_rankup_login(request: Request, call_next):
     path = request.url.path
     public = (
-        path in ("/", "/api/health", "/api/auth/status", "/api/auth/login")
+        path in ("/", "/api/health", "/api/auth/status", "/api/auth/login",
+                 "/api/auth/admin/recover")
         or path.startswith("/static/")
     )
     # Evita che un sito esterno invii form non autorizzati usando i cookie.
@@ -1093,7 +1105,7 @@ def auth_status(request: Request):
 @app.post("/api/auth/login")
 def auth_login(credentials: LoginRequest, request: Request):
     if not AUTH.configured:
-        fail("Configurare amministratore e password nella scheda Configurazione dell'add-on", 503)
+        fail("Admin non inizializzato: usa il recupero da Home Assistant", 503)
     # L'indirizzo del peer è fornito dal server ASGI; non fidarsi di
     # CF-Connecting-IP/X-Forwarded-For forniti arbitrariamente dal client.
     source=request.client.host if request.client else "unknown"
@@ -1119,6 +1131,59 @@ def auth_login(credentials: LoginRequest, request: Request):
         max_age=SESSION_SECONDS, secure=secure_cookie(request),
         httponly=True, samesite="lax",
     )
+    return response
+
+
+class CambiaPasswordAdmin(BaseModel):
+    password_attuale: str = Field(min_length=1,max_length=128)
+    nuova_password: str = Field(min_length=12,max_length=128)
+
+
+class RecuperoAdminHomeAssistant(BaseModel):
+    codice: str = Field(min_length=32,max_length=100)
+    nuova_password: str = Field(min_length=12,max_length=128)
+
+
+@app.post("/api/auth/admin/change-password")
+def cambia_password_admin(body:CambiaPasswordAdmin,request:Request):
+    principal=require_admin(request)
+    try:
+        admin_store.change_password(DB,body.password_attuale,body.nuova_password)
+    except PermissionError:
+        record_audit("sicurezza","password_admin","negato",request,
+                     utente=principal["username"],metodo="POST",
+                     percorso="/api/auth/admin/change-password")
+        fail("Password Admin attuale non valida",403)
+    except ValueError as exc:
+        fail(str(exc))
+    AUTH.revoke_admin()
+    record_audit("sicurezza","password_admin","ok",request,
+                 utente=principal["username"],metodo="POST",
+                 percorso="/api/auth/admin/change-password")
+    return {"ok":True,"messaggio":"Password Admin modificata. Accedi di nuovo."}
+
+
+@app.post("/api/auth/admin/recover")
+def recupero_admin_ha(body:RecuperoAdminHomeAssistant,request:Request):
+    source=request.client.host if request.client else "unknown"
+    if not AUTH.allow_recovery_attempt(source):
+        record_audit("sicurezza","recupero_admin_limitato","negato",request,
+                     metodo="POST",percorso="/api/auth/admin/recover")
+        fail("Troppe richieste di recupero: riprova tra un minuto",429)
+    try:
+        identity=admin_store.consume_recovery(DB,body.codice,body.nuova_password)
+    except PermissionError:
+        record_audit("sicurezza","recupero_admin","negato",request,
+                     utente="",metodo="POST",percorso="/api/auth/admin/recover")
+        fail("Codice non valido, scaduto o gia' utilizzato",403)
+    except ValueError as exc:
+        fail(str(exc))
+    AUTH.revoke_admin()
+    record_audit("sicurezza","recupero_admin","ok",request,
+                 utente=identity,metodo="POST",percorso="/api/auth/admin/recover")
+    response=JSONResponse({"ok":True,
+       "messaggio":"Credenziali Admin aggiornate. Accedi con la nuova password."})
+    response.delete_cookie(COOKIE_NAME,path=cookie_path(request))
     return response
 
 
@@ -1312,7 +1377,10 @@ def elenco_utenti(request: Request):
         """).fetchall()
     return {"utenti":[dict(r) for r in rows],
             "utenti_eliminati":[dict(r) for r in deleted],
-            "admin":{"username":AUTH.username,"gestito_da":"Configurazione Home Assistant"},
+            "admin":{"username":AUTH.username,"gestito_da":"Credenziali protette RankUP",
+                     "recupero":"Home Assistant (codice temporaneo)",
+                     "password_legacy_nelle_opzioni":bool(
+                         admin_store.options(BASE).get("admin_password"))},
             "password_minima":8}
 
 
@@ -1568,7 +1636,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.32", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.33", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):

@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.32">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.33">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.32">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.33">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -192,13 +192,27 @@
         <img src="static/rankup-icon.png" alt="RankUp">
         <div><h1>RankUp</h1><div class="muted">Accesso riservato RankUP</div></div>
       </div>
-      <p class="caption">Admin: credenziali configurate nell'add-on Home Assistant. Operatori: credenziali RankUP.</p>
+      <p class="caption">Accesso RankUP. Il recupero dell'Admin richiede Home Assistant.</p>
       <label for="login-user">Nome utente</label>
       <input id="login-user" name="username" autocomplete="username" required maxlength="50">
       <label for="login-pass">Password</label>
       <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
       <div id="login-error" class="auth-error" role="alert" aria-live="polite"></div>
       <button class="btn" id="login-submit" type="submit">Accedi</button>
+      <button class="btn secondary" id="recovery-open" type="button" style="margin-top:10px;width:100%">Password Admin dimenticata?</button>
+    </form>
+    <form id="recovery-form" class="auth-card" style="display:none" autocomplete="off">
+      <h2>Recupero Admin</h2>
+      <p class="caption">Da Home Assistant apri la configurazione dell'add-on RankUP, aumenta admin_recovery_request, salva e riavvia. Il codice compare nel registro dell'add-on e dura 10 minuti.</p>
+      <label for="recovery-code">Codice monouso da Home Assistant</label>
+      <input id="recovery-code" type="text" autocomplete="off" required minlength="32" maxlength="100">
+      <label for="recovery-new">Nuova password Admin</label>
+      <input id="recovery-new" type="password" autocomplete="new-password" required minlength="12" maxlength="128">
+      <label for="recovery-confirm">Conferma nuova password</label>
+      <input id="recovery-confirm" type="password" autocomplete="new-password" required minlength="12" maxlength="128">
+      <div id="recovery-error" class="auth-error" role="alert" aria-live="polite"></div>
+      <button class="btn" type="submit">Imposta nuova password Admin</button>
+      <button class="btn secondary" id="recovery-cancel" type="button">Torna al login</button>
     </form>
     <form id="forced-password-form" class="auth-card" style="display:none" autocomplete="off">
       <h2>Cambio password obbligatorio</h2>
@@ -256,7 +270,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.32<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.33<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -425,7 +439,9 @@
         $("admin-audit-link").style.display="none";
         $("operator-profile-link").style.display="none";
         $("forced-password-form").style.display="none";
+        $("recovery-form").style.display="none";
         $("login-form").style.display="block";
+        $("login-submit").disabled=false;
         $("admin-commissioni-link").style.display="none";
         $("add-academic-year").style.display="none";
         $("admin-ai-link").style.display="none";
@@ -460,10 +476,12 @@
           $("auth-screen").style.display="grid";
           $("login-form").style.display="none";
           $("forced-password-form").style.display="block";
+          $("recovery-form").style.display="none";
           $("forced-error").textContent="";
           return;
         }
         $("forced-password-form").style.display="none";
+        $("recovery-form").style.display="none";
         $("login-form").style.display="block";
         $("auth-screen").style.display="none";
         $("app-layout").style.display="";
@@ -475,7 +493,7 @@
           var response=await fetch("api/auth/status",{cache:"no-store"});
           var status=await response.json();
           if(!status.configured){
-            showLogin("L'amministratore non è configurato. Imposta username e password nella scheda Configurazione dell'add-on e riavvialo.");
+            showLogin("L'Admin non è inizializzato: attiva il recupero da Home Assistant per impostare una password.");
             $("login-submit").disabled=true;
           }else if(status.authenticated){
             await authenticatedBoot(status.role,status.username,status.password_change_required);
@@ -494,6 +512,31 @@
           $("login-pass").value="";
           await authenticatedBoot(login.role,login.username,login.password_change_required);
         }catch(error){showLogin(error.message);}
+        finally{button.disabled=false;}
+      };
+      $("recovery-open").onclick=function(){
+        $("login-form").style.display="none";
+        $("forced-password-form").style.display="none";
+        $("recovery-form").style.display="block";
+        $("recovery-error").textContent="";
+      };
+      $("recovery-cancel").onclick=function(){
+        $("recovery-form").reset();showLogin("");
+      };
+      $("recovery-form").onsubmit=async function(event){
+        event.preventDefault();
+        if($("recovery-new").value!==$("recovery-confirm").value){
+          $("recovery-error").textContent="Le password non coincidono.";return;
+        }
+        var button=this.querySelector('button[type="submit"]');
+        button.disabled=true;
+        try{
+          await api("auth/admin/recover",{method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({codice:$("recovery-code").value.trim(),
+                                  nuova_password:$("recovery-new").value})});
+          this.reset();showLogin("Password Admin ripristinata. Accedi con la nuova password.");
+        }catch(error){$("recovery-error").textContent=error.message;}
         finally{button.disabled=false;}
       };
       $("forced-password-form").onsubmit=async function(event){
@@ -2368,7 +2411,15 @@
           var users=result.utenti||[],deletedUsers=result.utenti_eliminati||[];
           var content='<div class="card mb"><h3 class="section-heading">Amministratore del sistema</h3>'+
             '<p><strong>'+esc(result.admin.username)+'</strong> · Admin</p>'+
-            '<p class="caption">Le credenziali dell’amministratore rimangono nella Configurazione dell’add-on Home Assistant. Gli utenti creati qui non possono attribuirsi privilegi amministrativi.</p>'+
+            '<p class="caption">Password custodita come hash in RankUP. Home Assistant serve soltanto per il recupero d’emergenza tramite codice monouso.</p>'+
+            (result.admin.password_legacy_nelle_opzioni?
+              '<p class="notice">Nelle vecchie opzioni Home Assistant è ancora presente una password Admin: dopo aver verificato l’accesso con la nuova versione, svuota/rimuovi admin_password nella configurazione dell’add-on. Il valore non è più usato per autenticarsi.</p>':'')+
+            '<details style="margin-top:12px"><summary>Modifica password Admin</summary>'+
+            '<form id="admin-change-password" autocomplete="off" class="ru-ticket-form" style="margin-top:12px">'+
+            '<label>Password Admin corrente<input class="rankup-user-input" type="password" name="current" required autocomplete="current-password"></label>'+
+            '<label>Nuova password (almeno 12 caratteri)<input class="rankup-user-input" type="password" name="next" required minlength="12" maxlength="128" autocomplete="new-password"></label>'+
+            '<label>Conferma nuova password<input class="rankup-user-input" type="password" name="confirm" required minlength="12" maxlength="128" autocomplete="new-password"></label>'+
+            '<button class="btn" type="submit">Aggiorna password Admin</button></form></details>'+
             '</div>'+
             '<div class="card mb"><h3 class="section-heading">Crea un utente operativo</h3>'+
             '<p class="muted">Gli utenti possono gestire bandi, incarichi, candidature, commissioni, schede PDF e valutazioni automatiche. L’acquisizione manuale e la gestione account sono riservate all’Admin.</p>'+
@@ -2420,6 +2471,22 @@
           }
           content+='</div>';
           html(content);
+          $("admin-change-password").onsubmit=async function(event){
+            event.preventDefault();
+            var form=this,button=form.querySelector('button[type="submit"]');
+            if(form.elements.next.value!==form.elements.confirm.value){
+              note("Le due nuove password Admin non coincidono.",true);return;
+            }
+            if(!confirm("Cambiare la password Admin e chiudere tutte le sessioni amministrative?"))return;
+            button.disabled=true;
+            try{
+              await api("auth/admin/change-password",{method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({password_attuale:form.elements.current.value,
+                                     nuova_password:form.elements.next.value})});
+              form.reset();showLogin("Password Admin modificata. Accedi di nuovo.");
+            }catch(err){note(err.message,true);button.disabled=false;}
+          };
           $("new-user-form").onsubmit=async function(event){
             event.preventDefault();
             var button=$("new-user-submit");
