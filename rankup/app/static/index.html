@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.35">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.36">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.35">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.36">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -257,7 +257,7 @@
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="audit" id="admin-audit-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Registro attività</button>
         <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica database</button>
-        <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Azzeramento archivi</button>
+        <button data-page="azzeramento" id="admin-reset-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Backup e azzeramento archivi</button>
         <div class="nav-separator">PROCEDIMENTO DEL BANDO ATTIVO</div>
         <button data-page="riferimenti"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Riferimenti del bando</button>
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
@@ -271,7 +271,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.35<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.36<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -582,7 +582,7 @@
         commissioniarchivio:"Consulta le commissioni conservate e riassociale solo dopo verifica documentale.",
         assistenteai:"Gestisci modello, chiave API e limiti GroqCloud in un'unica sezione di amministrazione.",
         verificaenteai:"Verifica preliminare dell'ente dichiarato nel PICA, con coda e filtri per il bando.",
-        azzeramento:"Operazione amministrativa distruttiva: verifica le conseguenze e il backup."
+        azzeramento:"Crea e verifica backup, programma un ripristino protetto o azzera gli archivi operativi."
       };
       function rankupWorkspaceGuide(){
         var page=state.page,desc=RU_DESCRIPTIONS[page]||"";
@@ -1348,7 +1348,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica database",audit:"Registro attività",profilo:"La mia password",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica database",audit:"Registro attività",profilo:"La mia password",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Backup e azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -2049,13 +2049,126 @@
           html(panel("Archivio bandi",err.message));}
       }
 
+      function backupManagementMarkup(data){
+        var backups=(data.backups||[]).slice(0,60),pending=data.ripristino_programmato;
+        var rows=backups.map(function(b){
+          var filename=String(b.nome||"");
+          var link="api/admin/backups/"+encodeURIComponent(filename)+"/download";
+          return '<tr><td><strong>'+esc(filename)+'</strong><div class="caption">'+
+            esc(b.tipo)+'</div></td><td>'+esc((b.creato_il||"").replace("T"," ").slice(0,19))+
+            ' UTC</td><td>'+esc((b.dimensione_byte/1048576).toFixed(2))+' MB</td>'+
+            '<td><div class="actions" style="gap:6px;flex-wrap:wrap"><button class="btn secondary" type="button" data-backup-verify="'+
+            esc(filename)+'">Verifica</button><a class="btn secondary" href="'+link+
+            '" download>Scarica ZIP</a></div></td></tr>';
+        }).join("");
+        var options=backups.map(function(b){
+          return '<option value="'+esc(b.nome)+'">'+esc(b.nome)+' — '+esc(b.tipo)+'</option>';
+        }).join("");
+        return '<div class="card mb"><h3 class="section-heading">Backup di RankUP</h3>'+
+          '<p class="caption">Backup dei dati RankUP (database, registro tecnico, PDF/PICA e archivi finali). '+
+          'Non include le opzioni Home Assistant o le chiavi dei servizi esterni. La creazione non elimina dati.</p>'+
+          '<div class="actions" style="gap:10px;flex-wrap:wrap;margin:12px 0">'+
+          '<button id="backup-create" type="button" class="btn">Crea backup adesso</button>'+
+          '<label class="btn secondary" for="backup-import" style="cursor:pointer">Importa ZIP RankUP</label>'+
+          '<input id="backup-import" type="file" accept=".zip,application/zip" style="display:none">'+
+          '<button type="button" id="backup-refresh" class="btn secondary">Aggiorna elenco</button></div>'+
+          '<p class="caption">I backup contengono dati personali: scaricali e custodiscili in un luogo protetto, '+
+          'preferibilmente fuori dal dispositivo Home Assistant. Non sono cifrati automaticamente.</p>'+
+          (rows?'<div class="tablebox"><table><thead><tr><th>Archivio</th><th>Creato</th>'+
+          '<th>Dimensione</th><th>Azioni</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+          '<p class="caption">Sono mostrati i 60 backup più recenti.</p>':
+          '<div class="notice">Nessun backup conservato nella cartella dedicata.</div>')+
+          '</div>'+
+          '<div class="card mb"><h3 class="section-heading">Ripristino protetto</h3>'+
+          '<p class="caption"><strong>Attenzione:</strong> il ripristino riporta bandi, candidature, schede, '+
+          'associazioni e configurazioni SSD allo stato del backup selezionato. '+
+          'Le credenziali degli utenti e il registro di sicurezza correnti restano conservati. '+
+          'La copia di sicurezza dello stato attuale viene creata prima del ripristino.</p>'+
+          (pending?
+            '<div class="notice"><strong>Ripristino programmato:</strong> '+esc(pending.file)+
+            '. Le modifiche ai bandi sono sospese fino al riavvio o all’annullamento. Riavvia RankUP da Home Assistant per applicarlo. '+
+            '<button type="button" class="btn secondary" id="backup-cancel-restore">Annulla ripristino programmato</button></div>':
+            '<form id="backup-restore-form" class="actions" style="align-items:end;gap:12px;flex-wrap:wrap">'+
+            '<label>Backup da ripristinare<select id="backup-restore-file" required class="rankup-user-input">'+
+            '<option value="">Seleziona un archivio</option>'+options+'</select></label>'+
+            '<label>Frase di conferma: <strong>'+esc(data.frase_ripristino)+'</strong>'+
+            '<input id="backup-restore-phrase" class="rankup-user-input" autocomplete="off" required></label>'+
+            '<label>Password Admin<input id="backup-restore-password" type="password" class="rankup-user-input" autocomplete="current-password" required></label>'+
+            '<button type="submit" class="btn" '+(!options?'disabled':'')+'>Verifica e programma ripristino</button></form>')+
+          '<p class="caption">Il ripristino non è immediato: diventa operativo solo dopo il riavvio '+
+          'dell’add-on. Non effettuare importazioni o valutazioni nel frattempo. '+
+          'Per i backup storici precedenti, gli ZIP finali non presenti nel backup non vengono cancellati.</p></div>';
+      }
+      function bindBackupManagement(data){
+        var creation=$("backup-create");
+        if(creation)creation.onclick=async function(){
+          if(!confirm("Creare una copia di sicurezza completa dei dati RankUP senza cancellare nulla?"))return;
+          creation.disabled=true;creation.textContent="Backup in corso...";
+          try{
+            var result=await api("admin/backups",{method:"POST"});
+            note("Backup creato e verificato: "+result.nome+". Scaricane una copia fuori da Home Assistant.",false);
+            renderAzzeramento();
+          }catch(err){note(err.message,true);creation.disabled=false;creation.textContent="Crea backup adesso";}
+        };
+        if($("backup-refresh"))$("backup-refresh").onclick=function(){renderAzzeramento();};
+        document.querySelectorAll("[data-backup-verify]").forEach(function(button){
+          button.onclick=async function(){
+            button.disabled=true;button.textContent="Verifica...";
+            try{
+              var report=await api("admin/backups/"+encodeURIComponent(button.dataset.backupVerify)+"/verify",{method:"POST"});
+              note("Backup integro. Schema "+report.schema_versione+", "+report.elementi+" elementi. Archivio: "+
+                button.dataset.backupVerify,false);
+            }catch(err){note("Verifica fallita: "+err.message,true);}
+            finally{button.disabled=false;button.textContent="Verifica";}
+          };
+        });
+        if($("backup-import"))$("backup-import").onchange=async function(){
+          var file=this.files&&this.files[0];if(!file)return;
+          if(!confirm("Importare e verificare l’archivio "+file.name+"?")){this.value="";return;}
+          var upload=new FormData();upload.append("file",file);
+          try{
+            var imported=await api("admin/backups/import",{method:"POST",body:upload});
+            note("Backup importato e verificato: "+imported.nome,false);
+            renderAzzeramento();
+          }catch(err){note(err.message,true);this.value="";}
+        };
+        if($("backup-restore-form"))$("backup-restore-form").onsubmit=async function(event){
+          event.preventDefault();
+          var name=$("backup-restore-file").value,phrase=$("backup-restore-phrase").value,
+              password=$("backup-restore-password").value;
+          if(!name)return;
+          if(phrase!==data.frase_ripristino){note("La frase di conferma non corrisponde.",true);return;}
+          if(!confirm("CONFERMA RIPRISTINO: i dati operativi attuali verranno sostituiti al prossimo riavvio. Procedere?"))return;
+          var submit=this.querySelector('button[type="submit"]');submit.disabled=true;
+          try{
+            var result=await api("admin/backups/"+encodeURIComponent(name)+"/restore",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({conferma:phrase,password_admin:password})
+            });
+            password="";
+            $("backup-restore-password").value="";
+            note("Ripristino programmato. Backup dello stato attuale: "+
+              result.backup_pre_ripristino+". Riavvia ora l’add-on RankUP da Home Assistant.",false);
+            renderAzzeramento();
+          }catch(err){note(err.message,true);submit.disabled=false;}
+        };
+        if($("backup-cancel-restore"))$("backup-cancel-restore").onclick=async function(){
+          if(!confirm("Annullare il ripristino ancora in attesa del riavvio?"))return;
+          try{await api("admin/backups/restore/cancel",{method:"POST"});renderAzzeramento();}
+          catch(err){note(err.message,true);}
+        };
+      }
+
       async function renderAzzeramento(){
         if(state.role!=="admin")return html(panel("Accesso riservato","Solo Admin."));
-        html(panel("Azzeramento dati","Lettura del riepilogo dei dati presenti..."));
+        html(panel("Backup e azzeramento archivi","Lettura degli archivi e del riepilogo dei dati presenti..."));
         try{
-          var data=await api("admin/azzeramento");
+          var results=await Promise.all([api("admin/azzeramento"),api("admin/backups")]);
+          var data=results[0],backups=results[1];
           if(state.page!=="azzeramento")return;
-          var text='<div class="card mb ru-admin-danger"><h3 class="section-heading">Azzeramento archivi operativi dei bandi</h3>'+
+          var text=backupManagementMarkup(backups)+
+            '<details class="card ru-admin-danger" style="margin-top:18px"><summary style="cursor:pointer;font-weight:700;padding:10px 0">Azzeramento archivi operativi dei bandi (operazione distruttiva)</summary>'+
+            '<div class="card mb ru-admin-danger"><h3 class="section-heading">Azzeramento archivi operativi dei bandi</h3>'+
             '<p class="error"><strong>Operazione distruttiva.</strong> Verranno azzerati tutti i bandi, incarichi, candidature, '+
             'associazioni delle commissioni ai bandi, schede acquisite, PDF originali nell\u0027area operativa, graduatorie, esiti e verifiche IA. '+
             'Un backup ZIP integrale sarà creato e verificato prima della pulizia. Non viene cancellata la configurazione, '+
@@ -2079,8 +2192,9 @@
             '<label style="display:block;margin:14px 0"><input type="checkbox" id="reset-ack" required> '+
             'Confermo che voglio ripartire da zero e che l\u0027operazione riguarda tutti i bandi, non soltanto quello attivo.</label>'+
             '<button class="btn" type="submit" id="reset-submit" disabled>Azzera archivi dei bandi (backup obbligatorio)</button>'+
-            '</form><div id="reset-completed" style="margin-top:15px"></div></div>';
+            '</form><div id="reset-completed" style="margin-top:15px"></div></div></details>';
           html(text);
+          bindBackupManagement(backups);
           var form=$("reset-data-form"),phrase=$("reset-phrase"),pass=$("reset-password"),
               ack=$("reset-ack"),submit=$("reset-submit");
           function sync(){submit.disabled=!(phrase.value===data.conferma_richiesta&&pass.value.length>0&&ack.checked);}
@@ -2105,7 +2219,7 @@
             }catch(error){note(error.message,true);sync();}
             finally{submit.textContent="Azzera archivi dei bandi (backup obbligatorio)";}
           };
-        }catch(error){note(error.message,true);html(panel("Azzeramento dati",error.message));}
+        }catch(error){note(error.message,true);html(panel("Backup e azzeramento archivi",error.message));}
       }
 
 
