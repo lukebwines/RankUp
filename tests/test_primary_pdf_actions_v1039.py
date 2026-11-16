@@ -21,7 +21,9 @@ def test_pdf_reimport_card_is_highlighted_independently():
     assert 'Reimportazione schede PDF' in HTML
     assert 'id="pdf-eval-files"' in HTML and 'id="pdf-eval-preview"' in HTML
     assert '.ru-val-page .card.ru-val-tool--primary' in CSS
-    assert 'html[data-theme="dark"] .ru-val-page .card.ru-val-tool--primary' in CSS
+    assert '.ru-val-page .card.ru-val-tool--primary' in CSS
+    assert 'html[data-theme="light"] .ru-val-page .card.ru-val-tool--primary' in CSS
+    assert 'overflow:hidden' in CSS and 'border-left:7px solid #63e1dc' in CSS
     assert '.ru-val-tool--primary #pdf-eval-preview' in CSS
 
 
