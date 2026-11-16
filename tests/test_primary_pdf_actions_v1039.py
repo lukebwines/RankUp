@@ -20,8 +20,8 @@ def test_pdf_reimport_card_is_highlighted_independently():
     assert HTML.count('class="card ru-val-tool ru-val-tool--primary"') == 1
     assert 'Reimportazione schede PDF' in HTML
     assert 'id="pdf-eval-files"' in HTML and 'id="pdf-eval-preview"' in HTML
-    assert '.ru-workspace .ru-val-page .card.ru-val-tool--primary' in CSS
-    assert 'html[data-theme="dark"] .ru-workspace .ru-val-page .card.ru-val-tool--primary' in CSS
+    assert '.ru-val-page .card.ru-val-tool--primary' in CSS
+    assert 'html[data-theme="dark"] .ru-val-page .card.ru-val-tool--primary' in CSS
     assert '.ru-val-tool--primary #pdf-eval-preview' in CSS
 
 
@@ -30,4 +30,4 @@ def test_primary_highlights_use_different_colors_without_flow_changes():
     assert 'ru-val-advance ru-val-tool--primary' not in HTML
     assert 'ru-val-filters ru-val-tool--primary' not in HTML
     assert 'ru-sheet-generate--primary ru-val-tool--primary' not in HTML
-    assert '1.0.39' in HTML
+    assert '1.0.40' in HTML
