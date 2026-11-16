@@ -812,3 +812,49 @@ html[data-theme="dark"] .ru-workspace .card.ru-kpi{--kpi-ink:#f6f9ff}
 .ru-workspace .ru-cm-reg-form input,.ru-workspace .ru-cm-reg-form textarea{box-sizing:border-box;max-width:100%;width:100%;font-weight:400}
 .ru-workspace .ru-cm-reg-form input[readonly]{opacity:.78;cursor:not-allowed}
 @media(max-width:690px){.ru-workspace .ru-cm-reg-grid{grid-template-columns:1fr}}
+
+
+/* RankUP 1.0.39 — evidenzia l'azione principale nella pagina Valutazioni.
+   Solo presentazione: nessuna variazione ai flussi di acquisizione PDF. */
+.ru-workspace .ru-val-page .card.ru-val-tool--primary {
+  background:linear-gradient(115deg,#e5f6fd 0%,#f4fbff 60%,#eaf7fd 100%)!important;
+  border:2px solid #77bdd8!important;
+  border-left:5px solid #1385ae!important;
+  box-shadow:0 9px 26px rgb(18 99 145 / 12%)!important;
+}
+.ru-workspace .ru-val-page .ru-val-tool--primary .ru-val-icon {
+  background:#c8eff6;
+  color:#075f7e;
+  box-shadow:inset 0 0 0 1px #91d9e5;
+}
+.ru-workspace .ru-val-page .ru-val-tool--primary .upload {
+  border:1px dashed #65b1ce!important;
+  background:rgb(255 255 255 / 68%)!important;
+}
+.ru-workspace .ru-val-page .ru-val-tool--primary .section-heading { color:#104e70; }
+.ru-workspace .ru-val-page .ru-val-tool--primary #pdf-eval-preview {
+  background:#116e9f;
+  color:white;
+}
+html[data-theme="dark"] .ru-workspace .ru-val-page .card.ru-val-tool--primary {
+  background:linear-gradient(115deg,#11364a 0%,#1a3e53 60%,#17354b 100%)!important;
+  border-color:#369fbe!important;
+  border-left-color:#5de1db!important;
+  box-shadow:0 8px 28px rgb(0 12 23 / 28%),inset 0 1px 0 rgb(124 228 241 / 11%)!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary .ru-val-icon {
+  background:#205a6d;
+  color:#b9fff8;
+  box-shadow:inset 0 0 0 1px #36869a;
+}
+html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary .upload {
+  border-color:#408fa5!important;
+  background:rgb(8 30 47 / 37%)!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary .section-heading {
+  color:#e6ffff;
+}
+html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary #pdf-eval-preview {
+  background:#2184af;
+  color:#fff;
+}
