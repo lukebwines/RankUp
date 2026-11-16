@@ -858,3 +858,41 @@ html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary #pdf-ev
   background:#2184af;
   color:#fff;
 }
+
+
+/* RankUP 1.0.39 — emissione schede: tonalita' indaco, distinta dal
+   turchese della reimportazione. Nessuna modifica a dimensioni o comportamento. */
+.ru-workspace .card.ru-sheet-generate--primary {
+  background:linear-gradient(115deg,#edf0ff 0%,#f7f8ff 58%,#eff5ff 100%)!important;
+  border:2px solid #9dadde!important;
+  border-left:5px solid #4c6abd!important;
+  box-shadow:0 9px 26px rgb(64 86 150 / 12%)!important;
+}
+.ru-workspace .ru-sheet-generate--primary .section-heading {
+  color:#273e86;
+}
+.ru-workspace .ru-sheet-generate--primary #sheet-download {
+  background:#385cac;
+  color:#fff;
+}
+.ru-workspace .ru-sheet-generate--primary #sheet-cds,
+.ru-workspace .ru-sheet-generate--primary #sheet-sede {
+  border-color:#a2b3d9!important;
+}
+html[data-theme="dark"] .ru-workspace .card.ru-sheet-generate--primary {
+  background:linear-gradient(115deg,#202d4e 0%,#273758 58%,#1e3653 100%)!important;
+  border-color:#708cda!important;
+  border-left-color:#a1b3ff!important;
+  box-shadow:0 8px 28px rgb(0 12 23 / 28%),inset 0 1px 0 rgb(173 194 255 / 10%)!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-sheet-generate--primary .section-heading {
+  color:#ebefff;
+}
+html[data-theme="dark"] .ru-workspace .ru-sheet-generate--primary #sheet-download {
+  background:#4b73c6;
+  color:#fff;
+}
+html[data-theme="dark"] .ru-workspace .ru-sheet-generate--primary #sheet-cds,
+html[data-theme="dark"] .ru-workspace .ru-sheet-generate--primary #sheet-sede {
+  border-color:#6e88b9!important;
+}
