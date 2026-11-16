@@ -41,12 +41,13 @@ def test_reference_values_remain_isolated_per_bando(tmp_path,monkeypatch):
     server,client,_=_setup(tmp_path,monkeypatch)
     with client:
         code="26-02"
+        initial_refs=client.get("/api/bandi/"+code+"/riferimenti").json()["riferimenti"]
         payload={
             "repertorio":"REPERTORIO DI TEST",
             "protocollo":"PROTOCOLLO DI TEST",
             "data_avviso":"",
             "anno_accademico":"",
-            "expected_updated_at":None,
+            "expected_updated_at":initial_refs["aggiornato_il"],
         }
         saved=client.put("/api/bandi/"+code+"/riferimenti",
             headers={"X-RankUp-Request":"1"},json=payload)

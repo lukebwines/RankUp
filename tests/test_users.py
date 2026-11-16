@@ -114,6 +114,7 @@ def test_user_can_manage_bando_but_audit_uses_actual_identity(tmp_path,monkeypat
             _complete_operator_onboarding(user,"staff_test","12345678")
             assert user.get("/api/bandi/26-02/commissioni").status_code==200
             assert user.get("/api/bandi/26-02/valutazioni").status_code==200
+            initial_refs=user.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
             changed=user.put("/api/bandi/26-02/riferimenti",
                 headers={"X-RankUp-Request":"1"},
                 json={
@@ -121,7 +122,7 @@ def test_user_can_manage_bando_but_audit_uses_actual_identity(tmp_path,monkeypat
                     "protocollo":"",
                     "data_avviso":"",
                     "anno_accademico":"",
-                    "expected_updated_at":None
+                    "expected_updated_at":initial_refs["aggiornato_il"]
                 })
             assert changed.status_code==200,changed.text
             assert changed.json()["modificato"] is True

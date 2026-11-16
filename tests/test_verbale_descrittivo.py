@@ -133,14 +133,28 @@ def test_reject_description_for_other_course_or_unfilled(tmp_path,monkeypatch):
     with client:
         group=client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]
         base="/api/bandi/26-02/verbali/descrittivi"
-        _,pdf=_form_from_zip(client)
-        missing_source=_post(client,base,
-            data={"cds":group["cds"],"sede":group["sede"]},
-            files={"file":("vuoto.pdf",pdf,"application/pdf")})
-        assert missing_source.status_code==409
         refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
         payload={k:refs.get(k) or "" for k in
             ("repertorio","protocollo","data_avviso","data_scadenza","anno_accademico")}
+        payload.update(testo_verbale_bando="",
+                       expected_updated_at=refs.get("aggiornato_il"))
+        assert client.put("/api/bandi/26-02/riferimenti",
+            headers={"X-RankUp-Request":"1"},json=payload).status_code==200
+        # Il download deve essere bloccato PRIMA che l'operatore compili
+        # schede e verbale, non solo quando prova a ricaricarlo.
+        blocked=client.get("/api/bandi/26-02/schede/zip")
+        assert blocked.status_code==409,blocked.text
+        assert "Riferimenti del bando" in blocked.json()["detail"]
+        assert "testo ufficiale" in blocked.json()["detail"]
+        assert blocked.headers["content-type"].startswith("application/json")
+        # Anche un segnaposto non è un riferimento amministrativo verificato.
+        refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
+        payload["expected_updated_at"]=refs.get("aggiornato_il")
+        payload["testo_verbale_bando"]="[DA VERIFICARE]"
+        assert client.put("/api/bandi/26-02/riferimenti",
+            headers={"X-RankUp-Request":"1"},json=payload).status_code==200
+        assert client.get("/api/bandi/26-02/schede/zip").status_code==409
+        refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
         payload.update(testo_verbale_bando="Testo unicamente sintetico per il test",
                        expected_updated_at=refs.get("aggiornato_il"))
         assert client.put("/api/bandi/26-02/riferimenti",

@@ -26,10 +26,11 @@ def test_dashboard_bando_esistente_senza_anno_non_presume_aa(tmp_path,monkeypatc
         assert original["valutazioni_acquisite"]==0
         assert original["cds_in_lavorazione"]==1
 
+        initial_refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
         saved=client.put("/api/bandi/26-02/riferimenti",
             headers={"X-RankUp-Request":"1"},json={
                 "repertorio":"","protocollo":"","data_avviso":"",
-                "anno_accademico":"2026-2027","expected_updated_at":None
+                "anno_accademico":"2026-2027","expected_updated_at":initial_refs["aggiornato_il"]
             })
         assert saved.status_code==200,saved.text
         associated=_row(client,"26-02")

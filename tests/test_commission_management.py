@@ -5,7 +5,7 @@ import json
 from openpyxl import load_workbook
 from fastapi.testclient import TestClient
 
-from test_import import pica_fixture, commissioni_fixture
+from test_import import pica_fixture, commissioni_fixture, set_synthetic_verbale_source
 from commissioni import HEADERS, parse_commissioni
 
 
@@ -143,6 +143,7 @@ def test_manual_add_edit_import_template_and_notice_references(tmp_path, monkeyp
         refs_payload = {
             "repertorio":"REF_TEST", "protocollo":"PROT_TEST",
             "data_avviso":"01/01/2026", "anno_accademico":"2026-2027",
+            "testo_verbale_bando":"TESTO SINTETICO DI COLLAUDO SENZA VALORE DI ATTO",
             "expected_updated_at":None,
         }
         saved = _up(client, f"/api/bandi/{code}/riferimenti", method="PUT",
@@ -220,4 +221,5 @@ def test_incomplete_commission_must_be_completed_before_pdf(tmp_path, monkeypatc
         changed=_up(client,endpoint+"/"+str(original["id"]),method="PUT",json=body)
         assert changed.status_code==200,changed.text
         assert client.get(endpoint+"/associazioni").json()["associate"]==1
+        set_synthetic_verbale_source(client)
         assert client.get("/api/bandi/26-02/schede/zip").status_code==200

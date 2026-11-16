@@ -61,6 +61,17 @@ def _setup(tmp_path,monkeypatch):
         headers={"X-RankUp-Request":"1"},
         json={"tipo":"professionalizzante"})
     assert model.status_code==200,model.text
+    # Tutti i modelli scaricati dai test devono avere riferimenti ufficiali
+    # simulati e quindi essere acquisibili: mai usare facsimile come dati reali.
+    refs=client.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
+    source={k:refs.get(k) or "" for k in (
+        "repertorio","protocollo","data_avviso","data_scadenza","anno_accademico")}
+    source.update({
+        "testo_verbale_bando":"TESTO SINTETICO DI COLLAUDO - NON UTILIZZABILE COME ATTO",
+        "expected_updated_at":refs.get("aggiornato_il"),
+    })
+    assert client.put("/api/bandi/26-02/riferimenti",
+        headers={"X-RankUp-Request":"1"},json=source).status_code==200
     response=client.get("/api/bandi/26-02/schede/zip")
     assert response.status_code==200,response.text
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
