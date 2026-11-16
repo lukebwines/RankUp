@@ -814,53 +814,56 @@ html[data-theme="dark"] .ru-workspace .card.ru-kpi{--kpi-ink:#f6f9ff}
 @media(max-width:690px){.ru-workspace .ru-cm-reg-grid{grid-template-columns:1fr}}
 
 
-/* RankUP 1.0.39 — evidenzia l'azione principale nella pagina Valutazioni.
-   Solo presentazione: nessuna variazione ai flussi di acquisizione PDF. */
-.ru-workspace .ru-val-page .card.ru-val-tool--primary {
-  background:linear-gradient(115deg,#e5f6fd 0%,#f4fbff 60%,#eaf7fd 100%)!important;
-  border:2px solid #77bdd8!important;
-  border-left:5px solid #1385ae!important;
-  box-shadow:0 9px 26px rgb(18 99 145 / 12%)!important;
+/* RankUP 1.0.40 — azione primaria della pagina Valutazioni.
+   La pagina Valutazioni non usa il wrapper .ru-workspace: selettore ancorato
+   direttamente a .ru-val-page. */
+.ru-val-page .card.ru-val-tool--primary {
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(112deg,#103d53 0%,#174c63 58%,#16445b 100%)!important;
+  border:2px solid #42b6d2!important;
+  border-left:7px solid #63e1dc!important;
+  box-shadow:0 10px 30px rgb(0 15 30 / 34%),inset 0 1px 0 rgb(172 246 255 / 13%)!important;
 }
-.ru-workspace .ru-val-page .ru-val-tool--primary .ru-val-icon {
-  background:#c8eff6;
-  color:#075f7e;
+.ru-val-page .ru-val-tool--primary .ru-val-icon {
+  background:#24677b!important;
+  color:#c8fffb!important;
+  box-shadow:inset 0 0 0 1px #55b7c4;
+}
+.ru-val-page .ru-val-tool--primary .upload {
+  border:1px dashed #57b8d1!important;
+  background:rgb(7 28 45 / 48%)!important;
+}
+.ru-val-page .ru-val-tool--primary .section-heading { color:#f0ffff!important; }
+.ru-val-page .ru-val-tool--primary .caption { color:#d1edf6!important; }
+.ru-val-page .ru-val-tool--primary #pdf-eval-preview {
+  background:#087fa9!important;
+  color:#fff!important;
+  border:1px solid #68d6e6!important;
+  box-shadow:0 3px 12px rgb(0 0 0 / 20%);
+}
+html[data-theme="light"] .ru-val-page .card.ru-val-tool--primary {
+  background:linear-gradient(112deg,#e1f5fc 0%,#f1fbff 58%,#e4f6fc 100%)!important;
+  border:2px solid #68b9d4!important;
+  border-left:7px solid #1385ae!important;
+  box-shadow:0 9px 26px rgb(18 99 145 / 15%)!important;
+}
+html[data-theme="light"] .ru-val-page .ru-val-tool--primary .ru-val-icon {
+  background:#c8eff6!important;
+  color:#075f7e!important;
   box-shadow:inset 0 0 0 1px #91d9e5;
 }
-.ru-workspace .ru-val-page .ru-val-tool--primary .upload {
-  border:1px dashed #65b1ce!important;
-  background:rgb(255 255 255 / 68%)!important;
+html[data-theme="light"] .ru-val-page .ru-val-tool--primary .upload {
+  border-color:#65b1ce!important;
+  background:rgb(255 255 255 / 76%)!important;
 }
-.ru-workspace .ru-val-page .ru-val-tool--primary .section-heading { color:#104e70; }
-.ru-workspace .ru-val-page .ru-val-tool--primary #pdf-eval-preview {
-  background:#116e9f;
-  color:white;
-}
-html[data-theme="dark"] .ru-workspace .ru-val-page .card.ru-val-tool--primary {
-  background:linear-gradient(115deg,#11364a 0%,#1a3e53 60%,#17354b 100%)!important;
-  border-color:#369fbe!important;
-  border-left-color:#5de1db!important;
-  box-shadow:0 8px 28px rgb(0 12 23 / 28%),inset 0 1px 0 rgb(124 228 241 / 11%)!important;
-}
-html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary .ru-val-icon {
-  background:#205a6d;
-  color:#b9fff8;
-  box-shadow:inset 0 0 0 1px #36869a;
-}
-html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary .upload {
-  border-color:#408fa5!important;
-  background:rgb(8 30 47 / 37%)!important;
-}
-html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary .section-heading {
-  color:#e6ffff;
-}
-html[data-theme="dark"] .ru-workspace .ru-val-page .ru-val-tool--primary #pdf-eval-preview {
-  background:#2184af;
-  color:#fff;
-}
-
-
-/* RankUP 1.0.39 — emissione schede: tonalita' indaco, distinta dal
+html[data-theme="light"] .ru-val-page .ru-val-tool--primary .section-heading { color:#104e70!important; }
+html[data-theme="light"] .ru-val-page .ru-val-tool--primary .caption { color:#34566c!important; }
+html[data-theme="light"] .ru-val-page .ru-val-tool--primary #pdf-eval-preview {
+  background:#116e9f!important;
+  color:#fff!important;
+  border:1px solid #4d9cc2!important;
+}/* RankUP 1.0.40 — emissione schede: tonalita' indaco, distinta dal
    turchese della reimportazione. Nessuna modifica a dimensioni o comportamento. */
 .ru-workspace .card.ru-sheet-generate--primary {
   background:linear-gradient(115deg,#edf0ff 0%,#f7f8ff 58%,#eff5ff 100%)!important;
