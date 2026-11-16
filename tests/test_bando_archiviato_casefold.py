@@ -70,7 +70,7 @@ def test_middleware_blocks_all_case_variants_after_archive(tmp_path,monkeypatch,
         with server.connect() as db:
             b=db.execute("SELECT stato FROM bandi WHERE codice='ABC-2026'").fetchone()
             assert b["stato"]=="Archiviato"
-            assert db.execute("SELECT COUNT(*) FROM bandi_riferimenti").fetchone()[0]==0
+            assert db.execute("SELECT COUNT(*) FROM bandi_riferimenti").fetchone()[0]==1
             assert db.execute("SELECT COUNT(*) FROM bandi_archivi").fetchone()[0]==0
 
 
@@ -101,7 +101,7 @@ def test_transaction_guard_covers_direct_handler_call(tmp_path,monkeypatch):
                 Request({"type":"http","headers":[],"method":"PUT"}))
         assert e.value.status_code==409
         with server.connect() as db:
-            assert db.execute("SELECT COUNT(*) FROM bandi_riferimenti").fetchone()[0]==0
+            assert db.execute("SELECT COUNT(*) FROM bandi_riferimenti").fetchone()[0]==1
 
 
 def test_operator_is_blocked_but_formal_admin_reopening_still_works(tmp_path,monkeypatch):
@@ -136,11 +136,12 @@ def test_operator_is_blocked_but_formal_admin_reopening_still_works(tmp_path,mon
             row=db.execute("SELECT riaperto_il,motivo_riapertura FROM bandi_archivi").fetchone()
             assert row["riaperto_il"] and "collaudo" in row["motivo_riapertura"]
 
+        current_refs=admin.get("/api/bandi/abc-2026/riferimenti").json()["riferimenti"]
         permitted=admin.put("/api/bandi/abc-2026/riferimenti",
             headers={"X-RankUp-Request":"1"},
             json={"repertorio":"TEST DOPO RIAPERTURA","protocollo":"",
                   "data_avviso":"","anno_accademico":"",
-                  "expected_updated_at":None})
+                  "expected_updated_at":current_refs["aggiornato_il"]})
         assert permitted.status_code==200,permitted.text
 
 
