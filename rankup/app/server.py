@@ -3866,7 +3866,7 @@ def _verifica_riferimenti_per_verbale(context: dict) -> None:
             "Verbale non generabile/acquisibile per " +
             str(context["cds"])+" / "+str(context["sede"]) +
             ": manca il testo ufficiale delle disposizioni del bando. " +
-            "Compila 'Testo del bando da richiamare nel verbale' " +
+            "Compila 'Testo del bando per il verbale descrittivo' " +
             "in Procedimento del bando attivo > Riferimenti del bando, " +
             "salva e ripeti la generazione.",
             409,
