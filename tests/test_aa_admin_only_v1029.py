@@ -22,9 +22,10 @@ def _put_refs(client, data):
 def test_only_admin_can_register_a_new_academic_year(tmp_path, monkeypatch):
     server, admin, _ = _setup(tmp_path, monkeypatch)
     with admin:
+        initial_refs=admin.get("/api/bandi/26-02/riferimenti").json()["riferimenti"]
         baseline = _put_refs(admin, {
             "anno_accademico": "2026-2027",
-            "expected_updated_at": None,
+            "expected_updated_at": initial_refs["aggiornato_il"],
         })
         assert baseline.status_code == 200, baseline.text
         assert baseline.json()["riferimenti"]["anno_accademico"] == "2026-2027"
