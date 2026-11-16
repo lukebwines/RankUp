@@ -20,6 +20,20 @@ def make_excel(rows):
     return output.getvalue()
 
 
+def set_synthetic_verbale_source(client, code="26-02"):
+    """Test-only text: never a source for a real administrative decision."""
+    path=f"/api/bandi/{code}/riferimenti"
+    refs=client.get(path).json()["riferimenti"]
+    payload={key:refs.get(key) or "" for key in (
+        "repertorio","protocollo","data_avviso","data_scadenza","anno_accademico")}
+    payload.update({
+        "testo_verbale_bando":"DISPOSIZIONI DEL BANDO SINTETICHE DI COLLAUDO, PRIVE DI VALORE AMMINISTRATIVO",
+        "expected_updated_at":refs.get("aggiornato_il"),
+    })
+    result=client.put(path,headers={"X-RankUp-Request":"1"},json=payload)
+    assert result.status_code==200,result.text
+
+
 def pica_fixture():
     columns = [
         "ID domanda", "Stato", "Corso di Studio", "sede",
@@ -213,6 +227,7 @@ def test_web_import_round_trip(tmp_path, monkeypatch):
         defaults=client.get("/api/bandi/26-02/ssd").json()["ssd"]
         assert len(defaults)==2
         assert all(x["tipo"]=="ordinario" and x["tipo_salvato"] is None for x in defaults)
+        set_synthetic_verbale_source(client)
         pdf_default=client.get("/api/bandi/26-02/schede/zip")
         assert pdf_default.status_code==200, pdf_default.text
         with zipfile.ZipFile(BytesIO(pdf_default.content)) as archive:
