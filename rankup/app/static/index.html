@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.38">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.39">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.38">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.39">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -271,7 +271,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.38<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.39<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -4484,7 +4484,7 @@
             tieByArea.set(key,(tieByArea.get(key)||0)+1);
           });
           var content=selectors+nnModelliEditor(nnRows)+'<div class="ru-val-tools ru-val-tools--single">'+
-            '<section class="card ru-val-tool"><div class="ru-val-section-head">'+
+            '<section class="card ru-val-tool ru-val-tool--primary"><div class="ru-val-section-head">'+
             '<div class="ru-val-section-title"><span class="ru-val-icon" aria-hidden="true">↥</span>'+
             '<div><h3 class="section-heading">Reimportazione schede PDF</h3>'+
             '<p class="caption">Analizza PDF o ZIP. Nessun punteggio viene registrato senza conferma.</p>'+
@@ -5061,7 +5061,7 @@
             '<div class="tablebox" style="margin-top:16px"><table><thead><tr><th>SSD PICA</th><th>Incarichi</th><th>Modello PDF</th><th>Stato</th></tr></thead>'+
             '<tbody>'+statuses+'</tbody></table></div></div>'+
             nnModelliEditor(nnRows)+
-            '<div class="card"><h3 class="section-heading">Genera schede e verbali descrittivi PDF editabili</h3>'+commissionSummary+
+            '<div class="card ru-sheet-generate--primary"><h3 class="section-heading">Genera schede e verbali descrittivi PDF editabili</h3>'+commissionSummary+
             '<p class="caption">Modelli tecnici facsimile. Criteri, massimali e layout devono essere verificati rispetto alle schede ufficiali prima dell’impiego amministrativo.</p>'+
             '<div class="actions" style="margin-top:14px"><select id="sheet-cds" style="padding:9px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Tutti i CdS</option>'+
             courses.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('')+
