@@ -863,7 +863,7 @@ html[data-theme="light"] .ru-val-page .ru-val-tool--primary #pdf-eval-preview {
   background:#116e9f!important;
   color:#fff!important;
   border:1px solid #4d9cc2!important;
-}/* RankUP 1.0.39 — emissione schede: tonalita' indaco, distinta dal
+}/* RankUP 1.0.40 — emissione schede: tonalita' indaco, distinta dal
    turchese della reimportazione. Nessuna modifica a dimensioni o comportamento. */
 .ru-workspace .card.ru-sheet-generate--primary {
   background:linear-gradient(115deg,#edf0ff 0%,#f7f8ff 58%,#eff5ff 100%)!important;
