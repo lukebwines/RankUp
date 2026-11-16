@@ -1019,7 +1019,7 @@ with audit_connect() as audit_db:
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.37", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.38", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 if AUTH.recovery_issued:
     try:
@@ -1756,7 +1756,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.37", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.38", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -3780,15 +3780,23 @@ def esporta_schede_pdf(code: str, cds: str = "", sede: str = ""):
             messages.append("Commissioni con associazione ambigua: " +
                             "; ".join(sorted(ambiguous)[:15]))
         fail(" | ".join(messages))
-    buffer=BytesIO()
+    # Verifica preventiva: se non e' acquisibile il verbale, non generare
+    # neppure le schede del medesimo pacchetto. Controllare tutti i CdS/sede
+    # prima di costruire lo ZIP, per non consegnare file inutilizzabili.
     gruppi=sorted({(r["cds"],r["sede"]) for r in associated})
+    contexts={}
+    with connect() as db:
+        for course,location in gruppi:
+            context=_contesto_verbale_seduta(db,bando["id"],code,course,location)
+            _verifica_riferimenti_per_verbale(context)
+            contexts[(course,location)]=context
+    buffer=BytesIO()
     with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,
                          compresslevel=6) as archive:
         # Un modello descrittivo per Commissione, insieme alle schede.
         filenames=set()
         for course,location in gruppi:
-            with connect() as db:
-                context=_contesto_verbale_seduta(db,bando["id"],code,course,location)
+            context=contexts[(course,location)]
             nome=nome_verbale(code,course,location)
             if nome.casefold() in filenames:
                 fail("Collisione dei nomi dei verbali: verificare i CdS",409)
@@ -3845,6 +3853,26 @@ def _contesto_verbale_seduta(db, bando_id: int, code: str,
     }
 
 
+def _verifica_riferimenti_per_verbale(context: dict) -> None:
+    """Unica regola pre-generazione e acquisizione del verbale descrittivo.
+
+    I campi che si compilano in seduta (data, ora, discussione) non si
+    richiedono in questa fase. Il testo del bando, invece, deve essere
+    gia' disponibile e verificato nei riferimenti ufficiali.
+    """
+    source=str(context.get("testo_bando") or "").strip()
+    if not source or "[DA VERIFICARE]" in source.upper():
+        fail(
+            "Verbale non generabile/acquisibile per " +
+            str(context["cds"])+" / "+str(context["sede"]) +
+            ": manca il testo ufficiale delle disposizioni del bando. " +
+            "Compila 'Testo del bando da richiamare nel verbale' " +
+            "in Procedimento del bando attivo > Riferimenti del bando, " +
+            "salva e ripeti la generazione.",
+            409,
+        )
+
+
 @app.get("/api/bandi/{code}/verbali/descrittivi")
 def elenco_verbali_descrittivi(code: str):
     code=valid_code(code)
@@ -3883,8 +3911,7 @@ async def importa_verbale_descrittivo(code: str, request: Request,
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         context=_contesto_verbale_seduta(db,b["id"],code,cds,sede)
-    if not context["testo_bando"].strip() or "[DA VERIFICARE]" in context["testo_bando"].upper():
-        fail("Inserire e verificare prima il testo ufficiale in Riferimenti del bando",409)
+    _verifica_riferimenti_per_verbale(context)
     try:
         data,pdf_statico=acquisisci_verbale_seduta(raw,context)
     except ValueError as exc:
