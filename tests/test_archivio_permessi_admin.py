@@ -47,12 +47,14 @@ def test_operatore_puo_usare_zip_schede_ma_non_archivio_finale(tmp_path, monkeyp
             with server.connect() as db:
                 assert db.execute("SELECT COUNT(*) FROM bandi_archivi").fetchone()[0] == 0
 
-            # Solo l'Admin può completare la chiusura e generare lo ZIP finale.
+            # L'operatore genera il verbale. L'Admin approva e chiude il bando.
             _complete_all(admin, sheets)
             group = admin.get(base + "/verbali/graduatorie").json()["graduatorie"][0]
-            final = _post(admin, base + "/verbali/graduatorie/genera-definitivo",
+            final = _post(operatore, base + "/verbali/graduatorie/genera-definitivo",
                           json={"cds": group["cds"], "sede": group["sede"]})
             assert final.status_code == 200, final.text
+            assert operatore.get(base + "/verbali/graduatorie/pdf-completo",
+                                 params={"cds": group["cds"], "sede": group["sede"]}).status_code == 200
             gid = admin.get(base + "/verbali/graduatorie").json()["graduatorie"][0]["conferma"]["id"]
             approval = _post(admin, base + "/graduatorie/approvazioni",
                              json={"graduatorie_ids": [gid]})

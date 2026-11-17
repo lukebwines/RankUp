@@ -1019,7 +1019,7 @@ with audit_connect() as audit_db:
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.39", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.40", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 if AUTH.recovery_issued:
     try:
@@ -1756,7 +1756,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.39", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.40", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -5215,8 +5215,7 @@ class FinalizzaGraduatoria(BaseModel):
 
 
 @app.post("/api/bandi/{code}/verbali/graduatorie/definitiva")
-def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Request):
-    require_admin(request)
+def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria):
     code=valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -5278,9 +5277,9 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria, request: Re
 
 
 @app.post("/api/bandi/{code}/verbali/graduatorie/genera-definitivo")
-def genera_verbale_con_chiusura(code: str, body: FinalizzaGraduatoria, request: Request):
+def genera_verbale_con_chiusura(code: str, body: FinalizzaGraduatoria):
     """Genera un PDF statico e registra definitiva nella stessa transazione."""
-    return finalizza_graduatoria_cds(code,body,request)
+    return finalizza_graduatoria_cds(code,body)
 
 
 class RegredisciStato(BaseModel):

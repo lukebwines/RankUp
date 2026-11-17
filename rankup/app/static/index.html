@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.39">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.40">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.39">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.40">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -271,7 +271,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.39<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.40<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1470,11 +1470,9 @@
                   '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
                   '/verbali/graduatorie/pdf-completo?cds='+encodeURIComponent(g.cds)+
                   '&sede='+encodeURIComponent(g.sede)+'&inline=true">Apri PDF nel browser</a>'
-                : (ready&&state.role==="admin")
+                : ready
                   ? '<button type="button" class="btn" data-verb-create="'+i+'">Genera verbale definitivo con schede</button>'
-                  : '<button type="button" class="btn" disabled title="'+
-                    (ready?"Operazione riservata all’Admin":"Acquisire verbale descrittivo e completare le schede")+'">'+
-                    (ready?"Generazione riservata all’Admin":"Verbale non ancora generabile")+'</button>')+
+                  : '<button type="button" class="btn" disabled title="Acquisire verbale descrittivo e completare le schede">Verbale non ancora generabile</button>')+
               ((state.role==="admin"&&final)
                 ? '<button class="btn secondary" data-verb-regress="'+i+'">Regredisci stato</button>':'')+
               ((approved && state.role==="admin")
@@ -1529,7 +1527,11 @@
                     : '')+
                   '<div class="tablebox"><table><thead><tr><th>Pos.</th><th>ID PICA</th><th>Candidato</th>'+
                   '<th>Punti</th><th>Esito</th><th>Note Commissione</th></tr></thead><tbody>'+
-                  job.candidature.map(function(c){
+                  job.candidature.slice().sort(function(a,b){
+                    if(a.posizione==null)return b.posizione==null?0:1;
+                    if(b.posizione==null)return -1;
+                    return a.posizione-b.posizione;
+                  }).map(function(c){
                     return '<tr><td>'+esc(c.posizione==null?'—':c.posizione)+'</td>'+
                       '<td>'+esc(c.id_pica)+'</td><td>'+esc(c.cognome+' '+c.nome)+'</td>'+
                       '<td>'+esc(c.punteggio==null?'Non attribuito':c.punteggio)+'</td>'+
