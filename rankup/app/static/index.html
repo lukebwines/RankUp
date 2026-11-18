@@ -254,6 +254,7 @@
         <button data-page="ssdconfig" id="admin-ssd-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Modelli per SSD</button>
         <div class="nav-separator" id="admin-menu-heading" style="display:none">AMMINISTRAZIONE</div>
         <button data-page="utenti" id="admin-users-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Gestione utenti</button>
+        <button data-page="coadmin" id="admin-co-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> CO Veneto · Ateneo</button>
         <button data-page="assistenteai" id="admin-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-settings"></use></svg> Impostazioni AI</button>
         <button data-page="audit" id="admin-audit-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Registro attività</button>
         <button data-page="diagnostica" id="admin-diagnostica-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Diagnostica database</button>
@@ -288,6 +289,7 @@
       <div id="content"></div>
     </main>
   </div>
+  <script src="static/co_veneto_ui.js"></script>
   <script>
     (function () {
       "use strict";
@@ -446,6 +448,7 @@
         $("admin-commissioni-link").style.display="none";
         $("add-academic-year").style.display="none";
         $("admin-ai-link").style.display="none";
+        $("admin-co-link").style.display="none";
         $("band-ai-link").style.display="none";
         $("admin-reset-link").style.display="none";
         $("admin-archive-link").style.display="none";
@@ -467,11 +470,12 @@
         $("admin-commissioni-link").style.display="flex";
         $("add-academic-year").style.display=state.role==="admin"?"block":"none";
         $("admin-ai-link").style.display=state.role==="admin"?"flex":"none";
+        $("admin-co-link").style.display=state.role==="admin"?"flex":"none";
         $("band-ai-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-reset-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-archive-link").style.display=state.role==="admin"?"flex":"none";
         $("admin-menu-heading").style.display=state.role==="admin"?"block":"none";
-        if(["utenti","ssdconfig","diagnostica","audit","azzeramento","archivio","assistenteai","verificaenteai"].includes(state.page) && state.role!=="admin")state.page="dashboard";
+        if(["utenti","ssdconfig","diagnostica","audit","azzeramento","archivio","assistenteai","verificaenteai","coadmin"].includes(state.page) && state.role!=="admin")state.page="dashboard";
         if(state.role==="user"&&changeRequired){
           $("app-layout").style.display="none";
           $("auth-screen").style.display="grid";
@@ -581,6 +585,8 @@
         ssdconfig:"Configura l'associazione permanente tra SSD e modelli di valutazione.",
         commissioniarchivio:"Consulta le commissioni conservate e riassociale solo dopo verifica documentale.",
         assistenteai:"Gestisci modello, chiave API e limiti GroqCloud in un'unica sezione di amministrazione.",
+        coadmin:"Configura i dati dell’Ateneo impiegati nelle comunicazioni UNILAV.",
+        coveneto:"Produci XML per i vincitori con atti approvati. Nessun invio automatico.",
         verificaenteai:"Verifica preliminare dell'ente dichiarato nel PICA, con coda e filtri per il bando.",
         azzeramento:"Crea e verifica backup, programma un ripristino protetto o azzera gli archivi operativi."
       };
@@ -668,6 +674,7 @@
           go(page);
         }
       });
+      var coUI = window.createCoVenetoUI({state:state,api:api,html:html,panel:panel,esc:esc,go:go,note:function(msg,bad){note(msg,bad);}});
       var note = function(message,error){$("notification").innerHTML='<div class="'+(error?"error":"success")+' mb">'+esc(message)+'</div>';};
       var clearNote = function(){$("notification").innerHTML="";};
       var NO_AA="__non_associato__";
@@ -1348,7 +1355,7 @@
       }
       function go(page){state.page=page;clearNote();render();}
       function render(){
-        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica database",audit:"Registro attività",profilo:"La mia password",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Backup e azzeramento archivi",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
+        var titles={dashboard:"Dashboard generale",diagnostica:"Diagnostica database",audit:"Registro attività",profilo:"La mia password",utenti:"Gestione utenti",ssdconfig:"Modelli per SSD",commissioniarchivio:"Anagrafica commissioni",azzeramento:"Backup e azzeramento archivi",coadmin:"CO Veneto · Ateneo",coveneto:"CO Veneto",assistenteai:"Impostazioni AI",verificaenteai:"Verifica requisito ente",riferimenti:"Riferimenti del bando",segnalazioni:"Segnalazioni",incarichi:"Incarichi",candidature:"Candidature",commissioni:"Commissioni",schede:"Schede PDF",valutazioni:"Valutazioni",verbali:"Verbali",graduatorie:"Graduatorie",archivio:"Archivio"};
         $("page-title").textContent=titles[state.page]||state.page;
         $("crumb").textContent="RankUp / A.A. "+annoLabel()+" / "+
           (state.active?state.active+" / ":"")+(titles[state.page]||state.page);
@@ -1359,7 +1366,7 @@
           else n.removeAttribute("aria-current");
         });
         if(state.page==="dashboard")return dashboard();
-        if(!state.active && ["riferimenti","segnalazioni","incarichi","candidature","commissioni",
+        if(!state.active && ["coveneto","riferimenti","segnalazioni","incarichi","candidature","commissioni",
                             "schede","valutazioni","verbali","graduatorie","verificaenteai"].includes(state.page)){
           return html(panel("Seleziona un bando","Scegli prima un anno accademico e poi un bando nella barra laterale."));
         }
@@ -1375,6 +1382,8 @@
         if(state.page==="utenti")return state.role==="admin"?renderUtenti():
           html(panel("Accesso riservato","La gestione degli account è riservata all'amministratore."));
         if(state.page==="azzeramento")return state.role==="admin"?renderAzzeramento():html(panel("Accesso riservato","Azzeramento dati riservato all\u0027Admin."));
+        if(state.page==="coadmin")return state.role==="admin"?coUI.renderAdmin():html(panel("Accesso riservato","Configurazione CO Veneto riservata all’Admin."));
+        if(state.page==="coveneto")return coUI.renderApproval();
         if(state.page==="assistenteai")return state.role==="admin"?renderAISettings():html(panel("Accesso riservato","Impostazioni AI riservate all'Admin."));
         if(state.page==="verificaenteai")return state.role==="admin"?renderAIBando():html(panel("Accesso riservato","Verifica requisito ente riservata all'Admin."));
         if(state.page==="riferimenti")return renderBandoReferences();
@@ -1752,11 +1761,16 @@
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
+                (a.stato==="approvata"
+                  ?'<button class="btn secondary" data-co-open="'+esc(a.id)+'">CO Veneto</button>':'')+
                 (state.role==="admin"&&a.stato==="approvata"
                   ?'<button class="btn secondary" data-grad-regress="'+esc(a.id)+'">Regredisci stato</button>':'')+
                 '</div></div>';
             }).join(''):'<p class="muted">Nessuna procedura di approvazione ancora creata.</p>')+'</div>';
           html(content);
+          document.querySelectorAll("[data-co-open]").forEach(function(btn){
+            btn.onclick=function(){state.coApproval=Number(btn.dataset.coOpen);go("coveneto");};
+          });
           if($("grad-draft"))$("grad-draft").onclick=async function(){
             var ids=[...document.querySelectorAll("[data-grad-select]:checked")].map(function(x){return Number(x.dataset.gradSelect);});
             if(!ids.length){note("Seleziona almeno una graduatoria definitiva.",true);return;}
