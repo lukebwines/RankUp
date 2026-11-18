@@ -146,7 +146,24 @@ def cfg_values(db):
 
 
 def missing_config(values):
-    return [key for key in CONFIG_REQUIRED if not str(values.get(key) or "").strip()]
+    """Anche codifiche palesemente errate sono da verificare, non solo i vuoti."""
+    problems = [key for key in CONFIG_REQUIRED
+                if not str(values.get(key) or "").strip()]
+    for key in ("legale_comune_nascita", "sede_legale_comune", "sede_lavoro_comune"):
+        if values.get(key) and not cat_code(values[key]):
+            problems.append(key)
+    if values.get("legale_data_nascita") and not iso_date(values["legale_data_nascita"]):
+        problems.append("legale_data_nascita")
+    if values.get("legale_sesso") and values["legale_sesso"] not in ("F", "M"):
+        problems.append("legale_sesso")
+    if values.get("legale_cittadinanza") and not re.fullmatch(r"[0-9]{3}", values["legale_cittadinanza"]):
+        problems.append("legale_cittadinanza")
+    if values.get("codice_fiscale") and not re.fullmatch(r"[A-Z0-9]{11,16}", values["codice_fiscale"].upper()):
+        problems.append("codice_fiscale")
+    for key in ("sede_legale_cap", "sede_lavoro_cap"):
+        if values.get(key) and not re.fullmatch(r"[0-9]{5}", values[key]):
+            problems.append(key)
+    return sorted(set(problems))
 
 
 def iso_date(raw):
