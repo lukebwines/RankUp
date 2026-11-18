@@ -30,4 +30,4 @@ def test_primary_highlights_use_different_colors_without_flow_changes():
     assert 'ru-val-advance ru-val-tool--primary' not in HTML
     assert 'ru-val-filters ru-val-tool--primary' not in HTML
     assert 'ru-sheet-generate--primary ru-val-tool--primary' not in HTML
-    assert '1.0.41' in HTML
+    assert '1.0.42' in HTML
