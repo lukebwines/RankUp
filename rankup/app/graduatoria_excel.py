@@ -29,6 +29,11 @@ HEADERS = (
     "Cognome",
     "Nome",
     "Codice fiscale",
+    "Data di nascita",
+    "Sesso",
+    "Comune di nascita",
+    "Cittadinanza italiana",
+    "Cittadinanza",
     "Indirizzo residenza",
     "Comune di residenza",
     "Provincia di residenza",
@@ -44,7 +49,8 @@ HEADERS = (
 
 _WIDTHS = (
     11, 12, 34, 18, 42, 42, 14, 18, 25, 18, 21, 14, 24,
-    22, 22, 32, 24, 20, 14, 22, 48, 34, 18, 14, 42, 12,
+    22, 22, 18, 10, 24, 18, 20, 32, 24, 20, 14, 22, 48,
+    34, 18, 14, 42, 12,
 )
 
 _PERSONAL_FIELDS = (
@@ -187,6 +193,11 @@ def render_graduatoria_excel(code: str, data: dict,
                     candidate.get("cognome", ""),
                     candidate.get("nome", ""),
                     personal.get("codice_fiscale", ""),
+                    _date_value(personal.get("data_nascita")),
+                    personal.get("sesso", ""),
+                    personal.get("comune_nascita", ""),
+                    personal.get("cittadinanza_italiana", ""),
+                    personal.get("cittadinanza", ""),
                     personal.get("residenza_indirizzo", ""),
                     personal.get("residenza_citta", ""),
                     personal.get("residenza_provincia", ""),
@@ -201,16 +212,22 @@ def render_graduatoria_excel(code: str, data: dict,
                 )
                 for column, value in enumerate(values, 1):
                     cell = sheet.cell(row=row_number, column=column)
-                    is_text = column not in (1, 11, 24) and not (
-                        column == 23 and isinstance(value, date)
+                    header = HEADERS[column - 1]
+                    numeric = header in ("Posizione", "ID candidatura RankUP", "Punteggio")
+                    is_date = header in ("Data di nascita", "Data conseguimento") and isinstance(value, date)
+                    _write_value(cell, value, text=not numeric and not is_date)
+                    cell.alignment = Alignment(
+                        vertical="top",
+                        wrap_text=header in (
+                            "CdS", "Insegnamento", "Modulo", "Partizione studenti",
+                            "Comune di nascita", "Indirizzo residenza",
+                            "Comune di residenza", "Nazione di residenza",
+                            "Titolo di studio", "Ateneo di conseguimento", "Esito",
+                        ),
                     )
-                    _write_value(cell, value, text=is_text)
-                    cell.alignment = Alignment(vertical="top", wrap_text=column in (3, 5, 6, 16, 20, 21, 22, 25))
-                    if column == 15:
-                        cell.number_format = "@"
-                    elif column == 23 and isinstance(value, date):
+                    if is_date:
                         cell.number_format = "dd/mm/yyyy"
-                    elif column == 24 and value is not None:
+                    elif header == "Punteggio" and value is not None:
                         cell.number_format = "0.00"
                 if is_winner:
                     for cell in sheet[row_number]:
@@ -241,7 +258,7 @@ def render_graduatoria_excel(code: str, data: dict,
     source_rows = (
         ("Elemento", "Fonte e criterio"),
         ("Graduatoria", "Posizioni, punteggi, esiti e vincitore derivano dallo snapshot della graduatoria approvata. Non vengono ricalcolati."),
-        ("Anagrafica", "Cognome, nome, codice fiscale e dati personali derivano dalla candidatura PICA associata all'ID PICA e all'incarico."),
+        ("Anagrafica", "Cognome, nome, data e comune di nascita, sesso, cittadinanza e codice fiscale derivano dalla candidatura PICA associata all'ID PICA e all'incarico."),
         ("Residenza", "PICA: Residenza - indirizzo, Residenza - città, Residenza - provincia, Residenza - CAP, Residenza - nazione."),
         ("Titolo di studio", "PICA AU: Diploma di Laurea/Laurea Specialistica/Laurea Magistrale in."),
         ("Ateneo di conseguimento", "PICA AV: Conseguito presso l'università di."),
