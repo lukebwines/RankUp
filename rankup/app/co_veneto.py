@@ -280,6 +280,11 @@ def validate_worker(source, work, start, end):
         problems.append("codice catastale comune di nascita")
     if not re.fullmatch(r"[0-9]{3}", work.get("cittadinanza_codice", "")):
         problems.append("codice cittadinanza")
+    elif work["cittadinanza_codice"] != "000":
+        # Il generatore base replica la comunicazione di una lavoratrice
+        # italiana. Per cittadinanze estere servono verifiche e, in casi
+        # specifici, informazioni di soggiorno non gestite dal modulo.
+        problems.append("cittadinanza estera: verificare i campi UNILAV specifici (non gestiti)")
     if not cat_code(work.get("domicilio_comune_codice")):
         problems.append("codice catastale comune di domicilio")
     if not _clean(work.get("domicilio_indirizzo")) or not _clean(work.get("domicilio_cap")):
@@ -305,13 +310,19 @@ def make_xml(config, source, work, start, end, when=None):
     if absent or problems:
         raise ValueError("Configurazione mancante: " + ", ".join(absent) +
                          "; dati lavoratore da verificare: " + ", ".join(problems))
+    # La ricevuta XML CO Veneto utilizza un dateTime locale SENZA offset.
+    # Gli eventi di audit conservano invece il timestamp con fuso orario.
+    try:
+        invio = datetime.fromisoformat(when or timestamp()).strftime("%Y-%m-%dT%H:%M:%S")
+    except (ValueError, TypeError):
+        raise ValueError("Data invio XML non valida")
     ET.register_namespace("", NS)
     q = lambda name: "{" + NS + "}" + name
     element = lambda parent, name, value: ET.SubElement(parent, q(name)).__setattr__("text", str(value))
     root = ET.Element(q("UniLav"), {
         "assunzioneForzaMaggiore": "NO",
         "codiceComunicazione": CODICE_NUOVA_COMUNICAZIONE,
-        "dataInvio": when or timestamp(),
+        "dataInvio": invio,
         "e-mailDelegato": config["email_delegato"],
         "versione": VERSIONE_TRACCIATO,
     })
