@@ -9,6 +9,7 @@ from pypdf.generic import NameObject, TextStringObject
 from test_pdf_import import (
     _setup, _post, _edit, _preview, _confirm, _complete_operator_onboarding,
 )
+from test_import import pica_fixture
 
 
 def _complete_all(client, sheets):
@@ -249,7 +250,9 @@ def test_cds_pdf_and_sealed_verbale_include_pica_partition_but_original_is_immut
 
 
 def test_internal_pdf_and_excel_available_to_operator_and_legacy_pica_fields_are_recovered(tmp_path,monkeypatch):
-    server,client,sheets=_setup(tmp_path,monkeypatch)
+    server,client,sheets=_setup(
+        tmp_path,monkeypatch,pica_data=pica_fixture(with_degree_date=True)
+    )
     with client:
         code="26-02"
         base=f"/api/bandi/{code}"
