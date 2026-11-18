@@ -258,6 +258,10 @@ def test_internal_pdf_and_excel_available_to_operator_and_legacy_pica_fields_are
         base=f"/api/bandi/{code}"
         _complete_all(client,sheets)
         view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
+        body={"cds":view["cds"],"sede":view["sede"]}
+        sealed=_post(client,base+"/verbali/graduatorie/genera-definitivo",json=body)
+        assert sealed.status_code==200,sealed.text
+        view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
         gid=view["conferma"]["id"]
         draft=_post(client,base+"/graduatorie/approvazioni",
                     json={"graduatorie_ids":[gid]})
