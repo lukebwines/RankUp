@@ -56,6 +56,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 import admin_credentials as admin_store
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
+from graduatoria_excel import render_graduatoria_excel, MIME_XLSX
 from pdf_definitivo import verbale_definitivo
 from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf as acquisisci_verbale_seduta, source_digest as impronta_verbale_seduta, nome_verbale
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
@@ -1320,6 +1321,16 @@ def annulla_ripristino_backup(request: Request):
 
 
 # Account operativi: gestione riservata all'Admin, non delegabile agli utenti.
+def require_authenticated(request: Request) -> dict:
+    """Consente il download dei report interni agli account operativi autenticati."""
+    principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal or principal.get("role") not in ("admin", "user"):
+        fail("Autenticazione richiesta",401)
+    if principal.get("password_change_required"):
+        fail("Cambio password obbligatorio prima di proseguire",403)
+    return principal
+
+
 def require_admin(request: Request) -> dict:
     principal = AUTH.principal(request.cookies.get(COOKIE_NAME))
     if not principal or principal["role"] != "admin":
@@ -6324,7 +6335,7 @@ def pdf_approvazione(code: str, approval_id: int, request: Request, inline: bool
 @app.get("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/prospetto-interno")
 def prospetto_nominativo_interno(code: str, approval_id: int, request: Request):
     """Identità complete dallo snapshot approvato, non dai dati correnti."""
-    require_admin(request)
+    require_authenticated(request)
     code=valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -6355,6 +6366,162 @@ def prospetto_nominativo_interno(code: str, approval_id: int, request: Request):
         headers={"Content-Disposition":'attachment; filename="RankUP_'+
                  _safe_filename(code,40)+'_prospetto_nominativo_INTERNO.pdf"',
                  "Cache-Control":"no-store"})
+
+
+def _graduatoria_personal_data(db, bando_id: int, code: str,
+                               payload: dict) -> dict[int, dict]:
+    """Legge i dati PICA solo per gli ID presenti nello snapshot approvato.
+
+    Per le importazioni precedenti alla gestione dei campi di residenza,
+    recupera i valori dal PICA originale soltanto se SHA-256 e codice bando
+    corrispondono all'importazione conservata.
+    """
+    references = {}
+    for scope in payload.get("selezioni", []):
+        for job in scope.get("incarichi", []):
+            job_key = str(job.get("key") or "")
+            for candidate in job.get("candidature", []):
+                try:
+                    candidate_id = int(candidate.get("candidatura_id"))
+                except (TypeError, ValueError):
+                    continue
+                references[candidate_id] = (
+                    str(candidate.get("id_pica") or ""), job_key
+                )
+
+    personal = {}
+    ids = sorted(references)
+    for offset in range(0, len(ids), 400):
+        chunk = ids[offset:offset + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = db.execute(
+            "SELECT id,id_pica,codice_fiscale,source_json FROM candidature "
+            "WHERE bando_id=? AND id IN (" + placeholders + ")",
+            [bando_id, *chunk],
+        ).fetchall()
+        for row in rows:
+            expected_pica = references.get(row["id"], ("", ""))[0]
+            if str(row["id_pica"] or "") != expected_pica:
+                continue
+            try:
+                source = json.loads(row["source_json"] or "{}")
+            except (TypeError, ValueError):
+                source = {}
+            if not isinstance(source, dict):
+                source = {}
+            if not source.get("codice_fiscale"):
+                source["codice_fiscale"] = row["codice_fiscale"] or ""
+            personal[row["id"]] = source
+
+    fields = (
+        "codice_fiscale",
+        "residenza_indirizzo",
+        "residenza_citta",
+        "residenza_provincia",
+        "residenza_cap",
+        "residenza_nazione",
+        "titolo_studio",
+        "ateneo_conseguimento",
+        "data_conseguimento",
+    )
+    needs_original = any(
+        not all(personal.get(candidate_id, {}).get(field) for field in (
+            "residenza_indirizzo", "residenza_citta",
+            "residenza_provincia", "residenza_cap", "residenza_nazione",
+            "ateneo_conseguimento",
+        ))
+        for candidate_id in references
+    )
+    original_by_pair = {}
+    if needs_original:
+        bando = db.execute(
+            "SELECT source_hash FROM bandi WHERE id=?", (bando_id,)
+        ).fetchone()
+        if bando:
+            for extension in (".xls", ".xlsx"):
+                source_path = SOURCES / code / ("pica_originale" + extension)
+                if not source_path.is_file():
+                    continue
+                try:
+                    raw = source_path.read_bytes()
+                    if hashlib.sha256(raw).hexdigest() != bando["source_hash"]:
+                        break
+                    parsed = parse_pica(source_path.name, raw)
+                    if parsed.get("code") != code:
+                        break
+                    for record in parsed.get("rows", []):
+                        assignment = record.get("incarico") or {}
+                        pair = (
+                            str(record.get("id_pica") or ""),
+                            str(assignment.get("key") or ""),
+                        )
+                        original_by_pair[pair] = record
+                except Exception:
+                    # Il report resta generabile con i dati già conservati
+                    # nel record importato; i campi mancanti restano vuoti.
+                    original_by_pair = {}
+                break
+
+    result = {}
+    for candidate_id, (pica_id, job_key) in references.items():
+        source = dict(personal.get(candidate_id, {}))
+        original = original_by_pair.get((pica_id, job_key), {})
+        for field in fields:
+            if not source.get(field) and original.get(field):
+                source[field] = original[field]
+        result[candidate_id] = source
+    return result
+
+
+@app.get("/api/bandi/{code}/graduatorie/approvazioni/{approval_id}/excel")
+def excel_graduatoria_interna(code: str, approval_id: int, request: Request):
+    """Esporta il prospetto nominativo Excel solo da un'approvazione attiva."""
+    require_authenticated(request)
+    code = valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b = db.execute(
+            "SELECT id FROM bandi WHERE codice=?", (code,)
+        ).fetchone()
+        if not b:
+            fail("Bando non trovato", 404)
+        approval = db.execute("""SELECT a.stato,a.dati_json,
+                    r.approvazione_id AS regredita
+            FROM graduatorie_approvazioni a
+            LEFT JOIN graduatorie_approvazioni_regressioni r
+              ON r.approvazione_id=a.id
+            WHERE a.id=? AND a.bando_id=?""",
+            (approval_id, b["id"]),
+        ).fetchone()
+        if not approval:
+            fail("Approvazione non trovata", 404)
+        if approval["stato"] != "approvata" or approval["regredita"]:
+            fail("Il prospetto Excel è disponibile solo per atti attualmente approvati", 409)
+        payload = enrich_print_metadata(
+            db, b["id"], json.loads(approval["dati_json"])
+        )
+        personal = _graduatoria_personal_data(db, b["id"], code, payload)
+        xlsx = render_graduatoria_excel(code, payload, personal)
+        now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)""",
+            (b["id"], "approvazione", approval_id,
+             "Download graduatoria nominativa interna Excel",
+             json.dumps({"sha256": hashlib.sha256(xlsx).hexdigest(),
+                         "formato": "xlsx"}, ensure_ascii=False),
+             request_actor(), now))
+        db.commit()
+    return Response(
+        content=xlsx,
+        media_type=MIME_XLSX,
+        headers={
+            "Content-Disposition": 'attachment; filename="RankUP_' +
+                _safe_filename(code, 40) + '_graduatoria_nominativa_INTERNO.xlsx"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/api/bandi/{code}/valutazioni/candidature")
