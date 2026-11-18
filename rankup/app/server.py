@@ -68,6 +68,7 @@ from backup_manager import (create_backup as create_manual_backup, list_backups,
                             PHRASE as RESTORE_CONFIRMATION, NAME as BACKUP_FILENAME_RE)
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
+from co_veneto import create_schema as create_co_veneto_schema, register_routes as register_co_veneto_routes
 from audit_log import create_event_schema, create_policy_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
@@ -813,6 +814,8 @@ def initialize() -> None:
         admin_store.schema(db)
         # Registri separati dall'archivio operativo, non rimossi dall'azzeramento.
         create_policy_schema(db)
+        # Comunicazioni CO Veneto: configurazione, pratiche, XML e lotti immutabili.
+        create_co_veneto_schema(db)
         # Registrare la versione soltanto DOPO l'intero upgrade dello schema.
         record_schema_version(db, SCHEMA_VERSION)
         _refresh_application_data(db)
@@ -1020,7 +1023,7 @@ with audit_connect() as audit_db:
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.41", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.42", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 if AUTH.recovery_issued:
     try:
@@ -1767,7 +1770,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.41", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.42", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -6554,3 +6557,10 @@ def candidature_per_valutazione_manuale(code: str, cds: str="",sede: str=""):
         """,args).fetchall()
     return {"candidature":[dict(row) for row in rows]}
 
+
+
+# API CO Veneto registrate dopo la definizione dei controlli esistenti.
+register_co_veneto_routes(
+    app, connect, require_authenticated, require_admin,
+    valid_code, _graduatoria_personal_data, request_actor,
+)

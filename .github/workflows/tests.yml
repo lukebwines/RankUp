@@ -29,6 +29,7 @@ jobs:
                   path=pathlib.Path(folder)/("script-"+str(i)+".js")
                   path.write_text(script,encoding="utf-8")
                   subprocess.run(["node","--check",str(path)],check=True)
+          subprocess.run(["node","--check","rankup/app/static/co_veneto_ui.js"],check=True)
           PY
 
   source-zip:

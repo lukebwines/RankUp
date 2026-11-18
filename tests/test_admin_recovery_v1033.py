@@ -41,7 +41,7 @@ def test_legacy_admin_migrates_to_salted_hash_without_data_loss(tmp_path,monkeyp
             assert len(row["password_salt"])>=32
             assert len(row["password_hash"])>=64
             assert row["password_hash"]!=OLD
-            assert db.execute("PRAGMA user_version").fetchone()[0]==16
+            assert db.execute("PRAGMA user_version").fetchone()[0]==17
         assert OLD.encode() not in (tmp_path/"rankup.sqlite3").read_bytes()
         assert admin.get("/api/bandi").status_code==200
 
