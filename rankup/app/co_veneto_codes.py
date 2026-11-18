@@ -69,6 +69,17 @@ def comune_domicilio(source):
     city = str(source.get("residenza_citta") or "").strip()
     province = str(source.get("residenza_provincia") or "").strip().upper()
     nation = norm(source.get("residenza_nazione"))
+    # Alcune esportazioni PICA riportano "VERONA (VR)" come unico valore
+    # nel campo Comune. La sigla provinciale e' parte del dato dichiarato,
+    # non un codice ipotizzato: va estratta prima del matching anagrafico.
+    embedded = re.fullmatch(r"(.+?)\\s*\\(\\s*([A-Z]{2})\\s*\\)", city, re.IGNORECASE)
+    if embedded:
+        declared_province = embedded.group(2).upper()
+        # Segnalare l'incongruenza, non scegliere arbitrariamente fra le due.
+        if re.fullmatch(r"[A-Z]{2}", province) and province != declared_province:
+            return ""
+        city = embedded.group(1).strip()
+        province = declared_province
     # Se manca lo Stato, occorre almeno la provincia italiana: senza
     # entrambe le fonti non si può presumere che la località sia in Italia.
     if (not city or nation not in ITALIAN_COUNTRIES or
