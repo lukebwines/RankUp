@@ -72,7 +72,7 @@ def comune_domicilio(source):
     # Alcune esportazioni PICA riportano "VERONA (VR)" come unico valore
     # nel campo Comune. La sigla provinciale e' parte del dato dichiarato,
     # non un codice ipotizzato: va estratta prima del matching anagrafico.
-    embedded = re.fullmatch(r"(.+?)\\s*\\(\\s*([A-Z]{2})\\s*\\)", city, re.IGNORECASE)
+    embedded = re.fullmatch(r"(.+?)\s*\(\s*([A-Z]{2})\s*\)", city, re.IGNORECASE)
     if embedded:
         declared_province = embedded.group(2).upper()
         # Segnalare l'incongruenza, non scegliere arbitrariamente fra le due.
