@@ -1,6 +1,6 @@
 # Roadmap RankUP
 
-> **Stato di riferimento del repository: v0.9.25 (`rankup/config.yaml`).** Le caselle indicano disponibilità nel codice, **non** collaudo in produzione né installazione sul Raspberry. Le note delle versioni precedenti sono mantenute più sotto come cronologia.
+> **Stato di riferimento del repository: v1.0.41 (`rankup/config.yaml`).** Le caselle indicano disponibilità nel codice, **non** collaudo in produzione né installazione sul Raspberry. Le note delle versioni precedenti sono mantenute più sotto come cronologia.
 
 ## Come leggere lo stato
 
@@ -21,7 +21,7 @@
 | Prospetto interno | PDF con tutti i nominativi ricavato dallo snapshot approvato, accesso Admin e audit | Verifica documentale dell'uso e della distribuzione interna |
 | Commissioni | Gestione per CdS/sede, catalogo globale conservato e importazione incrementale | Correttezza delle associazioni e delle nuove designazioni, senza propagazione implicita |
 | Schede PDF | Tre modelli generati, massimali centralizzati, anteprima, acquisizione/nuove versioni e audit | Collaudo interattivo dei PDF su Acrobat/macOS e verifica amministrativa dei modelli |
-| Graduatorie / verbali | Graduatorie CdS e generale, approvazioni, regressioni e archivio delle versioni | Controllo umano degli atti generati e gestione delle firme esterne al programma |
+| Graduatorie / verbali | Graduatorie CdS e generale, approvazioni, regressioni, PDF interno ed Excel nominativo | Controllo umano degli atti generati e gestione delle firme esterne al programma |
 | Sicurezza | Account Admin/operatori, autorizzazioni, controlli ZIP/XLSX e operazioni concorrenti | Verifiche di sicurezza e conformità all'ambiente d'Ateneo |
 | Persistenza | SQLite con connessioni chiuse, migrazione schema v1 e snapshot prima dell'upgrade | Collaudo aggiornamento e ripristino di emergenza sul Raspberry |
 | Archiviazione bandi | ZIP finale con `manifest.json`, impronte SHA-256; PDF definitivo salvato obbligatorio e recupero degli storici documentato | **Ripristino completo automatizzato dello ZIP non implementato** |
