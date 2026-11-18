@@ -1,5 +1,6 @@
 """Revisione visiva di due azioni primarie RankUP, senza modifiche funzionali."""
 from pathlib import Path
+import re
 
 STATIC=Path(__file__).resolve().parents[1]/"rankup"/"app"/"static"
 HTML=(STATIC/"index.html").read_text(encoding="utf-8")
@@ -30,4 +31,6 @@ def test_primary_highlights_use_different_colors_without_flow_changes():
     assert 'ru-val-advance ru-val-tool--primary' not in HTML
     assert 'ru-val-filters ru-val-tool--primary' not in HTML
     assert 'ru-sheet-generate--primary ru-val-tool--primary' not in HTML
-    assert '1.0.45' in HTML
+    config=(STATIC.parents[1]/"config.yaml").read_text(encoding="utf-8")
+    version=re.search(r'^version:\s*"(\d+\.\d+\.\d+)"',config,re.M)
+    assert version and f'RANKUP · v{version.group(1)}' in HTML

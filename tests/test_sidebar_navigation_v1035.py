@@ -1,5 +1,6 @@
 """Regressioni menu laterale RankUP 1.0.45 (sole modifiche di navigazione)."""
 from pathlib import Path
+import re
 
 INDEX = Path(__file__).resolve().parents[1] / "rankup/app/static/index.html"
 
@@ -49,7 +50,9 @@ def test_sidebar_preserves_existing_permissions_for_operators():
 def test_release_metadata_is_consistent():
     source, _ = _source_and_nav()
     config = (INDEX.parents[2] / "config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.45"' in config
-    assert "RANKUP · v1.0.45" in source
-    assert "operativo.css?v=1.0.45" in source
-    assert "workspace.css?v=1.0.45" in source
+    match=re.search(r'^version:\s*"(\d+\.\d+\.\d+)"',config,re.M)
+    assert match
+    version=match.group(1)
+    assert f"RANKUP · v{version}" in source
+    assert f"operativo.css?v={version}" in source
+    assert f"workspace.css?v={version}" in source

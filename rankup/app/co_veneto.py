@@ -131,7 +131,7 @@ def fail(message, status=400):
 
 
 def timestamp():
-    return datetime.now(ZoneInfo("Europe/Rome")).isoformat(timespec="seconds")
+    return datetime.now(ZoneInfo("Europe/Rome")).isoformat(timespec="microseconds")
 
 
 def cfg_values(db):
@@ -481,6 +481,62 @@ def _assignments(db, code, bando_id, approval, personal_data):
                 "_source": raw,
             })
     return result
+
+
+
+def approval_zip_state(db, approval_id, snapshot):
+    """Stato degli ZIP prodotti per la procedura (mai stato di invio a CoVeneto).
+
+    Verde solo quando ogni incarico vincitore ha un XML conservato e nessuno
+    dei dati CO Veneto interessati e' stato salvato dopo quel file.
+    """
+    if not db.execute(
+        "SELECT 1 FROM co_veneto_lotti WHERE approvazione_id=? LIMIT 1",
+        (approval_id,),
+    ).fetchone():
+        return "non_generato"
+
+    expected = {
+        int(job["id"])
+        for scope in snapshot.get("selezioni", [])
+        for job in scope.get("incarichi", [])
+        if job.get("vincitore_id") is not None
+    }
+    if not expected:
+        return "parziale"
+
+    rows = db.execute("""
+        SELECT incarico_id,creato_il FROM co_veneto_xml
+        WHERE approvazione_id=? ORDER BY id DESC
+    """, (approval_id,)).fetchall()
+    latest = {}
+    for row in rows:
+        latest.setdefault(row["incarico_id"], row["creato_il"])
+    if not expected.issubset(latest):
+        return "parziale"
+
+    configuration = db.execute(
+        "SELECT aggiornato_il FROM co_veneto_config WHERE id=1"
+    ).fetchone()
+    edits = {
+        row["incarico_id"]: row["aggiornato_il"]
+        for row in db.execute("""
+            SELECT incarico_id,aggiornato_il FROM co_veneto_pratiche
+            WHERE approvazione_id=?
+        """, (approval_id,)).fetchall()
+    }
+
+    def newer(edited, generated):
+        if not edited:
+            return False
+        return datetime.fromisoformat(edited) > datetime.fromisoformat(generated)
+
+    for job_id in expected:
+        generated = latest[job_id]
+        if (configuration and newer(configuration["aggiornato_il"], generated)
+                or newer(edits.get(job_id), generated)):
+            return "da_rigenerare"
+    return "generato"
 
 
 def _event(db, bando_id, approval_id, job_id, action, details, actor):

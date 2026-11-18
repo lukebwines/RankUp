@@ -896,3 +896,27 @@ html[data-theme="dark"] .ru-workspace .ru-sheet-generate--primary #sheet-cds,
 html[data-theme="dark"] .ru-workspace .ru-sheet-generate--primary #sheet-sede {
   border-color:#6e88b9!important;
 }
+
+/* CO Veneto: blu finche' lo ZIP non e' completo/attuale, verde dopo generazione.
+   Un archivio conservato non equivale a una comunicazione inviata. */
+.ru-workspace .ru-approval-card--active .actions button.ru-co-button--pending{
+  background:#225b87!important;color:#fff!important;border:1px solid #427cac!important;
+}
+.ru-workspace .ru-approval-card--active .actions button.ru-co-button--generated{
+  background:#28774c!important;color:#fff!important;border:1px solid #4d9e6e!important;
+}
+.ru-workspace .actions button.ru-regress-danger{
+  background:#a52d41!important;color:#fff!important;border:1px solid #ca5264!important;
+}
+.ru-workspace .actions button.ru-regress-danger:hover{
+  background:#8b1f32!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active .actions button.ru-co-button--pending{
+  background:#24547e!important;color:#f2f8ff!important;border-color:#477da9!important;
+}
+html[data-theme="dark"] .ru-workspace .ru-approval-card--active .actions button.ru-co-button--generated{
+  background:#26764b!important;color:#f0fff4!important;border-color:#58a677!important;
+}
+html[data-theme="dark"] .ru-workspace .actions button.ru-regress-danger{
+  background:#9e293c!important;color:#fff!important;border-color:#d15667!important;
+}
