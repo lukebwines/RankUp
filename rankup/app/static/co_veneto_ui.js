@@ -143,6 +143,9 @@ window.createCoVenetoUI=function(ctx){
       var data=await api(url(code,approvalId));
       if(state.page!=="coveneto"||state.active!==code)return;
       var admin=state.role==="admin",miss=data.configurazione_mancante||[];
+      var eligible=(data.incarichi||[]).filter(function(job){
+        return data.attiva&&(!job.ultimo_file||admin);
+      }).length;
       var cards=(data.incarichi||[]).map(function(job){
         return cardFor(job,data,admin,code,approvalId);
       }).join("");
@@ -159,6 +162,11 @@ window.createCoVenetoUI=function(ctx){
         ' RankUP non effettua invii: usare Verifica file sul portale CO Veneto.</div>'+
         (miss.length?'<p class="notice mb">Configurazione Ateneo incompleta: '+
           esc(miss.join(", "))+'</p>':'')+
+        (eligible?'<div class="card mb"><label style="display:inline-flex;align-items:center;gap:10px">'+
+          '<input type="checkbox" id="co-select-all" style="margin:0">'+
+          '<strong id="co-select-label">Seleziona tutti</strong></label>'+
+          '<span class="caption" id="co-selected-count" style="margin-left:12px">'+
+          '0 di '+eligible+' incarichi selezionati</span></div>':'')+
         (cards||'<div class="card mb">Nessun vincitore individuato in questa approvazione.</div>')+
         (data.attiva?'<div class="card mb"><h3 class="section-heading">Genera ZIP UNILAV</h3>'+
           '<p class="caption">Salva i dati degli incarichi da includere. '+
@@ -173,6 +181,25 @@ window.createCoVenetoUI=function(ctx){
       document.getElementById("co-back").onclick=function(){go("graduatorie");};
       if(document.getElementById("co-admin-link")){
         document.getElementById("co-admin-link").onclick=function(){go("coadmin");};
+      }
+      var selectAll=document.getElementById("co-select-all");
+      if(selectAll){
+        var picks=[...document.querySelectorAll("[data-co-pick]:not(:disabled)")];
+        function updateSelection(){
+          var selected=picks.filter(function(pick){return pick.checked;}).length;
+          selectAll.checked=(selected===picks.length);
+          selectAll.indeterminate=(selected>0&&selected<picks.length);
+          document.getElementById("co-select-label").textContent=
+            selected===picks.length?"Deseleziona tutti":"Seleziona tutti";
+          document.getElementById("co-selected-count").textContent=
+            selected+" di "+picks.length+" incarichi selezionati";
+        }
+        selectAll.onchange=function(){
+          picks.forEach(function(pick){pick.checked=selectAll.checked;});
+          updateSelection();
+        };
+        picks.forEach(function(pick){pick.onchange=updateSelection;});
+        updateSelection();
       }
       document.querySelectorAll("[data-co-save]").forEach(function(button){
         button.onclick=async function(){
