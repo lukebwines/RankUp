@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from incarichi_fields import normalize_excel_date
+from co_veneto_codes import comune_nascita, comune_domicilio
 
 NS = "http://servizi.lavoro.gov.it/unilav"
 VERSIONE_TRACCIATO = "CO260429R1"
@@ -178,7 +179,15 @@ def cat_code(raw):
 def citizenship_from_pica(source):
     italian = str(source.get("cittadinanza_italiana") or "").strip().upper()
     country = str(source.get("cittadinanza") or "").strip().upper()
-    return "000" if italian in ("SI", "SÌ", "YES") or country in ITALIAN_MARKERS else ""
+    # "NO" e una cittadinanza estera dichiarata non possono diventare 000:
+    # il codice fiscale italiano NON dimostra la cittadinanza.
+    if italian in ("NO", "FALSE", "N", "0"):
+        return ""
+    if italian in ("SI", "SÌ", "YES", "TRUE", "Y", "1"):
+        if country and country not in ITALIAN_MARKERS:
+            return ""  # Dati PICA discordanti: richiedono verifica.
+        return "000"
+    return "000" if country in ("ITALIA", "ITALIANA", "ITALIANO", "000") else ""
 
 
 def academic_end(academic_year):
@@ -199,18 +208,24 @@ def defaults_from_pica(source):
         "domicilio_indirizzo": _clean(source.get("residenza_indirizzo")),
         "domicilio_citta": _clean(source.get("residenza_citta")),
         "domicilio_cap": _clean(source.get("residenza_cap")),
-        "domicilio_comune_codice": cat_code(source.get("residenza_citta")),
-        "nascita_comune_codice": cat_code(source.get("comune_nascita")),
+        "domicilio_comune_codice": comune_domicilio(source),
+        "nascita_comune_codice": comune_nascita(source),
         "cittadinanza_codice": citizenship_from_pica(source),
-        "livello_istruzione": "",
+        # Valore predefinito confermato per gli incarichi RankUP.
+        # Resta modificabile in caso di eccezione documentata.
+        "livello_istruzione": "70",
         "sesso": _clean(source.get("sesso")).upper()[:1],
     }
 
 
 def work_values(source, saved):
     values = defaults_from_pica(source)
+    # I vecchi record possono contenere campi vuoti salvati prima
+    # dell'autocompilazione: non devono cancellare i nuovi valori verificati.
+    automatic = {"domicilio_comune_codice", "nascita_comune_codice",
+                 "cittadinanza_codice", "livello_istruzione"}
     values.update({key: _clean(saved.get(key)) for key in CONTRACT_FIELDS
-                   if key in saved})
+                   if key in saved and (key not in automatic or _clean(saved.get(key)))})
     return values
 
 
