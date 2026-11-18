@@ -226,6 +226,13 @@ def work_values(source, saved):
                  "cittadinanza_codice", "livello_istruzione"}
     values.update({key: _clean(saved.get(key)) for key in CONTRACT_FIELDS
                    if key in saved and (key not in automatic or _clean(saved.get(key)))})
+    # Se il Comune di domicilio è stato cambiato manualmente rispetto a PICA,
+    # non mantenere in automatico il codice del vecchio Comune.
+    city_from_pica = _clean(source.get("residenza_citta"))
+    city_override = _clean(saved.get("domicilio_citta"))
+    if city_override and city_override.casefold() != city_from_pica.casefold():
+        if values["domicilio_comune_codice"] == defaults_from_pica(source)["domicilio_comune_codice"]:
+            values["domicilio_comune_codice"] = ""
     return values
 
 
