@@ -64,6 +64,15 @@ def test_xml_source_only_and_no_presumed_worker_codes():
     assert root.attrib["codiceComunicazione"]==CODICE_NUOVA_COMUNICAZIONE
     assert root.attrib["versione"]==VERSIONE_TRACCIATO
     assert root.attrib["dataInvio"]=="2026-11-18T18:00:00"
+    # Nello storico audit l'ora è timezone-aware, nel tracciato XML no.
+    with_offset=make_xml(_fake_config(), original, default,
+                         "2026-10-19","2027-09-30",
+                         when="2026-11-18T18:00:00+01:00")
+    assert ET.fromstring(with_offset).attrib["dataInvio"]=="2026-11-18T18:00:00"
+    foreign=dict(default, cittadinanza_codice="999")
+    assert any("cittadinanza estera" in p for p in
+               validate_worker(original, foreign, "2026-10-19", "2027-09-30"))
+
     assert "protocollo" not in root.attrib
     assert root.find(".//{"+NS+"}IndirizzoLavoratore/{"+NS+"}Indirizzo").text=="VIA DI PROVA"
     assert root.find(".//{"+NS+"}InizioRapporto").attrib["TipologiaContrattuale"]=="B.03.00"
