@@ -1,5 +1,12 @@
 # RankUp
 
+## RankUP v1.0.41 — Graduatoria nominativa Excel e report interni
+
+- **Graduatoria generale PDF:** rimossa la colonna Note, che non conteneva informazioni utili nel prospetto generale. La colonna Note Commissione resta nei PDF delle graduatorie CdS.
+- **Excel nominativo interno:** una riga per ogni candidatura/incarico, con posizione, punteggio, esito, dati dell'incarico, ID PICA, codice fiscale, residenza (indirizzo, città, provincia, CAP e nazione), titolo di studio, ateneo di conseguimento e data.
+- **Fonti:** la graduatoria deriva dallo snapshot approvato; i dati anagrafici e del titolo derivano dall'importazione PICA. Per le importazioni precedenti, RankUP può recuperare i nuovi campi dal PICA originale solo dopo verifica dell'hash e del codice bando. I dati mancanti restano vuoti.
+- **Permessi:** i due report interni PDF ed Excel sono scaricabili da Admin e dagli operatori autenticati, esclusivamente per approvazioni attualmente attive. La creazione, conferma e regressione delle approvazioni restano riservate ad Admin. Ogni download è registrato negli eventi della procedura.
+
 ## RankUP v1.0.9 — Verifica requisito ente e coda GroqCloud
 
 **Navigazione:** Amministrazione → **Impostazioni AI** permette all'Admin di gestire chiave GroqCloud, modello, limiti preventivi e **prompt istituzionale personalizzabile**. Il controllo delle candidature si trova nel singolo procedimento: **Verifica requisito ente**, immediatamente dopo Candidature, sempre riservato all'Admin.
@@ -70,7 +77,7 @@ Nella pagina **Graduatorie → Approvazioni attive e storico**, le approvazioni 
 
 ## Aggiornamento 0.9.30 — Vincitori in grassetto nella graduatoria generale
 
-Nella graduatoria generale pubblica e nel prospetto nominativo interno si evidenzia **in grassetto l'intera riga del vincitore effettivamente indicato per l'incarico alla posizione 1** (posizione, candidato, punti, esito, note). Le altre candidature rimangono a carattere normale e i non vincitori nel PDF pubblico continuano a essere identificati tramite ID PICA. Nessuna variazione a punteggi, graduatorie, contenuti o PDF CdS. Gli atti e i PDF definitivi già conservati non vengono riscritti.
+Nella graduatoria generale pubblica e nel prospetto nominativo interno si evidenzia **in grassetto l'intera riga del vincitore effettivamente indicato per l'incarico alla posizione 1** (posizione, candidato, punti ed esito). Le altre candidature rimangono a carattere normale e i non vincitori nel PDF pubblico continuano a essere identificati tramite ID PICA. Nessuna variazione a punteggi, graduatorie, contenuti o PDF CdS. Gli atti e i PDF definitivi già conservati non vengono riscritti.
 
 
 ## Aggiornamento 0.9.29 — UL e partizioni nei PDF del CdS
@@ -420,7 +427,7 @@ python scripts/verify_source_zip.py RankUp-source.zip
 
 - **Candidature:** l'Admin può registrare per singolo incarico rinunce, ritiri ed esclusioni d'ufficio con motivazione e riferimento documentale. La scheda non è più obbligatoria per la candidatura non attiva; gli originali PDF/PICA e lo storico restano conservati. Il ripristino richiede una nuova decisione documentata. Dopo la definitiva è richiesta la regressione del CdS; gli atti già approvati non vengono modificati per gli scorrimenti, che restano gestiti esternamente.
 - **Parità:** le schede tecnicamente regolari rimangono acquisite, ma i candidati interessati sono indicati «Da verificare per parità» e il verbale è bloccato. In «Verbali» appare il comando Admin «Gestisci parità» soltanto per l'incarico con parità non risolta. L'ordine, anche oltre la prima posizione, viene trascritto dalla decisione documentata della Commissione: punteggi invariati; evento e identificativi delle valutazioni sono conservati per invalidare automaticamente l'ordine quando le schede cambiano. Restano riconosciute le precedenti decisioni sul vincitore.
-- **Prospetto nominativo completo:** download riservato all'Admin dalla sezione delle approvazioni; tutte le identità derivano *solo* dallo snapshot della graduatoria approvata e non sono ricalcolate. L'atto pubblico continua a mostrare in chiaro il solo vincitore e gli ID PICA degli altri candidati. Download registrato nell'audit.
+- **Prospetto nominativo completo:** PDF interno con tutte le identità dallo snapshot approvato ed Excel con una riga per candidatura/incarico e i dati anagrafici PICA. Download disponibile ad Admin e operatori autenticati soltanto per approvazioni attualmente attive; ogni download è registrato negli eventi. L'atto pubblico continua a mostrare in chiaro il solo vincitore e gli ID PICA degli altri candidati.
 - **PDF definitivi:** la chiusura ZIP richiede la copia PDF definitiva in SQLite con SHA-256 valido e documento leggibile; la ricostruzione automatica dei vecchi verbali è disabilitata. Se manca un PDF storico, l'Admin può caricare il documento realmente adottato, dichiararne la corrispondenza e annotare motivazione/riferimento. La copia originale, impronta e registrazione di provenienza sono conservate. L'app non può verificare autonomamente l'autenticità formale dell'atto: la verifica spetta all'operatore.
 - **Migrazione DB v2:** backup SQLite verificato prima dell'upgrade da v1; aggiornamento non distruttivo. Prima dell'installazione con dati reali effettuare anche un backup completo Home Assistant.
 
