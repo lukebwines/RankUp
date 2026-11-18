@@ -39,6 +39,8 @@ def pica_fixture(with_degree_date=False):
         "ID domanda", "Stato", "Corso di Studio", "sede",
         "Nome insegnamento padre", "Descrizione Copertura",
         "ID Copertura", "Cognome", "Nome", "Codice fiscale",
+        "Data di nascita", "Sesso", "Comune di nascita",
+        "Cittadinanza Italiana", "Cittadinanza",
         "Residenza - indirizzo", "Residenza - città", "Residenza - provincia",
         "Residenza - CAP", "Residenza - nazione",
         "Diploma di Laurea/Laurea Specialistica/Laurea Magistrale in",
@@ -65,17 +67,20 @@ def pica_fixture(with_degree_date=False):
         columns + extra_columns,
         [1001, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno",
-         "CODICEFISCALE", "Via Roma 1", "Verona", "VR", "37100", "Italia",
+         "CODICEFISCALE", "01/02/1990", "F", "Verona", "Sì", "Italia",
+         "Via Roma 1", "Verona", "VR", "37100", "Italia",
          "Laurea in Professioni Sanitarie", "Università di Verona",
          "15/06/2018" if with_degree_date else "", "SSD-A", ""] + extra_a,
         [1001, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno",
-         "CODICEFISCALE", "Via Roma 1", "Verona", "VR", "37100", "Italia",
+         "CODICEFISCALE", "01/02/1990", "F", "Verona", "Sì", "Italia",
+         "Via Roma 1", "Verona", "VR", "37100", "Italia",
          "Laurea in Professioni Sanitarie", "Università di Verona",
          "15/06/2018" if with_degree_date else "", "MEDS-24/C", ""] + extra_b,
         [1002, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due",
-         "CODICEFISCALE2", "Via Milano 2", "Vicenza", "VI", "36100", "Italia",
+         "CODICEFISCALE2", "15/04/1988", "M", "Vicenza", "Sì", "Italia",
+         "Via Milano 2", "Vicenza", "VI", "36100", "Italia",
          "Laurea magistrale in Scienze", "Università di Padova",
          "20/10/2020" if with_degree_date else "", "SSD-A", "SSD-PERSONALE"] + extra_a,
     ])
@@ -121,6 +126,11 @@ def test_multiple_assignments_for_same_candidate():
 def test_pica_anagrafica_residenza_e_titolo_di_studio_riconosciuti_da_intestazione():
     rows = parse_pica("demo.xlsx", pica_fixture(with_degree_date=True))["rows"]
     first = rows[0]
+    assert first["data_nascita"] == "01/02/1990"
+    assert first["sesso"] == "F"
+    assert first["comune_nascita"] == "Verona"
+    assert first["cittadinanza_italiana"] == "Sì"
+    assert first["cittadinanza"] == "Italia"
     assert first["residenza_indirizzo"] == "Via Roma 1"
     assert first["residenza_citta"] == "Verona"
     assert first["residenza_provincia"] == "VR"
