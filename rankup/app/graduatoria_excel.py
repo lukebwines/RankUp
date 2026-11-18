@@ -8,6 +8,7 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
 
 from incarichi_fields import normalize_excel_date
 
@@ -240,7 +241,7 @@ def render_graduatoria_excel(code: str, data: dict,
                 row_number += 1
 
     for column, width in enumerate(_WIDTHS, 1):
-        sheet.column_dimensions[sheet.cell(row=1, column=column).column_letter].width = width
+        sheet.column_dimensions[get_column_letter(column)].width = width
 
     last_row = max(header_row + 1, row_number - 1)
     sheet.auto_filter.ref = f"A{header_row}:{last_letter}{last_row}"
