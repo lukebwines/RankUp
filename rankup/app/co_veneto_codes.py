@@ -69,7 +69,10 @@ def comune_domicilio(source):
     city = str(source.get("residenza_citta") or "").strip()
     province = str(source.get("residenza_provincia") or "").strip().upper()
     nation = norm(source.get("residenza_nazione"))
-    if not city or nation not in ITALIAN_COUNTRIES:
+    # Se manca lo Stato, occorre almeno la provincia italiana: senza
+    # entrambe le fonti non si può presumere che la località sia in Italia.
+    if (not city or nation not in ITALIAN_COUNTRIES or
+            (not nation and not re.fullmatch(r"[A-Z]{2}", province))):
         return ""
     if re.match(r"^[A-Z][0-9]{3}$", city.upper()):
         return ""
