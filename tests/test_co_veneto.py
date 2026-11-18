@@ -49,7 +49,7 @@ def test_xml_source_only_and_no_presumed_worker_codes():
               "residenza_citta":"Verona", "residenza_cap":"37100"}
     default=defaults_from_pica(original)
     assert default["domicilio_indirizzo"]=="VIA DI PROVA"
-    assert default["domicilio_comune_codice"]=="L781"
+    assert default["domicilio_comune_codice"]==""  # senza Stato o provincia verificati
     assert default["livello_istruzione"]=="70"
     assert default["nascita_comune_codice"]==""
     assert "codice catastale comune di nascita" in validate_worker(
