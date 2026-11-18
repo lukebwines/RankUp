@@ -5,7 +5,7 @@ LABEL io.hass.type="app" io.hass.arch="${BUILD_ARCH}" io.hass.version="${BUILD_V
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY app/requirements.txt /app/requirements.txt
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY app /app
