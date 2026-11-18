@@ -45,3 +45,19 @@ non sono supportati: il generatore blocca la comunicazione e richiede verifica.
 
 Per nuovi invii la validazione finale resta **Verifica file** di CO Veneto.
 Il generatore non invia direttamente comunicazioni e lo ZIP contiene solo XML.
+
+
+## Riscontro sul Manuale CO Veneto 4.0 (08/01/2024)
+
+Fonte ufficiale Regione Veneto: Manuale Utente CO Veneto, versione 4.0,
+pagina 28, sezione «Scheda Dati Invio» (figura 4.18):
+https://www.cliclavoroveneto.it/normativa-e-manuali
+
+L'«Osservazione importante» specifica che le Note **non rientrano nei
+tracciati standard nazionali**, **non sono trasmesse agli altri enti nella
+cooperazione applicativa** e sono una funzione dell'implementazione veneta,
+riportata nella stampa PDF. La pagina 77, §12.1 «Formato del file», richiede
+ZIP di XML conformi esattamente al tracciato pubblicato. Pertanto
+**non c'è una modalità documentata per importare Note con XML massivo**.
+La presenza delle Note in una ricevuta originata da inserimento a video
+non dimostra che possano essere esportate dal nostro ZIP.
