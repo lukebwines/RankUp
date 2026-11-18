@@ -49,7 +49,8 @@ def test_xml_source_only_and_no_presumed_worker_codes():
               "residenza_citta":"Verona", "residenza_cap":"37100"}
     default=defaults_from_pica(original)
     assert default["domicilio_indirizzo"]=="VIA DI PROVA"
-    assert default["domicilio_comune_codice"]==""
+    assert default["domicilio_comune_codice"]=="L781"
+    assert default["livello_istruzione"]=="70"
     assert default["nascita_comune_codice"]==""
     assert "codice catastale comune di nascita" in validate_worker(
         original, default, "2026-10-19","2027-09-30"
@@ -112,7 +113,8 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         job=view["incarichi"][0]
         assert job["residenza_pica"]["indirizzo"]=="Via Roma 1"
         assert job["work"]["domicilio_indirizzo"]=="Via Roma 1"
-        assert job["work"]["domicilio_comune_codice"]==""
+        assert job["work"]["domicilio_comune_codice"]=="L781"
+        assert job["work"]["livello_istruzione"]=="70"
         early=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert early.status_code==409
         config=_fake_config()
