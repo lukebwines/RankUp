@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.45">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.46">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.45">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.46">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -272,7 +272,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.45<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.46<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -289,7 +289,7 @@
       <div id="content"></div>
     </main>
   </div>
-  <script src="static/co_veneto_ui.js?v=1.0.45"></script>
+  <script src="static/co_veneto_ui.js?v=1.0.46"></script>
   <script>
     (function () {
       "use strict";
@@ -1483,7 +1483,7 @@
                   ? '<button type="button" class="btn" data-verb-create="'+i+'">Genera verbale definitivo con schede</button>'
                   : '<button type="button" class="btn" disabled title="Acquisire verbale descrittivo e completare le schede">Verbale non ancora generabile</button>')+
               ((state.role==="admin"&&final)
-                ? '<button class="btn secondary" data-verb-regress="'+i+'">Regredisci stato</button>':'')+
+                ? '<button class="btn ru-regress-danger" data-verb-regress="'+i+'">Regredisci stato</button>':'')+
               ((approved && state.role==="admin")
                 ? '<span class="caption">Per riaprire il CdS, regredisci prima l’approvazione generale.</span>':'')+
               '</div>'+
@@ -1736,6 +1736,14 @@
             (all.length?all.map(function(a){
               var isHistorical=a.stato==="regredita",isActive=a.stato==="approvata";
               var cardClass=isHistorical?' ru-approval-card--historical':isActive?' ru-approval-card--active':'';
+              var coState=a.co_veneto_zip_stato||"non_generato";
+              var coReady=coState==="generato";
+              var coHint={
+                non_generato:"Nessuno ZIP CO Veneto ancora generato.",
+                parziale:"ZIP CO Veneto generato solo per parte degli incarichi: completare la generazione.",
+                da_rigenerare:"I dati sono stati aggiornati dopo la generazione: verificare e rigenerare gli XML necessari.",
+                generato:"ZIP CO Veneto generati e conservati in RankUP; non sono stati inviati al portale."
+              }[coState]||"Stato ZIP CO Veneto da verificare.";
               var status=isHistorical?"REGREDITA · STORICO":isActive?"ATTI APPROVATI":"BOZZA DA APPROVARE";
               return '<div class="card mb ru-approval-card'+cardClass+'"'+
                 (isHistorical?' data-approval-history="true"':'')+'>'+
@@ -1762,9 +1770,11 @@
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+
                 (a.stato==="approvata"
-                  ?'<button class="btn secondary" data-co-open="'+esc(a.id)+'">CO Veneto</button>':'')+
+                  ?'<button class="btn ru-co-button '+(coReady?'ru-co-button--generated':'ru-co-button--pending')+
+                   '" type="button" title="'+esc(coHint)+'" aria-label="CO Veneto: '+esc(coHint)+
+                   '" data-co-open="'+esc(a.id)+'">CO Veneto</button>':'')+
                 (state.role==="admin"&&a.stato==="approvata"
-                  ?'<button class="btn secondary" data-grad-regress="'+esc(a.id)+'">Regredisci stato</button>':'')+
+                  ?'<button class="btn ru-regress-danger" data-grad-regress="'+esc(a.id)+'">Regredisci stato</button>':'')+
                 '</div></div>';
             }).join(''):'<p class="muted">Nessuna procedura di approvazione ancora creata.</p>')+'</div>';
           html(content);
