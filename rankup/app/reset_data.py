@@ -21,6 +21,10 @@ from db_lifecycle import AutoClosingConnection
 RESET_LOCK = threading.Lock()
 BUSINESS_TABLES = (
     # Prima i marcatori e le revisioni, poi le tabelle collegate: rispetta le FK.
+    "co_veneto_eventi",
+    "co_veneto_lotti",
+    "co_veneto_xml",
+    "co_veneto_pratiche",
     "incarichi_modelli_scheda_eventi",
     "incarichi_modelli_scheda",
     "graduatorie_cds_documenti_recuperi",
@@ -65,7 +69,7 @@ BUSINESS_TABLES = (
     "pica_tipo_cds_dizionario",
 )
 OPTIONAL_LEGACY_TABLES = frozenset({"ai_occupazione_lavori", "valutazioni_occupazione_ai"})
-PRESERVED_TABLES = ("rankup_admin_auth", "rankup_politiche_sicurezza", "rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "commissioni_catalogo_eventi", "commissioni_catalogo_rettifiche", "bandi_archivi")
+PRESERVED_TABLES = ("rankup_admin_auth", "rankup_politiche_sicurezza", "rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "commissioni_catalogo_eventi", "commissioni_catalogo_rettifiche", "bandi_archivi", "co_veneto_config")
 RESET_CONFIRMATION = "AZZERA TUTTI I DATI RANKUP"
 
 
