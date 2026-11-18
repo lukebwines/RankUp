@@ -6415,6 +6415,11 @@ def _graduatoria_personal_data(db, bando_id: int, code: str,
 
     fields = (
         "codice_fiscale",
+        "data_nascita",
+        "sesso",
+        "comune_nascita",
+        "cittadinanza_italiana",
+        "cittadinanza",
         "residenza_indirizzo",
         "residenza_citta",
         "residenza_provincia",
@@ -6426,6 +6431,8 @@ def _graduatoria_personal_data(db, bando_id: int, code: str,
     )
     needs_original = any(
         not all(personal.get(candidate_id, {}).get(field) for field in (
+            "data_nascita", "sesso", "comune_nascita",
+            "cittadinanza_italiana", "cittadinanza",
             "residenza_indirizzo", "residenza_citta",
             "residenza_provincia", "residenza_cap", "residenza_nazione",
             "ateneo_conseguimento",
@@ -6445,10 +6452,10 @@ def _graduatoria_personal_data(db, bando_id: int, code: str,
                 try:
                     raw = source_path.read_bytes()
                     if hashlib.sha256(raw).hexdigest() != bando["source_hash"]:
-                        break
+                        continue
                     parsed = parse_pica(source_path.name, raw)
                     if parsed.get("code") != code:
-                        break
+                        continue
                     for record in parsed.get("rows", []):
                         assignment = record.get("incarico") or {}
                         pair = (
@@ -6460,6 +6467,7 @@ def _graduatoria_personal_data(db, bando_id: int, code: str,
                     # Il report resta generabile con i dati già conservati
                     # nel record importato; i campi mancanti restano vuoti.
                     original_by_pair = {}
+                    continue
                 break
 
     result = {}
