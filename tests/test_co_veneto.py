@@ -118,6 +118,8 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         path="/api/bandi/26-02/co-veneto/approvazioni/"+str(aid)
         view=admin.get(path).json()
         assert view["attiva"] is True
+        approvals=admin.get("/api/bandi/26-02/graduatorie/approvazioni").json()["approvazioni"]
+        assert next(a for a in approvals if a["id"]==aid)["co_veneto_zip_stato"]=="non_generato"
         assert len(view["incarichi"])==2
         job=view["incarichi"][0]
         assert job["residenza_pica"]["indirizzo"]=="Via Roma 1"
@@ -155,6 +157,8 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         assert saved.status_code==200,saved.text
         generated=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert generated.status_code==200,generated.text
+        approvals=admin.get("/api/bandi/26-02/graduatorie/approvazioni").json()["approvazioni"]
+        assert next(a for a in approvals if a["id"]==aid)["co_veneto_zip_stato"]=="parziale"
         batch=admin.get(path+"/lotti/"+str(generated.json()["lotto_id"])+"/zip")
         assert batch.status_code==200
         with ZipFile(BytesIO(batch.content)) as zipfile:
