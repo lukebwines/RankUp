@@ -35,7 +35,7 @@ def _edit(data: bytes, updates: dict[str,str]) -> bytes:
     return out.getvalue()
 
 
-def _setup(tmp_path,monkeypatch):
+def _setup(tmp_path,monkeypatch,pica_data=None):
     monkeypatch.setenv("RANKUP_DATA_DIR",str(tmp_path))
     (tmp_path/"options.json").write_text(json.dumps({
         "admin_username":"test-admin",
@@ -48,7 +48,7 @@ def _setup(tmp_path,monkeypatch):
         json={"username":"test-admin","password":"PasswordFittiziaLunga12345!"})
     assert login.status_code==200,login.text
     preview=_post(client,"/api/pica/preview",
-        files={"file":("test.xlsx",pica_fixture(),
+        files={"file":("test.xlsx",pica_data if pica_data is not None else pica_fixture(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert preview.status_code==200,preview.text
     commit=_post(client,"/api/pica/commit",json={"token":preview.json()["token"]})
