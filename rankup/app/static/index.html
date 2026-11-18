@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.40">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.41">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.40">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.41">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -271,7 +271,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.40<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.41<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -1742,10 +1742,13 @@
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf">'+(isHistorical?'Scarica PDF storico':'Scarica graduatoria generale PDF')+'</a>'+
                 '<a class="btn secondary" target="_blank" rel="noopener" href="api/bandi/'+encodeURIComponent(code)+
                 '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+'/pdf?inline=true">'+(isHistorical?'Apri PDF storico nel browser':'Apri PDF nel browser')+'</a>'+
-                (state.role==="admin"&&a.stato==="approvata"
+                ((state.role==="admin"||state.role==="user")&&a.stato==="approvata"
                   ? '<a class="btn secondary" data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
                     '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+
-                    '/prospetto-interno">Scarica prospetto nominativo · uso interno</a>' : '')+
+                    '/prospetto-interno">Scarica prospetto nominativo PDF · uso interno</a>'+
+                    '<a class="btn secondary" data-xlsx-download href="api/bandi/'+encodeURIComponent(code)+
+                    '/graduatorie/approvazioni/'+encodeURIComponent(a.id)+
+                    '/excel">Scarica graduatoria completa Excel · uso interno</a>' : '')+
                 (state.role==="admin"&&a.stato==="bozza"
                   ?'<button class="btn" data-grad-approve="'+esc(a.id)+'">Registra approvazione atti</button>'+
                    '<button class="btn secondary" data-grad-cancel="'+esc(a.id)+'">Annulla bozza</button>':'')+

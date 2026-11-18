@@ -331,7 +331,9 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
                         story.append(Paragraph("Motivazione scelta amministrativa: "+
                             escape(job["vincitore_motivazione"])+
                             " | Riferimento: "+escape(job["vincitore_riferimento"]),sub))
-            head=["Pos.","Candidato / ID PICA","Punti","Esito",("Note Commissione" if not general else "Note")]
+            head=["Pos.","Candidato / ID PICA","Punti","Esito"]
+            if not general:
+                head.append("Note Commissione")
             rows=[[p(x) for x in head]]
             cand=sorted(job["candidature"],key=lambda x:(
                 0 if x["decisione"]=="idoneo" else 1,
@@ -350,15 +352,21 @@ def render_graduatoria_pdf(code: str, data: dict, general: bool=False,
                 def cell(value):
                     plain=escape(str(value if value not in (None,"") else "[DA VERIFICARE]"))
                     return Paragraph("<b>"+plain+"</b>" if winner_bold else plain,small)
-                rows.append([cell(row["posizione"] if row["posizione"] is not None else "-"),
-                             cell(identity),
-                             cell(row["punteggio"] if row["punteggio"] is not None else "non attribuito"),
-                             cell(row["esito"]),
-                             cell((row["note"] or "—") if not general else "-")])
+                cells=[cell(row["posizione"] if row["posizione"] is not None else "-"),
+                       cell(identity),
+                       cell(row["punteggio"] if row["punteggio"] is not None else "non attribuito"),
+                       cell(row["esito"])]
+                if not general:
+                    cells.append(cell(row["note"] or "—"))
+                rows.append(cells)
             if len(rows)==1:
-                rows.append([p("-"),p("Nessuna candidatura"),p("-"),p("-"),p("-")])
-            table=Table(rows,colWidths=[12*mm,55*mm,21*mm,39*mm,51*mm],
-                        repeatRows=1,hAlign="LEFT")
+                empty=[p("-"),p("Nessuna candidatura"),p("-"),p("-")]
+                if not general:
+                    empty.append(p("-"))
+                rows.append(empty)
+            widths=([12*mm,69*mm,22*mm,75*mm] if general else
+                    [12*mm,55*mm,21*mm,39*mm,51*mm])
+            table=Table(rows,colWidths=widths,repeatRows=1,hAlign="LEFT")
             padding=2.5 if general else 5
             table.setStyle(TableStyle([
                 ("VALIGN",(0,0),(-1,-1),"TOP"),

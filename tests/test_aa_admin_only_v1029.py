@@ -1,5 +1,5 @@
 from test_pdf_import import _complete_operator_onboarding
-"""Regressioni per creazione A.A. riservata all'Admin in RankUP 1.0.40.
+"""Regressioni per creazione A.A. riservata all'Admin in RankUP 1.0.41.
 
 Le annualità e i riferimenti sono esclusivamente dati sintetici di test.
 """
@@ -90,7 +90,7 @@ def test_only_admin_can_register_a_new_academic_year(tmp_path, monkeypatch):
 def test_ui_hides_new_year_button_for_operators_and_blocks_stale_selection():
     html = (ROOT / "rankup/app/static/index.html").read_text(encoding="utf-8")
     config = (ROOT / "rankup/config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.40"' in config
+    assert 'version: "1.0.41"' in config
     assert 'id="add-academic-year" class="add-year" type="button" style="display:none"' in html
     assert '$("add-academic-year").style.display=state.role==="admin"?"block":"none"' in html
     assert 'if(state.role!=="admin"){' in html

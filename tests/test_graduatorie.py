@@ -1,9 +1,15 @@
 """Gestione graduatorie CdS, bozze parziali e chiusura solo dopo gli atti."""
+import json
 from io import BytesIO
 from zipfile import ZipFile
+from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, TextStringObject
-from test_pdf_import import _setup, _post, _edit, _preview, _confirm
+from test_pdf_import import (
+    _setup, _post, _edit, _preview, _confirm, _complete_operator_onboarding,
+)
+from test_import import pica_fixture
 
 
 def _complete_all(client, sheets):
@@ -241,3 +247,125 @@ def test_cds_pdf_and_sealed_verbale_include_pica_partition_but_original_is_immut
             db.execute("UPDATE incarichi SET ul=? WHERE id=?",("Altro valore di collaudo",job["id"]))
         again=client.get(base+"/pdf-completo",params=selection)
         assert again.status_code==200 and again.content==sealed.content
+
+
+def test_internal_pdf_and_excel_available_to_operator_and_legacy_pica_fields_are_recovered(tmp_path,monkeypatch):
+    server,client,sheets=_setup(
+        tmp_path,monkeypatch,pica_data=pica_fixture(with_degree_date=True)
+    )
+    with client:
+        code="26-02"
+        base=f"/api/bandi/{code}"
+        _complete_all(client,sheets)
+        view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
+        body={"cds":view["cds"],"sede":view["sede"]}
+        sealed=_post(client,base+"/verbali/graduatorie/genera-definitivo",json=body)
+        assert sealed.status_code==200,sealed.text
+        view=client.get(base+"/verbali/graduatorie").json()["graduatorie"][0]
+        gid=view["conferma"]["id"]
+        draft=_post(client,base+"/graduatorie/approvazioni",
+                    json={"graduatorie_ids":[gid]})
+        assert draft.status_code==200,draft.text
+        approval_id=draft.json()["id"]
+        confirmed=_post(client,base+f"/graduatorie/approvazioni/{approval_id}/conferma",
+                        json={"estremi_atto":"ATTO SINTETICO DI COLLAUDO VERIFICATO"})
+        assert confirmed.status_code==200,confirmed.text
+
+        # Simula un'importazione precedente all'acquisizione dei campi di residenza
+        # e dell'ateneo di conseguimento: i valori vanno recuperati dal PICA originale.
+        with server.connect() as db:
+            bando_id=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()["id"]
+            rows=db.execute("SELECT id,source_json FROM candidature WHERE bando_id=?",
+                            (bando_id,)).fetchall()
+            for row in rows:
+                source=json.loads(row["source_json"])
+                for field in (
+                    "data_nascita","sesso","comune_nascita",
+                    "cittadinanza_italiana","cittadinanza",
+                    "residenza_indirizzo","residenza_citta","residenza_provincia",
+                    "residenza_cap","residenza_nazione","ateneo_conseguimento",
+                ):
+                    source.pop(field,None)
+                db.execute("UPDATE candidature SET source_json=? WHERE id=?",
+                           (json.dumps(source,ensure_ascii=False),row["id"]))
+            db.commit()
+
+        pdf=client.get(base+f"/graduatorie/approvazioni/{approval_id}/prospetto-interno")
+        assert pdf.status_code==200,pdf.text[:200]
+        assert pdf.headers["content-type"]=="application/pdf"
+        assert "Note" not in "\n".join(
+            page.extract_text() or "" for page in PdfReader(BytesIO(pdf.content)).pages
+        )
+
+        excel=client.get(base+f"/graduatorie/approvazioni/{approval_id}/excel")
+        assert excel.status_code==200,excel.text[:200]
+        assert "spreadsheetml.sheet" in excel.headers["content-type"]
+        workbook=load_workbook(BytesIO(excel.content),data_only=True)
+        sheet=workbook["Graduatoria"]
+        assert sheet.freeze_panes=="A6"
+        headers={cell.value:cell.column for cell in sheet[5]}
+        rows=list(sheet.iter_rows(min_row=6,values_only=True))
+        assert len(rows)==3
+        records=[{name:row[column-1] for name,column in headers.items()} for row in rows]
+        candidate_1001=[row for row in records if row["ID PICA"]=="1001"]
+        assert len(candidate_1001)==2
+        assert all(row["Indirizzo residenza"]=="Via Roma 1" for row in candidate_1001)
+        assert all(row["Comune di residenza"]=="Verona" for row in candidate_1001)
+        assert all(row["Provincia di residenza"]=="VR" for row in candidate_1001)
+        assert all(row["CAP residenza"]=="37100" for row in candidate_1001)
+        assert all(row["Nazione di residenza"]=="Italia" for row in candidate_1001)
+        assert all(row["Titolo di studio"]=="Laurea in Professioni Sanitarie"
+                   for row in candidate_1001)
+        assert all(str(row["Data di nascita"]).startswith("1990-02-01")
+                   for row in candidate_1001)
+        assert all(row["Sesso"]=="F" for row in candidate_1001)
+        assert all(row["Comune di nascita"]=="Verona" for row in candidate_1001)
+        assert all(row["Cittadinanza italiana"]=="Sì" for row in candidate_1001)
+        assert all(row["Cittadinanza"]=="Italia" for row in candidate_1001)
+        assert all(row["Ateneo di conseguimento"]=="Università di Verona"
+                   for row in candidate_1001)
+        assert all(str(row["Data conseguimento"]).startswith("2018-06-15")
+                   for row in candidate_1001)
+        assert "Note" not in headers
+        assert "Fonti e criteri" in workbook.sheetnames
+
+        created=_post(client,"/api/utenti",json={
+            "username":"operatrice_report","password":"Password8!"
+        })
+        assert created.status_code==200,created.text
+        with TestClient(server.app) as operator:
+            login=_post(operator,"/api/auth/login",json={
+                "username":"operatrice_report","password":"Password8!"
+            })
+            assert login.status_code==200,login.text
+            _complete_operator_onboarding(operator,"operatrice_report","Password8!")
+            operator_pdf=operator.get(
+                base+f"/graduatorie/approvazioni/{approval_id}/prospetto-interno"
+            )
+            operator_excel=operator.get(
+                base+f"/graduatorie/approvazioni/{approval_id}/excel"
+            )
+            assert operator_pdf.status_code==200,operator_pdf.text[:200]
+            assert operator_excel.status_code==200,operator_excel.text[:200]
+            assert operator.get("/api/utenti").status_code==403
+            forbidden=_post(
+                operator,
+                base+f"/graduatorie/approvazioni/{approval_id}/regredisci-stato",
+                json={"motivazione":"Motivazione di collaudo sufficientemente descrittiva",
+                      "riferimento":"Provvedimento sintetico di collaudo"},
+            )
+            assert forbidden.status_code==403
+
+            regressed=_post(
+                client,
+                base+f"/graduatorie/approvazioni/{approval_id}/regredisci-stato",
+                json={"motivazione":"Motivazione di collaudo sufficientemente descrittiva",
+                      "riferimento":"Provvedimento sintetico di collaudo"},
+            )
+            assert regressed.status_code==200,regressed.text
+            assert operator.get(
+                base+f"/graduatorie/approvazioni/{approval_id}/prospetto-interno"
+            ).status_code==409
+            assert operator.get(
+                base+f"/graduatorie/approvazioni/{approval_id}/excel"
+            ).status_code==409
