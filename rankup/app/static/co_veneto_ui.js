@@ -133,7 +133,9 @@ window.createCoVenetoUI=function(ctx){
       (locked?' readonly':'')+'>'+esc(job.work.note||"")+'</textarea></label>'+
       '<p class="caption">Le Note sono conservate in RankUP ma NON sono trasmesse nell’XML UNILAV: '+
       'nel file XML della ricevuta fornita non è presente un campo Note. '+
-      'Se necessario, riportarle nella maschera del portale.</p>'+
+      'Il manuale CO Veneto (v4.0, pagina 28) lo indica come campo locale veneto, '+
+      'non parte del tracciato XML standard. Nell’upload ZIP le Note NON sono trasferite: '+
+      'potrebbero non comparire nel PDF ufficiale.</p>'+
       '<div class="actions"><button class="btn secondary" type="button" data-co-copy="'+
       esc(job.incarico_id)+'">Copia Note</button></div></div>';
     if(!locked)htmlParts+='<div class="actions" style="margin-top:12px">'+
@@ -258,7 +260,7 @@ window.createCoVenetoUI=function(ctx){
               document.getElementById("co-reason")?
                 document.getElementById("co-reason").value.trim():""})
           });
-          note("ZIP creato. Le Note sono conservate in RankUP, non nello XML: copiale sul portale se occorre. Poi usa Verifica file.",false);
+          note("ZIP creato. Le Note restano in RankUP ma NON sono trasmesse dal tracciato XML massivo: il PDF CO Veneto potrebbe non riportarle. Usa Verifica file.",false);
           renderApproval();
         }catch(err){note(err.message,true);generate.disabled=false;}
       };
