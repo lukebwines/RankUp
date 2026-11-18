@@ -276,6 +276,8 @@ def test_internal_pdf_and_excel_available_to_operator_and_legacy_pica_fields_are
             for row in rows:
                 source=json.loads(row["source_json"])
                 for field in (
+                    "data_nascita","sesso","comune_nascita",
+                    "cittadinanza_italiana","cittadinanza",
                     "residenza_indirizzo","residenza_citta","residenza_provincia",
                     "residenza_cap","residenza_nazione","ateneo_conseguimento",
                 ):
@@ -310,6 +312,12 @@ def test_internal_pdf_and_excel_available_to_operator_and_legacy_pica_fields_are
         assert all(row["Nazione di residenza"]=="Italia" for row in candidate_1001)
         assert all(row["Titolo di studio"]=="Laurea in Professioni Sanitarie"
                    for row in candidate_1001)
+        assert all(str(row["Data di nascita"]).startswith("1990-02-01")
+                   for row in candidate_1001)
+        assert all(row["Sesso"]=="F" for row in candidate_1001)
+        assert all(row["Comune di nascita"]=="Verona" for row in candidate_1001)
+        assert all(row["Cittadinanza italiana"]=="Sì" for row in candidate_1001)
+        assert all(row["Cittadinanza"]=="Italia" for row in candidate_1001)
         assert all(row["Ateneo di conseguimento"]=="Università di Verona"
                    for row in candidate_1001)
         assert all(str(row["Data conseguimento"]).startswith("2018-06-15")
