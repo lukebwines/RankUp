@@ -39,6 +39,10 @@ def pica_fixture():
         "ID domanda", "Stato", "Corso di Studio", "sede",
         "Nome insegnamento padre", "Descrizione Copertura",
         "ID Copertura", "Cognome", "Nome", "Codice fiscale",
+        "Residenza - indirizzo", "Residenza - città", "Residenza - provincia",
+        "Residenza - CAP", "Residenza - nazione",
+        "Diploma di Laurea/Laurea Specialistica/Laurea Magistrale in",
+        "Conseguito presso l'università di", "In data",
         "ssd", "Settore scientifico disciplinare",
     ]
     extra_columns = [
@@ -61,13 +65,19 @@ def pica_fixture():
         columns + extra_columns,
         [1001, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Uno",
-         "CODICEFISCALE", "SSD-A", ""] + extra_a,
+         "CODICEFISCALE", "Via Roma 1", "Verona", "VR", "37100", "Italia",
+         "Laurea in Professioni Sanitarie", "Università di Verona", "15/06/2018",
+         "SSD-A", ""] + extra_a,
         [1001, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO Y", "MODULO Y", 101, "Candidato", "Uno",
-         "CODICEFISCALE", "MEDS-24/C", ""] + extra_b,
+         "CODICEFISCALE", "Via Roma 1", "Verona", "VR", "37100", "Italia",
+         "Laurea in Professioni Sanitarie", "Università di Verona", "15/06/2018",
+         "MEDS-24/C", ""] + extra_b,
         [1002, "presentata", "CDS DEMO (ABILITANTE ALLA PROFESSIONE SANITARIA DI PROVA)", "SEDE A",
          "INSEGNAMENTO X", "MODULO X", 100, "Candidato", "Due",
-         "CODICEFISCALE2", "SSD-A", "SSD-PERSONALE"] + extra_a,
+         "CODICEFISCALE2", "Via Milano 2", "Vicenza", "VI", "36100", "Italia",
+         "Laurea magistrale in Scienze", "Università di Padova", "20/10/2020",
+         "SSD-A", "SSD-PERSONALE"] + extra_a,
     ])
 
 def commissioni_fixture():
@@ -106,6 +116,21 @@ def test_multiple_assignments_for_same_candidate():
     assert [x["incarico"]["ssd"] for x in result["rows"]] == ["SSD-A", "MEDS-24/C", "SSD-A"]
     assert result["rows"][0]["id_pica"] == result["rows"][1]["id_pica"]
     assert result["rows"][0]["incarico"]["key"] != result["rows"][1]["incarico"]["key"]
+
+
+def test_pica_anagrafica_residenza_e_titolo_di_studio_riconosciuti_da_intestazione():
+    rows = parse_pica("demo.xlsx", pica_fixture())["rows"]
+    first = rows[0]
+    assert first["residenza_indirizzo"] == "Via Roma 1"
+    assert first["residenza_citta"] == "Verona"
+    assert first["residenza_provincia"] == "VR"
+    assert first["residenza_cap"] == "37100"
+    assert first["residenza_nazione"] == "Italia"
+    assert first["titolo_studio"] == "Laurea in Professioni Sanitarie"
+    assert first["ateneo_conseguimento"] == "Università di Verona"
+    assert first["data_conseguimento"] == "15/06/2018"
+    assert rows[2]["residenza_citta"] == "Vicenza"
+    assert rows[2]["ateneo_conseguimento"] == "Università di Padova"
 
 
 def test_pica_codice_fiscale_colonna_ab_recognized_by_header():
