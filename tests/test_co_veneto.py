@@ -222,3 +222,16 @@ def test_pica_residence_city_with_embedded_province_code():
     }) == ""
     assert comune_domicilio({"residenza_citta": "VERONA"}) == ""
     assert comune_domicilio({"residenza_citta": "COMUNE INESISTENTE (VR)"}) == ""
+
+
+def test_select_all_controls_co_veneto_only_for_eligible_records():
+    """La selezione massiva non forza i checkbox disabilitati e resta reversibile."""
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[1] /
+          "rankup/app/static/co_veneto_ui.js").read_text(encoding="utf-8")
+    assert 'id="co-select-all"' in js or 'id=\\"co-select-all\\"' in js
+    assert '"Deseleziona tutti":"Seleziona tutti"' in js
+    assert 'document.querySelectorAll("[data-co-pick]:not(:disabled)")' in js
+    assert "pick.checked=selectAll.checked" in js
+    assert "selectAll.indeterminate=" in js
+    assert "selected+\" di \"+picks.length" in js
