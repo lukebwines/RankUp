@@ -194,3 +194,31 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         assert _post(admin,path+"/genera",json={
             "incarichi_ids":[job["incarico_id"]]}).status_code==409
         assert admin.get(path+"/xml/"+str(last["id"])).content==xml
+
+
+def test_pica_residence_city_with_embedded_province_code():
+    """La stringa PICA 'VERONA (VR)' contiene una provincia verificabile."""
+    from co_veneto_codes import comune_domicilio
+
+    source = {
+        "residenza_citta": "VERONA (VR)",
+        "residenza_indirizzo": "VIA DI PROVA",
+        "residenza_cap": "37142",
+    }
+    assert comune_domicilio(source) == "L781"
+    assert defaults_from_pica(source)["domicilio_comune_codice"] == "L781"
+
+    # Comune e provincia distinti devono produrre lo stesso codice.
+    assert comune_domicilio({
+        "residenza_citta": "VERONA (VR)", "residenza_provincia": "VR",
+    }) == "L781"
+
+    # Fonti PICA discordanti o nazioni estere non vanno risolte per supposizione.
+    assert comune_domicilio({
+        "residenza_citta": "VERONA (VR)", "residenza_provincia": "PD",
+    }) == ""
+    assert comune_domicilio({
+        "residenza_citta": "VERONA (VR)", "residenza_nazione": "GERMANIA",
+    }) == ""
+    assert comune_domicilio({"residenza_citta": "VERONA"}) == ""
+    assert comune_domicilio({"residenza_citta": "COMUNE INESISTENTE (VR)"}) == ""
