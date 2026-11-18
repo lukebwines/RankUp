@@ -201,7 +201,9 @@ def render_graduatoria_excel(code: str, data: dict,
                 )
                 for column, value in enumerate(values, 1):
                     cell = sheet.cell(row=row_number, column=column)
-                    is_text = column not in (1, 11, 24, 23)
+                    is_text = column not in (1, 11, 24) and not (
+                        column == 23 and isinstance(value, date)
+                    )
                     _write_value(cell, value, text=is_text)
                     cell.alignment = Alignment(vertical="top", wrap_text=column in (3, 5, 6, 16, 20, 21, 22, 25))
                     if column == 15:
