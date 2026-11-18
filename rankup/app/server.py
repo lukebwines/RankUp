@@ -68,7 +68,9 @@ from backup_manager import (create_backup as create_manual_backup, list_backups,
                             PHRASE as RESTORE_CONFIRMATION, NAME as BACKUP_FILENAME_RE)
 from operational import report_operativo, report_diagnostico, _recent_activity, _scope, global_registry_activity
 from pica_safety import overlap_alerts
-from co_veneto import create_schema as create_co_veneto_schema, register_routes as register_co_veneto_routes
+from co_veneto import (create_schema as create_co_veneto_schema,
+                       register_routes as register_co_veneto_routes,
+                       approval_zip_state)
 from audit_log import create_event_schema, create_policy_schema, insert_event as audit_insert, get_events as audit_page, coarse_origin as audit_origin, route_event as audit_route, target_for_path as audit_target
 
 BASE = Path(os.getenv("RANKUP_DATA_DIR", "/data"))
@@ -6135,9 +6137,14 @@ def elenco_approvazioni(code: str):
            LEFT JOIN graduatorie_approvazioni_regressioni r ON r.approvazione_id=a.id
            WHERE a.bando_id=? ORDER BY a.id DESC
         """,(b["id"],)).fetchall()
+        co_zip_states={
+            row["id"]: approval_zip_state(db,row["id"],json.loads(row["dati_json"]))
+            for row in rows if row["stato"]=="approvata"
+        }
     return {"approvazioni":[{
         **{k:row[k] for k in ("id","stato","estremi_atto","note","creata_da","creata_il","approvata_da","approvata_il",
                                   "regressione_motivazione","regressione_riferimento","regressione_quando")},
+        "co_veneto_zip_stato":co_zip_states.get(row["id"],"non_generato"),
         "ambiti":[{"cds":x["cds"],"sede":x["sede"]} for x in json.loads(row["dati_json"])["selezioni"]]
     } for row in rows]}
 
