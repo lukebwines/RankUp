@@ -56,7 +56,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 import admin_credentials as admin_store
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
-from graduatoria_excel import render_graduatoria_excel, MIME_XLSX
+from graduatoria_excel import render_graduatoria_excel
 from pdf_definitivo import verbale_definitivo
 from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf as acquisisci_verbale_seduta, source_digest as impronta_verbale_seduta, nome_verbale
 from archive_bundle import crea_pacchetto, controlla_chiusura, ArchivioNonPronto
