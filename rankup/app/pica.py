@@ -129,14 +129,20 @@ def parse_pica(filename: str, content: bytes) -> dict:
         "cognome": ["cognome"],
         "nome": ["nome"],
         "codice_fiscale": ["codice fiscale"],
+        "residenza_indirizzo": ["residenza - indirizzo"],
+        "residenza_citta": ["residenza - città"],
+        "residenza_provincia": ["residenza - provincia"],
+        "residenza_cap": ["residenza - cap"],
+        "residenza_nazione": ["residenza - nazione"],
         "stato_pica": ["stato"],
         "occupazione": ["occupazione*", "occupazione"],
         "azienda_ente": ["azienda/ente", "azienda ente", "ente di appartenenza", "datore di lavoro"],
         "profilo_professionale": ["profilo professionale"],
         "ateneo": ["ateneo"],
+        "ateneo_conseguimento": ["conseguito presso l'università di"],
         "qualifica": ["qualifica"],
-        # Campi dichiarati dal candidato: AU (titolo) e AW (conseguimento).
-        # Usare le intestazioni e non la posizione delle colonne.
+        # Campi dichiarati dal candidato: AU (titolo), AV (ateneo di conseguimento)
+        # e AW (data). Le intestazioni sono la fonte, non le lettere delle colonne.
         "titolo_studio": ["diploma di laurea/laurea specialistica/laurea magistrale in"],
         "data_conseguimento": ["in data"],
 
@@ -205,11 +211,14 @@ def parse_pica(filename: str, content: bytes) -> dict:
         if row_key in keys_seen:
             duplicate_rows += 1
             prior = rows_seen[row_key]
-            # Le esportazioni possono ripetere un incarico: integra anche
-            # Ateneo e Qualifica quando mancanti, mai sovrascrivendo
+            # Le esportazioni possono ripetere un incarico: integra i dati
+            # anagrafici e del titolo quando mancanti, senza sovrascrivere
             # dichiarazioni discordanti provenienti da PICA.
-            for field in ("titolo_studio", "data_conseguimento",
-                          "ateneo", "qualifica"):
+            for field in ("codice_fiscale", "residenza_indirizzo",
+                          "residenza_citta", "residenza_provincia",
+                          "residenza_cap", "residenza_nazione",
+                          "titolo_studio", "ateneo_conseguimento",
+                          "data_conseguimento", "ateneo", "qualifica"):
                 value = get(field)
                 if value and not prior.get(field):
                     prior[field] = value
@@ -223,11 +232,17 @@ def parse_pica(filename: str, content: bytes) -> dict:
             "cognome": get("cognome"),
             "nome": get("nome"),
             "codice_fiscale": get("codice_fiscale"),
+            "residenza_indirizzo": get("residenza_indirizzo"),
+            "residenza_citta": get("residenza_citta"),
+            "residenza_provincia": get("residenza_provincia"),
+            "residenza_cap": get("residenza_cap"),
+            "residenza_nazione": get("residenza_nazione"),
             "stato_pica": get("stato_pica"),
             "occupazione": get("occupazione"),
             "azienda_ente": get("azienda_ente"),
             "profilo_professionale": get("profilo_professionale"),
             "ateneo": get("ateneo"),
+            "ateneo_conseguimento": get("ateneo_conseguimento"),
             "qualifica": get("qualifica"),
             "titolo_studio": get("titolo_studio"),
             "data_conseguimento": get("data_conseguimento"),
