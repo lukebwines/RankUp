@@ -64,6 +64,7 @@ def test_general_header_partial_index_compact_and_identifications():
     assert "Estremi del provvedimento" not in text
     assert "Documento redatto esclusivamente" not in text
     assert "RIFERIMENTO SINTETICO" not in text
+    assert "Note" not in text
     pdf=PdfReader(BytesIO(public))
     annotations=[a.get_object() for page in pdf.pages
                  for a in (page.get("/Annots") or [])]
@@ -71,7 +72,9 @@ def test_general_header_partial_index_compact_and_identifications():
 
     private=render_graduatoria_pdf("DEMO-26",snapshot,general=True,
                                    approved=True,internal=True)
-    assert "Candidato Secondo" in _text(private)
+    private_text=_text(private)
+    assert "Candidato Secondo" in private_text
+    assert "Note" not in private_text
 
 
 def test_general_complete_has_no_partial_label():
@@ -132,6 +135,7 @@ def test_individual_cds_pdf_shows_ul_and_partition_when_present():
     assert "Graduatoria della Commissione per Corso di Studio" in content
     assert "UL: UL 1" in content
     assert "Partizione: Canale A (cod. A1)" in content
+    assert "Note Commissione" in content
     assert "Candidato Secondo" in content
     assert "Insegnamento / Modulo:" in content
     no_fields=_text(render_graduatoria_pdf("DEMO-26",_scope(2)))
