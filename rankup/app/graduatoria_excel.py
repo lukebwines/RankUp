@@ -55,6 +55,11 @@ _WIDTHS = (
 
 _PERSONAL_FIELDS = (
     "codice_fiscale",
+    "data_nascita",
+    "sesso",
+    "comune_nascita",
+    "cittadinanza_italiana",
+    "cittadinanza",
     "residenza_indirizzo",
     "residenza_citta",
     "residenza_provincia",
