@@ -4,6 +4,7 @@ from test_pdf_import import _complete_operator_onboarding
 Le annualità e i riferimenti sono esclusivamente dati sintetici di test.
 """
 from pathlib import Path
+import re
 
 from fastapi.testclient import TestClient
 from test_pdf_import import _setup, _post
@@ -90,7 +91,8 @@ def test_only_admin_can_register_a_new_academic_year(tmp_path, monkeypatch):
 def test_ui_hides_new_year_button_for_operators_and_blocks_stale_selection():
     html = (ROOT / "rankup/app/static/index.html").read_text(encoding="utf-8")
     config = (ROOT / "rankup/config.yaml").read_text(encoding="utf-8")
-    assert 'version: "1.0.45"' in config
+    version=re.search(r'^version:\s*"(\d+\.\d+\.\d+)"',config,re.M)
+    assert version and f'RANKUP · v{version.group(1)}' in html
     assert 'id="add-academic-year" class="add-year" type="button" style="display:none"' in html
     assert '$("add-academic-year").style.display=state.role==="admin"?"block":"none"' in html
     assert 'if(state.role!=="admin"){' in html
