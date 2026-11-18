@@ -344,7 +344,7 @@ class GenerateBody(BaseModel):
 
 
 def _approval(db, code, approval_id, valid_code):
-    b = db.execute("SELECT id FROM bandi WHERE codice=?",
+    b = db.execute("SELECT id,stato FROM bandi WHERE codice=?",
                    (valid_code(code),)).fetchone()
     if not b:
         fail("Bando non trovato", 404)
@@ -358,7 +358,8 @@ def _approval(db, code, approval_id, valid_code):
     """, (approval_id, b["id"])).fetchone()
     if not a:
         fail("Approvazione non trovata", 404)
-    active = a["stato"] == "approvata" and a["regredita"] is None
+    active = (a["stato"] == "approvata" and a["regredita"] is None
+              and b["stato"] != "Archiviato")
     return b["id"], a, active
 
 
