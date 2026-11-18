@@ -58,7 +58,7 @@ CONFIG_REQUIRED = (
 CONTRACT_FIELDS = (
     "retribuzione", "domicilio_indirizzo", "domicilio_citta",
     "domicilio_cap", "domicilio_comune_codice", "nascita_comune_codice",
-    "cittadinanza_codice", "livello_istruzione", "sesso",
+    "cittadinanza_codice", "livello_istruzione", "sesso", "note",
 )
 ITALIAN_MARKERS = {"ITALIA", "ITALIANA", "ITALIANO", "SI", "SÌ", "000"}
 CAT_CODE = re.compile(r"^[A-Z][0-9]{3}$")
@@ -202,6 +202,28 @@ def _clean(value):
     return str(value or "").strip()
 
 
+
+def note_from_approval(scope, job, academic_year, bando_code):
+    """Riferimenti operativi da PICA e approvazione, mai dalla ricevuta esempio.
+
+    La Nota PDF di CO Veneto NON compare nell'XML UNILAV restituito dal
+    portale: questa informazione resta locale finché non esiste un
+    campo XSD verificato per trasmetterla.
+    """
+    pieces = [_clean(scope.get("cds")), _clean(scope.get("sede")),
+              _clean(job.get("insegnamento")), _clean(job.get("modulo"))]
+    # Nessun separatore vuoto (" - - ") e nessuna duplicazione dello
+    # stesso insegnamento indicato anche come modulo in PICA.
+    normalized = []
+    for part in pieces:
+        if part and (not normalized or normalized[-1].casefold() != part.casefold()):
+            normalized.append(part)
+    aa = _clean(academic_year).replace("-", "/")
+    bando = _clean(bando_code)
+    if aa and bando:
+        normalized.append("A.A. " + aa + "; BANDO " + bando)
+    return " - ".join(normalized)
+
 def defaults_from_pica(source):
     return {
         "retribuzione": "",
@@ -258,6 +280,11 @@ def validate_worker(source, work, start, end):
         problems.append("codice catastale comune di nascita")
     if not re.fullmatch(r"[0-9]{3}", work.get("cittadinanza_codice", "")):
         problems.append("codice cittadinanza")
+    elif work["cittadinanza_codice"] != "000":
+        # Il generatore base replica la comunicazione di una lavoratrice
+        # italiana. Per cittadinanze estere servono verifiche e, in casi
+        # specifici, informazioni di soggiorno non gestite dal modulo.
+        problems.append("cittadinanza estera: verificare i campi UNILAV specifici (non gestiti)")
     if not cat_code(work.get("domicilio_comune_codice")):
         problems.append("codice catastale comune di domicilio")
     if not _clean(work.get("domicilio_indirizzo")) or not _clean(work.get("domicilio_cap")):
@@ -283,13 +310,19 @@ def make_xml(config, source, work, start, end, when=None):
     if absent or problems:
         raise ValueError("Configurazione mancante: " + ", ".join(absent) +
                          "; dati lavoratore da verificare: " + ", ".join(problems))
+    # La ricevuta XML CO Veneto utilizza un dateTime locale SENZA offset.
+    # Gli eventi di audit conservano invece il timestamp con fuso orario.
+    try:
+        invio = datetime.fromisoformat(when or timestamp()).strftime("%Y-%m-%dT%H:%M:%S")
+    except (ValueError, TypeError):
+        raise ValueError("Data invio XML non valida")
     ET.register_namespace("", NS)
     q = lambda name: "{" + NS + "}" + name
     element = lambda parent, name, value: ET.SubElement(parent, q(name)).__setattr__("text", str(value))
     root = ET.Element(q("UniLav"), {
         "assunzioneForzaMaggiore": "NO",
         "codiceComunicazione": CODICE_NUOVA_COMUNICAZIONE,
-        "dataInvio": when or timestamp(),
+        "dataInvio": invio,
         "e-mailDelegato": config["email_delegato"],
         "versione": VERSIONE_TRACCIATO,
     })
@@ -416,6 +449,15 @@ def _assignments(db, code, bando_id, approval, personal_data):
             if saved and saved["candidatura_id"] == winner_id:
                 overrides = json.loads(saved["dati_json"])
             work = work_values(raw, overrides)
+            # Per i record creati prima della funzione Note, il testo viene
+            # derivato senza modificare gli originali PICA/atti esistenti.
+            if "note" not in overrides:
+                work["note"] = note_from_approval(scope, job, approval["anno"], code)
+            warnings = validate_worker(raw, work, inc["inizio_iso"], year_end)
+            if not work.get("note"):
+                warnings.append("note operative da verificare")
+            elif len(work["note"]) > 1000:
+                warnings.append("note operative oltre 1000 caratteri")
             latest = db.execute("""
                 SELECT id,revisione,nome_file,autore,creato_il FROM co_veneto_xml
                 WHERE approvazione_id=? AND incarico_id=?
@@ -434,7 +476,7 @@ def _assignments(db, code, bando_id, approval, personal_data):
                     "cap": raw.get("residenza_cap", "")
                 },
                 "work": work,
-                "mancanti": validate_worker(raw, work, inc["inizio_iso"], year_end),
+                "mancanti": warnings,
                 "ultimo_file": dict(latest) if latest else None,
                 "_source": raw,
             })
@@ -510,7 +552,8 @@ def register_routes(app, connect, require_authenticated, require_admin,
         if set(body.dati) != set(CONTRACT_FIELDS):
             fail("Dati contrattuali incompleti o non previsti")
         values = {k: _clean(v) for k, v in body.dati.items()}
-        if any(len(v) > 250 for v in values.values()):
+        if any(len(v) > (1000 if k == "note" else 250)
+               for k, v in values.items()):
             fail("Campo contrattuale troppo lungo")
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -599,7 +642,8 @@ def register_routes(app, connect, require_authenticated, require_admin,
                 built.append((cursor.lastrowid, name, payload))
                 _event(db, bando_id, approval_id, job["incarico_id"],
                        "rigenerazione_xml" if job["ultimo_file"] else "generazione_xml",
-                       {"revisione": revision, "sha256": digest,
+                       {"revisione": revision, "sha256": digest, "xml_id": cursor.lastrowid,
+                        "note": job["work"]["note"], "note_in_xml": False,
                         "motivazione": body.motivazione.strip() if job["ultimo_file"] else ""},
                        request_actor())
             out = BytesIO()
@@ -620,7 +664,7 @@ def register_routes(app, connect, require_authenticated, require_admin,
             db.commit()
             lotto_id = cursor.lastrowid
         return {"ok": True, "lotto_id": lotto_id, "file": len(built),
-                "avvertenza": "ZIP generato, non trasmesso. Usare Verifica file su CO Veneto."}
+                "avvertenza": "ZIP generato, non trasmesso. Le Note sono conservate in RankUP, NON sono contenute nell'XML standard: riportarle nel portale se necessario. Usare Verifica file su CO Veneto."}
 
     @app.get("/api/bandi/{code}/co-veneto/approvazioni/{approval_id}/lotti/{lotto_id}/zip")
     def download_batch(code: str, approval_id: int, lotto_id: int, request: Request):

@@ -126,7 +126,18 @@ window.createCoVenetoUI=function(ctx){
     htmlParts+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px">'+
       contractFields.map(function(field){
         return inputFor(field[0],field[1],job.work[field[0]],locked);
-      }).join("")+'</div>';
+      }).join("")+'</div>'+
+      '<div style="margin-top:14px">'+
+      '<label style="display:block"><span class="caption">Note operative CO Veneto (da PICA e atto approvato)</span>'+
+      '<textarea data-co-field="note" rows="3" style="display:block;width:100%;margin-top:5px;resize:vertical"'+
+      (locked?' readonly':'')+'>'+esc(job.work.note||"")+'</textarea></label>'+
+      '<p class="caption">Le Note sono conservate in RankUP ma NON sono trasmesse nell’XML UNILAV: '+
+      'nel file XML della ricevuta fornita non è presente un campo Note. '+
+      'Il manuale CO Veneto (v4.0, pagina 28) lo indica come campo locale veneto, '+
+      'non parte del tracciato XML standard. Nell’upload ZIP le Note NON sono trasferite: '+
+      'potrebbero non comparire nel PDF ufficiale.</p>'+
+      '<div class="actions"><button class="btn secondary" type="button" data-co-copy="'+
+      esc(job.incarico_id)+'">Copia Note</button></div></div>';
     if(!locked)htmlParts+='<div class="actions" style="margin-top:12px">'+
       '<button class="btn secondary" type="button" data-co-save="'+
       esc(job.incarico_id)+'">Salva dati incarico</button></div>';
@@ -201,6 +212,24 @@ window.createCoVenetoUI=function(ctx){
         picks.forEach(function(pick){pick.onchange=updateSelection;});
         updateSelection();
       }
+      document.querySelectorAll("[data-co-copy]").forEach(function(button){
+        button.onclick=async function(){
+          var card=button.closest("[data-co-card]");
+          var field=card.querySelector('[data-co-field="note"]');
+          if(!field||!field.value.trim()){
+            note("Nessuna nota da copiare.",true);return;
+          }
+          try{
+            if(!navigator.clipboard||!navigator.clipboard.writeText)
+              throw new Error("Clipboard non disponibile");
+            await navigator.clipboard.writeText(field.value);
+            note("Note copiate. Il testo non è incluso nello ZIP XML.",false);
+          }catch(error){
+            field.focus();field.select();
+            note("Seleziona Copia (Ctrl+C) per copiare le Note evidenziate.",false);
+          }
+        };
+      });
       document.querySelectorAll("[data-co-save]").forEach(function(button){
         button.onclick=async function(){
           var card=button.closest("[data-co-card]");
@@ -231,7 +260,7 @@ window.createCoVenetoUI=function(ctx){
               document.getElementById("co-reason")?
                 document.getElementById("co-reason").value.trim():""})
           });
-          note("ZIP creato e conservato. Scaricalo dallo storico ed esegui Verifica file sul portale.",false);
+          note("ZIP creato. Le Note restano in RankUP ma NON sono trasmesse dal tracciato XML massivo: il PDF CO Veneto potrebbe non riportarle. Usa Verifica file.",false);
           renderApproval();
         }catch(err){note(err.message,true);generate.disabled=false;}
       };

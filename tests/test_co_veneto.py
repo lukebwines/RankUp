@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from co_veneto import (
     CONFIG_FIELDS, CONFIG_DEFAULTS, CODICE_NUOVA_COMUNICAZIONE,
     VERSIONE_TRACCIATO, NS, academic_end, make_xml,
-    defaults_from_pica, validate_worker
+    defaults_from_pica, validate_worker, note_from_approval
 )
 
 
@@ -64,6 +64,15 @@ def test_xml_source_only_and_no_presumed_worker_codes():
     assert root.attrib["codiceComunicazione"]==CODICE_NUOVA_COMUNICAZIONE
     assert root.attrib["versione"]==VERSIONE_TRACCIATO
     assert root.attrib["dataInvio"]=="2026-11-18T18:00:00"
+    # Nello storico audit l'ora è timezone-aware, nel tracciato XML no.
+    with_offset=make_xml(_fake_config(), original, default,
+                         "2026-10-19","2027-09-30",
+                         when="2026-11-18T18:00:00+01:00")
+    assert ET.fromstring(with_offset).attrib["dataInvio"]=="2026-11-18T18:00:00"
+    foreign=dict(default, cittadinanza_codice="999")
+    assert any("cittadinanza estera" in p for p in
+               validate_worker(original, foreign, "2026-10-19", "2027-09-30"))
+
     assert "protocollo" not in root.attrib
     assert root.find(".//{"+NS+"}IndirizzoLavoratore/{"+NS+"}Indirizzo").text=="VIA DI PROVA"
     assert root.find(".//{"+NS+"}InizioRapporto").attrib["TipologiaContrattuale"]=="B.03.00"
@@ -114,6 +123,9 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         assert job["residenza_pica"]["indirizzo"]=="Via Roma 1"
         assert job["work"]["domicilio_indirizzo"]=="Via Roma 1"
         assert job["work"]["domicilio_comune_codice"]=="L781"
+        assert job["work"]["note"].endswith("A.A. 2026/2027; BANDO 26-02")
+        assert job["cds"] in job["work"]["note"]
+        assert job["insegnamento"] in job["work"]["note"]
         assert job["work"]["livello_istruzione"]=="70"
         early=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert early.status_code==409
@@ -152,8 +164,22 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
             xml=zipfile.read(names[0])
             root=ET.fromstring(xml)
             assert root.attrib["codiceComunicazione"]==("0"*16)
+            # Il PDF della ricevuta può mostrare Note conservate dal portale,
+            # ma l'XML di origine non contiene un nodo Note.
+            assert root.find(".//{"+NS+"}Note") is None
+            assert root.find(".//{"+NS+"}note") is None
             assert root.find(".//{"+NS+"}InizioRapporto").attrib["dataFine"]=="2027-09-30"
             assert root.find(".//{"+NS+"}InizioRapporto").attrib["dataInizio"]==job["inizio"]
+        with server.connect() as db:
+            event=db.execute("""
+                SELECT dettagli_json FROM co_veneto_eventi
+                WHERE evento='generazione_xml' AND incarico_id=?
+                ORDER BY id DESC LIMIT 1
+            """, (job["incarico_id"],)).fetchone()
+            assert event is not None
+            details=json.loads(event["dettagli_json"])
+            assert details["note"] == work["note"]
+            assert details["note_in_xml"] is False
         last=admin.get(path).json()["incarichi"][0]["ultimo_file"]
         assert last["revisione"]==1
         assert admin.get(path+"/xml/"+str(last["id"])).content==xml
@@ -235,3 +261,31 @@ def test_select_all_controls_co_veneto_only_for_eligible_records():
     assert "pick.checked=selectAll.checked" in js
     assert "selectAll.indeterminate=" in js
     assert "selected+\" di \"+picks.length" in js
+
+
+def test_notes_auto_from_pica_and_no_empty_separators():
+    scope={"cds":"LOGOPEDIA (ABILITANTE ALLA PROFESSIONE SANITARIA DI LOGOPEDISTA)",
+           "sede":"VERONA"}
+    job={"insegnamento":"LOGOPEDIA GENERALE","modulo":""}
+    note=note_from_approval(scope,job,"2026-2027","26-02")
+    assert note==(
+        "LOGOPEDIA (ABILITANTE ALLA PROFESSIONE SANITARIA DI LOGOPEDISTA)"
+        " - VERONA - LOGOPEDIA GENERALE - A.A. 2026/2027; BANDO 26-02"
+    )
+    assert " - - " not in note
+    job["modulo"]="LOGOPEDIA GENERALE"
+    assert note_from_approval(scope,job,"2026-2027","26-02")==note
+    job["modulo"]="Modulo da PICA"
+    assert " - Modulo da PICA - A.A." in note_from_approval(
+        scope,job,"2026-2027","26-02")
+
+
+def test_co_veneto_notes_ui_visible_editable_copy_and_no_xml_injection():
+    from pathlib import Path
+    script=(Path(__file__).resolve().parents[1] /
+            "rankup/app/static/co_veneto_ui.js").read_text(encoding="utf-8")
+    assert 'data-co-field="note"' in script
+    assert "job.work.note" in script
+    assert 'data-co-copy' in script
+    assert "navigator.clipboard.writeText" in script
+    assert "NON sono trasmesse nell’XML" in script
