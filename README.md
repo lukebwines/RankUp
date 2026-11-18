@@ -3,7 +3,7 @@
 ## RankUP v1.0.41 — Graduatoria nominativa Excel e report interni
 
 - **Graduatoria generale PDF:** rimossa la colonna Note, che non conteneva informazioni utili nel prospetto generale. La colonna Note Commissione resta nei PDF delle graduatorie CdS.
-- **Excel nominativo interno:** una riga per ogni candidatura/incarico, con posizione, punteggio, esito, dati dell'incarico, ID PICA, codice fiscale, residenza (indirizzo, città, provincia, CAP e nazione), titolo di studio, ateneo di conseguimento e data.
+- **Excel nominativo interno:** una riga per ogni candidatura/incarico, con posizione, punteggio, esito, dati dell'incarico, ID PICA, cognome e nome, data e comune di nascita, sesso, cittadinanza, codice fiscale, residenza (indirizzo, città, provincia, CAP e nazione), titolo di studio, ateneo di conseguimento e data.
 - **Fonti:** la graduatoria deriva dallo snapshot approvato; i dati anagrafici e del titolo derivano dall'importazione PICA. Per le importazioni precedenti, RankUP può recuperare i nuovi campi dal PICA originale solo dopo verifica dell'hash e del codice bando. I dati mancanti restano vuoti.
 - **Permessi:** i due report interni PDF ed Excel sono scaricabili da Admin e dagli operatori autenticati, esclusivamente per approvazioni attualmente attive. La creazione, conferma e regressione delle approvazioni restano riservate ad Admin. Ogni download è registrato negli eventi della procedura.
 
