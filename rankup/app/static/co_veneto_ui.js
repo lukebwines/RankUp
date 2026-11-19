@@ -101,9 +101,24 @@ window.createCoVenetoUI=function(ctx){
             return numberInputFor(field[0],field[1],response.dati[field[0]],field[2]);
           }).join("")+'</div></div>';
       }).join("");
+      var economicLabels={
+        ore_ordinario:"Ore non professionalizzanti",
+        ore_professionalizzante:"Ore professionalizzanti",
+        tariffa_verona:"Verona €/ora",tariffa_legnago:"Legnago €/ora",
+        tariffa_vicenza:"Vicenza €/ora",tariffa_trento:"Trento €/ora",
+        tariffa_rovereto:"Rovereto €/ora",tariffa_bolzano:"Bolzano €/ora"
+      };
       var history=(response.storico_parametri_economici||[]).map(function(item){
+        var before={},after={},changes=[];
+        try{before=JSON.parse(item.prima_json||"{}");after=JSON.parse(item.dopo_json||"{}");}catch(error){}
+        Object.keys(economicLabels).forEach(function(key){
+          if(String(before[key]||"")!==String(after[key]||"")){
+            changes.push(economicLabels[key]+": "+(before[key]||"—")+" → "+(after[key]||"—"));
+          }
+        });
         return '<p class="caption">'+esc(item.quando)+' · '+esc(item.autore)+
-          ' · '+(item.confermata?'parametri confermati':'conferma revocata')+'</p>';
+          ' · '+(item.confermata?'parametri confermati':'conferma revocata')+
+          '<br>'+esc(changes.join(" · ")||"Variazione dello stato di conferma")+'</p>';
       }).join("");
       html('<div class="notice mb"><strong>Configurazione globale · Solo Admin.</strong> '+
         'I dati della comunicazione di esempio non vengono copiati automaticamente. '+
