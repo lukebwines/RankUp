@@ -44,6 +44,7 @@ BUSINESS_TABLES = (
     "ai_ente_verifiche",
     "verbali_descrittivi",
     "valutazioni_pdf_eventi",
+    "valutazioni_pdf_proposte",
     "graduatorie_vincitori_proposti",
     "graduatorie_cds",
     "graduatorie_approvazioni",
