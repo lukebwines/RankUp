@@ -45,14 +45,32 @@ def test_roundtrip_resave_preserves_identity_scores_and_decision(tmp_path, monke
         assert control["stato"] == "regolare", control
         assert control["punteggio"] == 2
         assert control["decisione"] == "idoneo"
+        # L'API di anteprima non espone il dizionario interno "punteggi":
+        # confrontiamo direttamente TUTTI i campi PDF, inclusi P01..P15.
+        original_fields = {
+            key: str(field.get("/V", ""))
+            for key, field in (PdfReader(BytesIO(original)).get_fields() or {}).items()
+        }
+        assert all(f"P{i:02d}" in original_fields for i in range(1, 16))
         for name, document in (
             ("risalvato.pdf", _resave(original)),
             ("metadati-riscritti.pdf", _resave(original, remove_metadata=True)),
         ):
+            saved_fields = {
+                key: str(field.get("/V", ""))
+                for key, field in (PdfReader(BytesIO(document)).get_fields() or {}).items()
+            }
+            assert saved_fields == original_fields, (
+                name, {
+                    key: (original_fields.get(key), saved_fields.get(key))
+                    for key in set(original_fields) | set(saved_fields)
+                    if original_fields.get(key) != saved_fields.get(key)
+                },
+            )
             sheet = _preview(client, [(name, document)])["schede"][0]
             assert sheet["stato"] == "regolare", (name, sheet)
             for key in ("candidatura_id", "id_pica", "modello", "punteggio",
-                        "punteggi", "esito", "decisione", "note", "totale_pdf"):
+                        "esito", "decisione", "note", "totale_pdf"):
                 assert sheet[key] == control[key], (name, key, sheet, control)
 
 
