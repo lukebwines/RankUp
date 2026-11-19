@@ -576,6 +576,11 @@ class WorkBody(BaseModel):
     motivazione: str = Field(default="", max_length=1000)
 
 
+class EnglishCfuBody(BaseModel):
+    cfu: str = Field(min_length=1, max_length=30)
+    riferimento: str = Field(min_length=5, max_length=500)
+
+
 class GenerateBody(BaseModel):
     incarichi_ids: list[int] = Field(min_length=1, max_length=100)
     motivazione: str = Field(default="", max_length=1000)
@@ -613,7 +618,7 @@ def _assignments(db, code, bando_id, approval, personal_data, config=None):
             if winner_id is None:
                 continue
             inc = db.execute("""
-                SELECT i.id,i.key,i.inizio_iso,i.peso_copertura,i.sede,i.ssd,
+                SELECT i.id,i.key,i.inizio_iso,i.peso_copertura,i.cfu,i.sede,i.ssd,
                        CASE
                          WHEN UPPER(TRIM(COALESCE(i.ssd,''))) IN ('','ND','N-D','NON-INDICATO')
                            THEN NULL
@@ -644,9 +649,15 @@ def _assignments(db, code, bando_id, approval, personal_data, config=None):
             if saved and saved["candidatura_id"] == winner_id:
                 overrides = json.loads(saved["dati_json"])
             work = work_values(raw, overrides)
+            cfu_verified = _clean(overrides.get("_cfu_inglese"))
+            cfu_source = ("Admin · " + _clean(overrides.get("_cfu_riferimento"))
+                          if cfu_verified else ("PICA" if _clean(inc["cfu"]) else ""))
             calculation = calculate_retribuzione(
-                inc["peso_copertura"], inc["sede"], inc["tipo_ssd"], config
+                inc["peso_copertura"], inc["sede"], inc["tipo_ssd"], config,
+                cfu=cfu_verified or inc["cfu"]
             )
+            calculation["cfu_pica"] = _clean(inc["cfu"])
+            calculation["cfu_fonte"] = cfu_source
             legacy_manual = ("_retribuzione_override" not in overrides
                              and bool(_clean(overrides.get("retribuzione"))))
             manual_override = bool(overrides.get("_retribuzione_override")) or legacy_manual
@@ -934,6 +945,9 @@ def register_routes(app, connect, require_authenticated, require_admin,
             """, (approval_id, job_id)).fetchone()
             old_saved = json.loads(saved_row["dati_json"]) if saved_row else {}
             stored = dict(values)
+            for key in ("_cfu_inglese", "_cfu_riferimento", "_cfu_autore", "_cfu_data"):
+                if key in old_saved:
+                    stored[key] = old_saved[key]
             stored["_retribuzione_override"] = manual_override
             stored["_retribuzione_motivazione"] = reason
             stored["_retribuzione_calcolata"] = calculated_amount
@@ -962,6 +976,8 @@ def register_routes(app, connect, require_authenticated, require_admin,
                         "importo_calcolato": calculated_amount,
                         "formula": old_calculation.get("formula", ""),
                         "peso_copertura": old_calculation.get("peso_copertura", ""),
+                        "cfu": old_calculation.get("cfu", ""),
+                        "cfu_fonte": old_calculation.get("cfu_fonte", ""),
                         "sede_pica": old_calculation.get("sede", ""),
                         "tipo_ssd": old_calculation.get("tipo_ssd", ""),
                         "ore": old_calculation.get("ore"),
@@ -971,6 +987,61 @@ def register_routes(app, connect, require_authenticated, require_admin,
                    {"campi": sorted(values)}, actor)
             db.commit()
         return {"ok": True}
+
+    @app.put("/api/bandi/{code}/co-veneto/approvazioni/{approval_id}/incarichi/{job_id}/cfu-inglese")
+    def confirm_english_cfu(code: str, approval_id: int, job_id: int,
+                            body: EnglishCfuBody, request: Request):
+        """Acquisisce CFU con fonte documentale, mai dedotti dal peso PICA."""
+        require_admin(request)
+        code = valid_code(code)
+        cfu = _positive_decimal(body.cfu)
+        if cfu is None or cfu.as_tuple().exponent < -3:
+            fail("CFU non validi: indicare un numero positivo verificato", 400)
+        reference = body.riferimento.strip()
+        if len(reference) < 5 or "[DA VERIFICARE]" in reference.upper():
+            fail("Indicare la fonte ufficiale verificata dei CFU", 400)
+        with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            bando_id, approval, active = _approval(db, code, approval_id, valid_code)
+            if not active:
+                fail("Operazione possibile soltanto con atti approvati attivi", 409)
+            jobs = _assignments(db, code, bando_id, approval, personal_data)
+            job = next((j for j in jobs if j["incarico_id"] == job_id), None)
+            if not job:
+                fail("Vincitore non presente nell'approvazione", 404)
+            if job["retribuzione_calcolo"].get("tipo_ssd") != "inglese":
+                fail("La conferma CFU è disponibile soltanto per Inglese", 409)
+            old_row = db.execute("""SELECT dati_json FROM co_veneto_pratiche
+                WHERE approvazione_id=? AND incarico_id=?""",
+                (approval_id, job_id)).fetchone()
+            stored = json.loads(old_row["dati_json"]) if old_row else {}
+            old_cfu = _clean(stored.get("_cfu_inglese"))
+            old_reference = _clean(stored.get("_cfu_riferimento"))
+            normalized = format(cfu.normalize(), "f")
+            if old_cfu == normalized and old_reference == reference:
+                return {"ok": True, "modificato": False}
+            stamp = timestamp()
+            actor = request_actor()
+            stored.update({
+                "_cfu_inglese": normalized, "_cfu_riferimento": reference,
+                "_cfu_autore": actor, "_cfu_data": stamp
+            })
+            db.execute("""INSERT INTO co_veneto_pratiche
+                (bando_id,approvazione_id,incarico_id,candidatura_id,dati_json,autore,aggiornato_il)
+                VALUES(?,?,?,?,?,?,?)
+                ON CONFLICT(approvazione_id,incarico_id) DO UPDATE SET
+                candidatura_id=excluded.candidatura_id,dati_json=excluded.dati_json,
+                autore=excluded.autore,aggiornato_il=excluded.aggiornato_il""",
+                (bando_id,approval_id,job_id,job["candidatura_id"],
+                 json.dumps(stored,ensure_ascii=False),actor,stamp))
+            _event(db,bando_id,approval_id,job_id,"cfu_inglese_confermati",
+                   {"cfu_pica":job["retribuzione_calcolo"].get("cfu_pica",""),
+                    "cfu_precedenti":old_cfu,"cfu_confermati":normalized,
+                    "riferimento_precedente":old_reference,
+                    "riferimento":reference},actor)
+            db.commit()
+        return {"ok": True, "modificato": True}
+
 
     @app.post("/api/bandi/{code}/co-veneto/approvazioni/{approval_id}/genera")
     def generate(code: str, approval_id: int, body: GenerateBody, request: Request):
