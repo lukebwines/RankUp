@@ -175,13 +175,17 @@ def test_parita_blocca_graduatoria(tmp_path,monkeypatch):
                       json={"cds":g["cds"],"sede":g["sede"]})
         assert attempt.status_code==409
         tied=next(x for x in g["incarichi"] if len(x["candidature"])>1)
-        selected=tied["candidature"][0]["candidatura_id"]
-        fixed=client.put("/api/bandi/26-02/verbali/graduatorie/"+
-                         str(tied["id"])+"/vincitore",
-                         headers={"X-RankUp-Request":"1"},
-                         json={"candidatura_id":selected,
-                               "motivazione":"Decisione motivata della Commissione nel collaudo",
-                               "riferimento":"Documento formale sintetico di prova"})
+        group=next(item for item in tied["parita"] if len(item["candidati"])>1)
+        ordered=[c["candidatura_id"] for c in group["candidati"]]
+        selected=ordered[0]
+        # La proposta di vincitore non sostituisce il verbale della Commissione.
+        # L'Admin trascrive l'ordine documentato, legato alle schede correnti.
+        fixed=_post(client,"/api/bandi/26-02/verbali/graduatorie/"+
+                    str(tied["id"])+"/parita",
+                    json={"punteggio":group["punteggio"],
+                          "ordine_candidature":ordered,
+                          "motivazione":"Decisione documentata della Commissione nel collaudo",
+                          "riferimento":"Documento formale sintetico di prova"})
         assert fixed.status_code==200,fixed.text
         refreshed=client.get("/api/bandi/26-02/verbali/graduatorie").json()["graduatorie"][0]
         assert refreshed["pronta"],refreshed["criticita"]
