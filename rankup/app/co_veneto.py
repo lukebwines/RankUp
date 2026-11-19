@@ -6,13 +6,14 @@ preesistente, identificativo protocollato o anagrafica esemplificativa è inclus
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from xml.etree import ElementTree as ET
 import hashlib
 import json
 import re
+import unicodedata
 import zipfile
 
 from fastapi import HTTPException, Request
@@ -38,11 +39,20 @@ CONFIG_FIELDS = (
     "settore_ateco", "cls_settore", "pubblica_amministrazione",
     "email_delegato", "ente_previdenziale", "pat_inail",
     "qualifica_professionale", "ccnl", "livello_inquadramento", "tipo_orario",
+    "ore_ordinario", "ore_professionalizzante",
+    "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
+    "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
 )
 CONFIG_DEFAULTS = {
     "legale_soggiornante": "SI", "pubblica_amministrazione": "SI",
     "ente_previdenziale": "01", "ccnl": "ND",
     "livello_inquadramento": "ND", "tipo_orario": "N",
+    # Valori proposti dall'Ateneo: la generazione resta bloccata finché Admin
+    # non li conferma esplicitamente in Amministrazione > CO Veneto.
+    "ore_ordinario": "10", "ore_professionalizzante": "12",
+    "tariffa_verona": "50", "tariffa_legnago": "64",
+    "tariffa_vicenza": "64", "tariffa_trento": "85",
+    "tariffa_rovereto": "85", "tariffa_bolzano": "100",
 }
 CONFIG_REQUIRED = (
     "codice_fiscale", "denominazione", "legale_cognome", "legale_nome",
@@ -54,6 +64,9 @@ CONFIG_REQUIRED = (
     "pubblica_amministrazione", "email_delegato", "ente_previdenziale",
     "pat_inail", "qualifica_professionale", "ccnl",
     "livello_inquadramento", "tipo_orario",
+    "ore_ordinario", "ore_professionalizzante",
+    "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
+    "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
 )
 CONTRACT_FIELDS = (
     "retribuzione", "domicilio_indirizzo", "domicilio_citta",
@@ -123,7 +136,25 @@ def create_schema(db):
             autore TEXT NOT NULL,
             quando TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS co_veneto_config_eventi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prima_json TEXT NOT NULL,
+            dopo_json TEXT NOT NULL,
+            confermata INTEGER NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
     """)
+    config_columns = {row["name"] for row in db.execute(
+        "PRAGMA table_info(co_veneto_config)"
+    )}
+    if "parametri_economici_confermati" not in config_columns:
+        db.execute("ALTER TABLE co_veneto_config ADD COLUMN "
+                   "parametri_economici_confermati INTEGER NOT NULL DEFAULT 0")
+        # Gli XML creati prima del calcolo automatico non devono restare verdi:
+        # richiedono conferma dei nuovi parametri e una nuova generazione Admin.
+        db.execute("UPDATE co_veneto_config SET aggiornato_il=? WHERE id=1",
+                   (timestamp(),))
 
 
 def fail(message, status=400):
@@ -146,6 +177,103 @@ def cfg_values(db):
     return {k: values.get(k, "") for k in CONFIG_FIELDS}
 
 
+ECONOMIC_HOUR_FIELDS = ("ore_ordinario", "ore_professionalizzante")
+ECONOMIC_RATE_FIELDS = (
+    "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
+    "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
+)
+SEAT_TARIFF_FIELDS = {
+    "VERONA": "tariffa_verona",
+    "LEGNAGO": "tariffa_legnago",
+    "VICENZA": "tariffa_vicenza",
+    "TRENTO": "tariffa_trento",
+    "ROVERETO": "tariffa_rovereto",
+    "BOLZANO": "tariffa_bolzano",
+}
+
+
+def _positive_decimal(raw):
+    try:
+        value = Decimal(str(raw or "").strip().replace(",", "."))
+        return value if value.is_finite() and value > 0 else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _italian_decimal(value, places=None):
+    if places is not None:
+        value = value.quantize(Decimal("1").scaleb(-places), rounding=ROUND_HALF_UP)
+        return format(value, f".{places}f").replace(".", ",")
+    text = format(value.normalize(), "f")
+    return text.replace(".", ",")
+
+
+def _seat_key(raw):
+    value = unicodedata.normalize("NFKD", _clean(raw))
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = re.sub(r"[().,;]", " ", value.upper())
+    value = " ".join(value.split())
+    # Accetta la denominazione PICA con provincia finale, ad es. VERONA (VR).
+    value = re.sub(r"\s+[A-Z]{2}$", "", value)
+    return value
+
+
+def calculate_retribuzione(peso_copertura, sede, tipo_ssd, config):
+    """Calcolo deterministico; non deduce la sede o la categoria in caso di dati anomali."""
+    weight = _positive_decimal(peso_copertura)
+    if weight is None:
+        return {"ok": False, "problema": "Peso Copertura PICA mancante o non valido"}
+    seat = _seat_key(sede)
+    tariff_field = SEAT_TARIFF_FIELDS.get(seat)
+    if not tariff_field:
+        return {"ok": False, "problema": "Sede PICA non riconosciuta per la tariffa: " + _clean(sede)}
+    model = _clean(tipo_ssd).lower()
+    if model == "professionalizzante":
+        hours_field = "ore_professionalizzante"
+    elif model == "ordinario":
+        hours_field = "ore_ordinario"
+    else:
+        return {"ok": False, "problema":
+                "Classificazione SSD non utilizzabile per il calcolo delle ore: " +
+                (_clean(tipo_ssd) or "[DA VERIFICARE]")}
+    try:
+        hours_value = Decimal(str(config.get(hours_field, "")).strip().replace(",", "."))
+        if not hours_value.is_finite() or hours_value <= 0 or hours_value != hours_value.to_integral_value():
+            raise ValueError
+        hours = int(hours_value)
+    except (InvalidOperation, ValueError):
+        return {"ok": False, "problema": "Ore di riferimento non valide in Amministrazione CO Veneto"}
+    rate = _positive_decimal(config.get(tariff_field))
+    if rate is None or rate.as_tuple().exponent < -2:
+        return {"ok": False, "problema": "Tariffa oraria non valida in Amministrazione CO Veneto"}
+    amount = (weight * Decimal(hours) * rate).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    return {
+        "ok": True, "problema": "", "peso_copertura": _clean(peso_copertura),
+        "sede": _clean(sede), "tipo_ssd": model, "ore": hours,
+        "tariffa": format(rate.quantize(Decimal("0.01")), ".2f"),
+        "importo": format(amount, ".2f"),
+        "formula": (_italian_decimal(weight) + " × " + str(hours) +
+                    " ore × " + _italian_decimal(rate, 2) + " €/ora = " +
+                    _italian_decimal(amount, 2) + " €"),
+        "manuale": False, "motivazione": "", "importo_applicato": format(amount, ".2f"),
+    }
+
+
+def _same_amount(left, right):
+    a = _positive_decimal(left)
+    b = _positive_decimal(right)
+    return a is not None and b is not None and a == b
+
+
+def economic_config_confirmed(db):
+    row = db.execute(
+        "SELECT parametri_economici_confermati FROM co_veneto_config WHERE id=1"
+    ).fetchone()
+    return bool(row and row["parametri_economici_confermati"])
+
+
 def missing_config(values):
     """Anche codifiche palesemente errate sono da verificare, non solo i vuoti."""
     problems = [key for key in CONFIG_REQUIRED
@@ -163,6 +291,16 @@ def missing_config(values):
         problems.append("codice_fiscale")
     for key in ("sede_legale_cap", "sede_lavoro_cap"):
         if values.get(key) and not re.fullmatch(r"[0-9]{5}", values[key]):
+            problems.append(key)
+    for key in ECONOMIC_HOUR_FIELDS:
+        raw = str(values.get(key) or "").strip()
+        if raw and not re.fullmatch(r"[0-9]+", raw):
+            problems.append(key)
+        elif raw and int(raw) <= 0:
+            problems.append(key)
+    for key in ECONOMIC_RATE_FIELDS:
+        rate = _positive_decimal(values.get(key))
+        if rate is None or rate.as_tuple().exponent < -2:
             problems.append(key)
     return sorted(set(problems))
 
@@ -247,7 +385,8 @@ def work_values(source, saved):
     automatic = {"domicilio_comune_codice", "nascita_comune_codice",
                  "cittadinanza_codice", "livello_istruzione"}
     values.update({key: _clean(saved.get(key)) for key in CONTRACT_FIELDS
-                   if key in saved and (key not in automatic or _clean(saved.get(key)))})
+                   if key != "retribuzione" and key in saved
+                   and (key not in automatic or _clean(saved.get(key)))})
     # Se il Comune di domicilio è stato cambiato manualmente rispetto a PICA,
     # non mantenere in automatico il codice del vecchio Comune.
     city_from_pica = _clean(source.get("residenza_citta"))
@@ -387,10 +526,12 @@ def make_xml(config, source, work, start, end, when=None):
 
 class ConfigBody(BaseModel):
     dati: dict[str, str]
+    conferma_parametri_economici: bool = False
 
 
 class WorkBody(BaseModel):
     dati: dict[str, str]
+    motivazione: str = Field(default="", max_length=1000)
 
 
 class GenerateBody(BaseModel):
@@ -418,9 +559,10 @@ def _approval(db, code, approval_id, valid_code):
     return b["id"], a, active
 
 
-def _assignments(db, code, bando_id, approval, personal_data):
+def _assignments(db, code, bando_id, approval, personal_data, config=None):
     payload = json.loads(approval["dati_json"])
     personal = personal_data(db, bando_id, code, payload)
+    config = config or cfg_values(db)
     year_end = academic_end(approval["anno"])
     result = []
     for scope in payload.get("selezioni", []):
@@ -428,8 +570,19 @@ def _assignments(db, code, bando_id, approval, personal_data):
             winner_id = job.get("vincitore_id")
             if winner_id is None:
                 continue
-            inc = db.execute("SELECT id,key,inizio_iso FROM incarichi WHERE id=? AND bando_id=?",
-                             (job["id"], bando_id)).fetchone()
+            inc = db.execute("""
+                SELECT i.id,i.key,i.inizio_iso,i.peso_copertura,i.sede,i.ssd,
+                       CASE
+                         WHEN UPPER(TRIM(COALESCE(i.ssd,''))) IN ('','ND','N-D','NON-INDICATO')
+                           THEN NULL
+                         WHEN UPPER(TRIM(i.ssd))='NN' THEN COALESCE(nn.modello,'ordinario')
+                         ELSE COALESCE(cl.tipo,'ordinario')
+                       END AS tipo_ssd
+                FROM incarichi i
+                LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+                LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
+                WHERE i.id=? AND i.bando_id=?
+            """, (job["id"], bando_id)).fetchone()
             person = db.execute("""
                 SELECT id,incarico_id,id_pica,nome,cognome,codice_fiscale,stato
                 FROM candidature WHERE id=? AND bando_id=?
@@ -449,6 +602,22 @@ def _assignments(db, code, bando_id, approval, personal_data):
             if saved and saved["candidatura_id"] == winner_id:
                 overrides = json.loads(saved["dati_json"])
             work = work_values(raw, overrides)
+            calculation = calculate_retribuzione(
+                inc["peso_copertura"], inc["sede"], inc["tipo_ssd"], config
+            )
+            legacy_manual = ("_retribuzione_override" not in overrides
+                             and bool(_clean(overrides.get("retribuzione"))))
+            manual_override = bool(overrides.get("_retribuzione_override")) or legacy_manual
+            if manual_override:
+                work["retribuzione"] = _clean(overrides.get("retribuzione"))
+            else:
+                work["retribuzione"] = calculation["importo"] if calculation["ok"] else ""
+            calculation["manuale"] = manual_override
+            calculation["motivazione"] = _clean(
+                overrides.get("_retribuzione_motivazione")
+            ) or ("Valore manuale preesistente; motivazione non registrata"
+                  if legacy_manual else "")
+            calculation["importo_applicato"] = work["retribuzione"]
             # Per i record creati prima della funzione Note, il testo viene
             # derivato senza modificare gli originali PICA/atti esistenti.
             if "note" not in overrides:
@@ -458,6 +627,8 @@ def _assignments(db, code, bando_id, approval, personal_data):
                 warnings.append("note operative da verificare")
             elif len(work["note"]) > 1000:
                 warnings.append("note operative oltre 1000 caratteri")
+            if not calculation["ok"] and not manual_override:
+                warnings.append("calcolo retribuzione: " + calculation["problema"])
             latest = db.execute("""
                 SELECT id,revisione,nome_file,autore,creato_il FROM co_veneto_xml
                 WHERE approvazione_id=? AND incarico_id=?
@@ -476,6 +647,7 @@ def _assignments(db, code, bando_id, approval, personal_data):
                     "cap": raw.get("residenza_cap", "")
                 },
                 "work": work,
+                "retribuzione_calcolo": calculation,
                 "mancanti": warnings,
                 "ultimo_file": dict(latest) if latest else None,
                 "_source": raw,
@@ -555,10 +727,22 @@ def register_routes(app, connect, require_authenticated, require_admin,
     def config_get(request: Request):
         require_admin(request)
         with connect() as db:
-            row = db.execute("SELECT aggiornato_il,autore FROM co_veneto_config WHERE id=1").fetchone()
-            return {"dati": cfg_values(db), "mancanti": missing_config(cfg_values(db)),
-                    "aggiornato_il": row["aggiornato_il"] if row else None,
-                    "autore": row["autore"] if row else None}
+            row = db.execute("""
+                SELECT aggiornato_il,autore,parametri_economici_confermati
+                FROM co_veneto_config WHERE id=1
+            """).fetchone()
+            values = cfg_values(db)
+            history = db.execute("""
+                SELECT prima_json,dopo_json,confermata,autore,quando
+                FROM co_veneto_config_eventi ORDER BY id DESC LIMIT 10
+            """).fetchall()
+            return {
+                "dati": values, "mancanti": missing_config(values),
+                "aggiornato_il": row["aggiornato_il"] if row else None,
+                "autore": row["autore"] if row else None,
+                "parametri_economici_confermati": economic_config_confirmed(db),
+                "storico_parametri_economici": [dict(item) for item in history],
+            }
 
     @app.put("/api/admin/co-veneto/config")
     def config_put(body: ConfigBody, request: Request):
@@ -566,19 +750,55 @@ def register_routes(app, connect, require_authenticated, require_admin,
         if set(body.dati) != set(CONFIG_FIELDS):
             fail("Configurazione incompleta o contiene campi non previsti")
         values = {k: _clean(v) for k, v in body.dati.items()}
+        for key in (*ECONOMIC_HOUR_FIELDS, *ECONOMIC_RATE_FIELDS):
+            values[key] = values[key].replace(",", ".")
         if any(len(v) > 250 for v in values.values()):
             fail("Campo della configurazione troppo lungo")
         for field in ("legale_data_nascita",):
             if values[field] and not iso_date(values[field]):
                 fail("Data di nascita del rappresentante non riconosciuta")
+        invalid_economic = sorted(
+            key for key in missing_config(values)
+            if key in ECONOMIC_HOUR_FIELDS or key in ECONOMIC_RATE_FIELDS
+        )
+        if body.conferma_parametri_economici and invalid_economic:
+            fail("Non è possibile confermare parametri economici non validi: " +
+                 ", ".join(invalid_economic), 400)
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            before_row = db.execute("""
+                SELECT dati_json,parametri_economici_confermati
+                FROM co_veneto_config WHERE id=1
+            """).fetchone()
+            before_values = cfg_values(db)
+            before_confirmed = economic_config_confirmed(db)
+            before_economic = {key: before_values[key]
+                               for key in (*ECONOMIC_HOUR_FIELDS,*ECONOMIC_RATE_FIELDS)}
+            after_economic = {key: values[key]
+                              for key in (*ECONOMIC_HOUR_FIELDS,*ECONOMIC_RATE_FIELDS)}
+            now = timestamp()
+            actor = request_actor()
             db.execute("""INSERT INTO co_veneto_config
-                (id,dati_json,aggiornato_il,autore) VALUES(1,?,?,?)
+                (id,dati_json,aggiornato_il,autore,parametri_economici_confermati)
+                VALUES(1,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET dati_json=excluded.dati_json,
-                aggiornato_il=excluded.aggiornato_il,autore=excluded.autore""",
-                (json.dumps(values, ensure_ascii=False), timestamp(), request_actor()))
+                aggiornato_il=excluded.aggiornato_il,autore=excluded.autore,
+                parametri_economici_confermati=excluded.parametri_economici_confermati""",
+                (json.dumps(values, ensure_ascii=False), now, actor,
+                 1 if body.conferma_parametri_economici else 0))
+            if (before_economic != after_economic
+                    or before_confirmed != body.conferma_parametri_economici):
+                db.execute("""INSERT INTO co_veneto_config_eventi
+                    (prima_json,dopo_json,confermata,autore,quando)
+                    VALUES(?,?,?,?,?)""",
+                    (json.dumps(before_economic, ensure_ascii=False),
+                     json.dumps(after_economic, ensure_ascii=False),
+                     1 if body.conferma_parametri_economici else 0, actor, now))
             db.commit()
-        return {"ok": True, "mancanti": missing_config(values)}
+        return {
+            "ok": True, "mancanti": missing_config(values),
+            "parametri_economici_confermati": body.conferma_parametri_economici,
+        }
 
     @app.get("/api/bandi/{code}/co-veneto/approvazioni/{approval_id}")
     def approval_get(code: str, approval_id: int, request: Request):
@@ -586,16 +806,21 @@ def register_routes(app, connect, require_authenticated, require_admin,
         code = valid_code(code)
         with connect() as db:
             bando_id, approval, active = _approval(db, code, approval_id, valid_code)
-            jobs = _assignments(db, code, bando_id, approval, personal_data)
             config = cfg_values(db)
+            jobs = _assignments(db, code, bando_id, approval, personal_data, config)
             lotti = db.execute("""SELECT id,nome_file,sha256,autore,creato_il
                 FROM co_veneto_lotti WHERE approvazione_id=? ORDER BY id DESC""",
                 (approval_id,)).fetchall()
+            confirmed = economic_config_confirmed(db)
         for job in jobs:
             job.pop("_source", None)
+        missing = missing_config(config)
+        if not confirmed:
+            missing.append("parametri economici da confermare in Amministrazione CO Veneto")
         return {"approvazione_id": approval_id, "attiva": active,
                 "anno_accademico": approval["anno"], "incarichi": jobs,
-                "configurazione_mancante": missing_config(config),
+                "parametri_economici_confermati": confirmed,
+                "configurazione_mancante": missing,
                 "lotti": [dict(lotto) for lotto in lotti],
                 "tipo_contratto": "B.03.00 - Collaborazione coordinata e continuativa",
                 "avvertenza": "La generazione non equivale all'invio: verificare lo ZIP in CO Veneto."}
@@ -616,12 +841,67 @@ def register_routes(app, connect, require_authenticated, require_admin,
             bando_id, approval, active = _approval(db, code, approval_id, valid_code)
             if not active:
                 fail("La procedura non ha più atti approvati attivi", 409)
-            jobs = _assignments(db, code, bando_id, approval, personal_data)
+            config = cfg_values(db)
+            jobs = _assignments(db, code, bando_id, approval, personal_data, config)
             job = next((j for j in jobs if j["incarico_id"] == job_id), None)
             if not job:
                 fail("Vincitore non presente nell'approvazione", 404)
             if job["ultimo_file"] and principal["role"] != "admin":
                 fail("File già generato: la modifica è riservata all'Admin", 403)
+
+            old_calculation = job["retribuzione_calcolo"]
+            old_amount = job["work"].get("retribuzione", "")
+            new_amount = values.get("retribuzione", "")
+            same_as_old = (_same_amount(new_amount, old_amount)
+                           or (not _clean(new_amount) and not _clean(old_amount)))
+            calculated_amount = (old_calculation.get("importo", "")
+                                 if old_calculation.get("ok") else "")
+            same_as_calculated = _same_amount(new_amount, calculated_amount)
+            is_admin = principal["role"] == "admin"
+            old_manual = bool(old_calculation.get("manuale"))
+            old_reason = _clean(old_calculation.get("motivazione"))
+
+            if not is_admin and not same_as_old:
+                fail("La rettifica della retribuzione è riservata all'Admin", 403)
+            if is_admin:
+                if same_as_calculated:
+                    manual_override, reason = False, ""
+                elif (not old_calculation.get("ok") and not _clean(new_amount)
+                      and not _clean(old_amount) and not old_manual):
+                    # Un incarico non calcolabile può comunque salvare gli altri
+                    # dati; resterà bloccato in generazione finché il dato non è risolto.
+                    manual_override, reason = False, ""
+                elif old_manual and same_as_old:
+                    manual_override = True
+                    reason = body.motivazione.strip() or old_reason
+                    if body.motivazione.strip() and len(reason) < 10:
+                        fail("La motivazione della rettifica deve contenere almeno 10 caratteri", 400)
+                else:
+                    if not _has_valid_compenso(new_amount):
+                        fail("La retribuzione manuale deve essere un importo positivo valido", 400)
+                    reason = body.motivazione.strip()
+                    if len(reason) < 10:
+                        fail("Motivazione obbligatoria (almeno 10 caratteri) per rettificare la retribuzione", 400)
+                    manual_override = True
+            else:
+                manual_override, reason = old_manual, old_reason
+
+            saved_row = db.execute("""
+                SELECT dati_json FROM co_veneto_pratiche
+                WHERE approvazione_id=? AND incarico_id=?
+            """, (approval_id, job_id)).fetchone()
+            old_saved = json.loads(saved_row["dati_json"]) if saved_row else {}
+            stored = dict(values)
+            stored["_retribuzione_override"] = manual_override
+            stored["_retribuzione_motivazione"] = reason
+            stored["_retribuzione_calcolata"] = calculated_amount
+            stored["_retribuzione_autore"] = (
+                request_actor() if manual_override and
+                (not old_manual or not same_as_old or reason != old_reason) else
+                _clean(old_saved.get("_retribuzione_autore"))
+            )
+            stored["_retribuzione_aggiornata_il"] = timestamp()
+            actor = request_actor()
             db.execute("""INSERT INTO co_veneto_pratiche
                 (bando_id,approvazione_id,incarico_id,candidatura_id,dati_json,autore,aggiornato_il)
                 VALUES(?,?,?,?,?,?,?)
@@ -629,9 +909,24 @@ def register_routes(app, connect, require_authenticated, require_admin,
                 candidatura_id=excluded.candidatura_id,dati_json=excluded.dati_json,
                 autore=excluded.autore,aggiornato_il=excluded.aggiornato_il""",
                 (bando_id, approval_id, job_id, job["candidatura_id"],
-                 json.dumps(values, ensure_ascii=False), request_actor(), timestamp()))
+                 json.dumps(stored, ensure_ascii=False), actor, timestamp()))
+            if (manual_override != old_manual or
+                    (manual_override and (not same_as_old or reason != old_reason))):
+                _event(db, bando_id, approval_id, job_id,
+                       "rettifica_retribuzione" if manual_override else
+                       "ripristino_retribuzione_automatica",
+                       {"importo_precedente": old_amount,
+                        "importo_nuovo": new_amount,
+                        "importo_calcolato": calculated_amount,
+                        "formula": old_calculation.get("formula", ""),
+                        "peso_copertura": old_calculation.get("peso_copertura", ""),
+                        "sede_pica": old_calculation.get("sede", ""),
+                        "tipo_ssd": old_calculation.get("tipo_ssd", ""),
+                        "ore": old_calculation.get("ore"),
+                        "tariffa": old_calculation.get("tariffa", ""),
+                        "motivazione": reason}, actor)
             _event(db, bando_id, approval_id, job_id, "dati_contrattuali",
-                   {"campi": sorted(values)}, request_actor())
+                   {"campi": sorted(values)}, actor)
             db.commit()
         return {"ok": True}
 
@@ -651,8 +946,10 @@ def register_routes(app, connect, require_authenticated, require_admin,
             if missing_config(config):
                 fail("Completare Amministrazione → CO Veneto: " +
                      ", ".join(missing_config(config)), 409)
+            if not economic_config_confirmed(db):
+                fail("Confermare i parametri economici in Amministrazione → CO Veneto prima di generare gli XML", 409)
             jobs = {x["incarico_id"]: x for x in
-                    _assignments(db, code, bando_id, approval, personal_data)}
+                    _assignments(db, code, bando_id, approval, personal_data, config)}
             if any(job_id not in jobs for job_id in ids):
                 fail("Uno o più incarichi non appartengono all'approvazione", 409)
             selected = [jobs[job_id] for job_id in ids]

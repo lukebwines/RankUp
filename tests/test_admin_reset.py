@@ -27,6 +27,12 @@ def test_admin_reset_requires_password_and_preserves_backup_and_accounts(tmp_pat
             assert len(ssd_before)>=1
             assert len(commissions_before)>=1
             assert db.execute("SELECT COUNT(*) FROM commissioni").fetchone()[0]>=1
+            db.execute("""INSERT INTO co_veneto_config_eventi
+                (prima_json,dopo_json,confermata,autore,quando)
+                VALUES(?,?,?,?,?)""",
+                ('{"ore_ordinario":"10"}','{"ore_ordinario":"10"}',1,
+                 "admin_test","2026-11-19T08:00:00+01:00"))
+            db.commit()
 
         status=admin.get("/api/admin/azzeramento")
         assert status.status_code==200,status.text
@@ -77,6 +83,7 @@ def test_admin_reset_requires_password_and_preserves_backup_and_accounts(tmp_pat
             assert db.execute("SELECT ssd,tipo FROM ssd_classificazioni ORDER BY ssd").fetchall()==ssd_before
             assert db.execute("SELECT impronta FROM commissioni_catalogo ORDER BY impronta").fetchall()==commissions_before
             assert db.execute("SELECT COUNT(*) FROM pica_tipo_cds_dizionario").fetchone()[0]==5
+            assert db.execute("SELECT COUNT(*) FROM co_veneto_config_eventi").fetchone()[0]==1
         assert not list((tmp_path/"sources").rglob("*"))
         assert not list((tmp_path/"pending").rglob("*"))
         assert admin.get("/api/bandi").json()["bandi"]==[]

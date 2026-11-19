@@ -36,6 +36,20 @@ window.createCoVenetoUI=function(ctx){
       ["tipo_orario","Tipo orario"]
     ]]
   ];
+  var economicGroups=[
+    ["Ore di riferimento",[
+      ["ore_ordinario","SSD non professionalizzante · ore","1"],
+      ["ore_professionalizzante","SSD professionalizzante · ore","1"]
+    ]],
+    ["Tariffe orarie per sede PICA (€)",[
+      ["tariffa_verona","Verona · €/ora","0.01"],
+      ["tariffa_legnago","Legnago · €/ora","0.01"],
+      ["tariffa_vicenza","Vicenza · €/ora","0.01"],
+      ["tariffa_trento","Trento · €/ora","0.01"],
+      ["tariffa_rovereto","Rovereto · €/ora","0.01"],
+      ["tariffa_bolzano","Bolzano · €/ora","0.01"]
+    ]]
+  ];
   var contractFields=[
     ["retribuzione","Retribuzione annua lorda (€)"],
     ["domicilio_indirizzo","Indirizzo di domicilio"],
@@ -51,6 +65,12 @@ window.createCoVenetoUI=function(ctx){
     return '<label style="display:block;min-width:0"><span class="caption">'+esc(label)+'</span>'+
       '<input type="text" data-co-field="'+esc(key)+'" value="'+esc(value||"")+'"'+
       (locked?' readonly':'')+' style="display:block;width:100%;margin-top:5px"></label>';
+  }
+  function numberInputFor(key,label,value,step){
+    var minimum=step==="1"?"1":"0.01";
+    return '<label style="display:block;min-width:0"><span class="caption">'+esc(label)+'</span>'+
+      '<input type="number" min="'+minimum+'" step="'+esc(step)+'" data-co-field="'+esc(key)+
+      '" value="'+esc(value||"")+'" required style="display:block;width:100%;margin-top:5px"></label>';
   }
   function collect(container){
     var values={};
@@ -74,13 +94,55 @@ window.createCoVenetoUI=function(ctx){
             return inputFor(field[0],field[1],response.dati[field[0]],false);
           }).join("")+'</div></div>';
       }).join("");
+      var economicSections=economicGroups.map(function(group){
+        return '<div class="card mb"><h3 class="section-heading">'+esc(group[0])+'</h3>'+
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">'+
+          group[1].map(function(field){
+            return numberInputFor(field[0],field[1],response.dati[field[0]],field[2]);
+          }).join("")+'</div></div>';
+      }).join("");
+      var economicLabels={
+        ore_ordinario:"Ore non professionalizzanti",
+        ore_professionalizzante:"Ore professionalizzanti",
+        tariffa_verona:"Verona €/ora",tariffa_legnago:"Legnago €/ora",
+        tariffa_vicenza:"Vicenza €/ora",tariffa_trento:"Trento €/ora",
+        tariffa_rovereto:"Rovereto €/ora",tariffa_bolzano:"Bolzano €/ora"
+      };
+      var history=(response.storico_parametri_economici||[]).map(function(item){
+        var before={},after={},changes=[];
+        try{before=JSON.parse(item.prima_json||"{}");after=JSON.parse(item.dopo_json||"{}");}catch(error){}
+        Object.keys(economicLabels).forEach(function(key){
+          if(String(before[key]||"")!==String(after[key]||"")){
+            changes.push(economicLabels[key]+": "+(before[key]||"—")+" → "+(after[key]||"—"));
+          }
+        });
+        return '<p class="caption">'+esc(item.quando)+' · '+esc(item.autore)+
+          ' · '+(item.confermata?'parametri confermati':'conferma revocata')+
+          '<br>'+esc(changes.join(" · ")||"Variazione dello stato di conferma")+'</p>';
+      }).join("");
       html('<div class="notice mb"><strong>Configurazione globale · Solo Admin.</strong> '+
         'I dati della comunicazione di esempio non vengono copiati automaticamente. '+
         'Inserire soltanto dati dell’Ateneo verificati; la tipologia B.03.00 resta fissa.</div>'+
         '<form id="co-admin-form">'+sections+
+        '<section class="card mb"><h3 class="section-heading">Parametri economici per la retribuzione</h3>'+
+        '<p class="caption">Il calcolo utilizza il Peso Copertura e la Sede importati da PICA e la classificazione SSD già presente in RankUP. '+
+        'La classificazione non viene duplicata né modificata da questa sezione.</p>'+
+        economicSections+
+        '<label style="display:flex;align-items:flex-start;gap:9px;margin-top:10px">'+
+        '<input type="checkbox" id="co-confirm-economic" style="margin-top:3px"'+
+        (response.parametri_economici_confermati?' checked':'')+'>'+
+        '<span><strong>Confermo i parametri economici</strong><br>'+
+        '<span class="caption">Confermo ore e tariffe sopra indicate. Senza questa conferma RankUP non genera XML UNILAV.</span></span></label>'+
+        '<p class="caption">Le modifiche ai parametri sono registrate nello storico e rendono da rigenerare gli XML generati con la configurazione precedente.</p>'+
+        '</section>'+
         '<button class="btn" type="submit">Salva configurazione CO Veneto</button></form>'+
         '<p class="caption">Campi da completare prima di generare: '+
-        esc((response.mancanti||[]).join(", ")||"nessuno")+'.</p>');
+        esc((response.mancanti||[]).join(", ")||"nessuno")+'.</p>'+
+        (history?'<div class="card"><h3 class="section-heading">Storico parametri economici</h3>'+history+'</div>':''));
+      var confirmEconomic=document.getElementById("co-confirm-economic");
+      document.querySelectorAll('[data-co-field^="ore_"],[data-co-field^="tariffa_"]').forEach(function(input){
+        input.addEventListener("input",function(){confirmEconomic.checked=false;});
+      });
       document.getElementById("co-admin-form").onsubmit=async function(event){
         event.preventDefault();
         var button=this.querySelector("button[type=submit]");
@@ -88,10 +150,15 @@ window.createCoVenetoUI=function(ctx){
         try{
           var result=await api("admin/co-veneto/config",{
             method:"PUT",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({dati:collect(this)})
+            body:JSON.stringify({
+              dati:collect(this),
+              conferma_parametri_economici:document.getElementById("co-confirm-economic").checked
+            })
           });
           note(result.mancanti.length?"Configurazione salvata: restano campi da verificare.":
-            "Configurazione CO Veneto completa e salvata.",false);
+            (result.parametri_economici_confermati?
+              "Configurazione CO Veneto salvata e parametri economici confermati.":
+              "Configurazione salvata, ma i parametri economici non sono confermati: la generazione resta bloccata."),false);
           renderAdmin();
         }catch(error){note(error.message,true);button.disabled=false;}
       };
@@ -99,6 +166,7 @@ window.createCoVenetoUI=function(ctx){
   }
   function cardFor(job,data,admin,code,approvalId){
     var locked=!data.attiva||(job.ultimo_file&&!admin);
+    var calculation=job.retribuzione_calcolo||{};
     var htmlParts='<div class="card mb" data-co-card="'+esc(job.incarico_id)+'">'+
       '<div class="actions" style="align-items:center;justify-content:space-between">'+
       '<div><strong>'+esc(job.cognome+" "+job.nome)+'</strong>'+
@@ -119,14 +187,28 @@ window.createCoVenetoUI=function(ctx){
         ' · '+esc(job.ultimo_file.autore)+' · <a href="api/'+url(code,approvalId)+
         '/xml/'+encodeURIComponent(job.ultimo_file.id)+'">Scarica XML conservato</a></p>';
     }
+    if(calculation.ok){
+      htmlParts+='<p class="caption">Calcolo automatico: <strong>'+
+        esc(calculation.formula)+'</strong></p>';
+    }else{
+      htmlParts+='<p class="caption" style="color:#b25240">Calcolo automatico non disponibile: '+
+        esc(calculation.problema||"parametri da verificare")+'</p>';
+    }
+    if(calculation.manuale){
+      htmlParts+='<p class="caption"><strong>Importo applicato: rettifica manuale Admin.</strong> '+
+        'Motivazione: '+esc(calculation.motivazione||"non registrata")+'</p>';
+    }
     if(job.mancanti.length){
       htmlParts+='<p class="caption" style="color:#b25240">[DA VERIFICARE] '+
         esc(job.mancanti.join(", "))+'</p>';
     }
     htmlParts+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px">'+
       contractFields.map(function(field){
-        return inputFor(field[0],field[1],job.work[field[0]],locked);
+        var fieldLocked=locked||(field[0]==="retribuzione"&&!admin);
+        return inputFor(field[0],field[1],job.work[field[0]],fieldLocked);
       }).join("")+'</div>'+
+      (admin&&!locked?'<label style="display:block;margin-top:10px"><span class="caption">Motivazione rettifica retribuzione (obbligatoria se l’importo differisce dal calcolo)</span>'+
+        '<input type="text" data-co-retribuzione-motivazione maxlength="1000" placeholder="Indicare la motivazione documentata" style="display:block;width:100%;margin-top:5px"></label>':'')+
       '<div style="margin-top:14px">'+
       '<label style="display:block"><span class="caption">Note operative CO Veneto (da PICA e atto approvato)</span>'+
       '<textarea data-co-field="note" rows="3" style="display:block;width:100%;margin-top:5px;resize:vertical"'+
@@ -171,7 +253,7 @@ window.createCoVenetoUI=function(ctx){
         (data.attiva?'Atti formalmente approvati: comunicazioni disponibili.':
           'Procedura non attiva o regredita: sola consultazione.')+
         ' RankUP non effettua invii: usare Verifica file sul portale CO Veneto.</div>'+
-        (miss.length?'<p class="notice mb">Configurazione Ateneo incompleta: '+
+        (miss.length?'<p class="notice mb">Configurazione CO Veneto da completare o confermare: '+
           esc(miss.join(", "))+'</p>':'')+
         (eligible?'<div class="card mb"><label style="display:inline-flex;align-items:center;gap:10px">'+
           '<input type="checkbox" id="co-select-all" style="margin:0">'+
@@ -238,7 +320,10 @@ window.createCoVenetoUI=function(ctx){
           try{
             await api(url(code,approvalId)+"/incarichi/"+encodeURIComponent(jobId),{
               method:"PUT",headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({dati:collect(card)})
+              body:JSON.stringify({
+                dati:collect(card),
+                motivazione:(card.querySelector("[data-co-retribuzione-motivazione]")||{}).value||""
+              })
             });
             note("Dati del singolo incarico salvati.",false);
             renderApproval();

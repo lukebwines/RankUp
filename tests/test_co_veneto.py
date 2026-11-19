@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 from co_veneto import (
     CONFIG_FIELDS, CONFIG_DEFAULTS, CODICE_NUOVA_COMUNICAZIONE,
     VERSIONE_TRACCIATO, NS, academic_end, make_xml,
-    defaults_from_pica, validate_worker, note_from_approval
+    defaults_from_pica, validate_worker, note_from_approval,
+    calculate_retribuzione
 )
 
 
@@ -79,6 +80,29 @@ def test_xml_source_only_and_no_presumed_worker_codes():
     assert root.find(".//{"+NS+"}InizioRapporto").attrib["dataFine"]=="2027-09-30"
 
 
+
+
+def test_calculate_retribuzione_uses_weight_ssd_and_pica_seat():
+    config = dict(CONFIG_DEFAULTS)
+    cases = [
+        ("VERONA", "ordinario", "250.00"),
+        ("LEGNAGO", "ordinario", "320.00"),
+        ("VICENZA", "ordinario", "320.00"),
+        ("TRENTO", "ordinario", "425.00"),
+        ("ROVERETO", "ordinario", "425.00"),
+        ("BOLZANO", "ordinario", "500.00"),
+        ("VERONA (VR)", "professionalizzante", "300.00"),
+    ]
+    for seat, model, expected in cases:
+        result = calculate_retribuzione("0,5", seat, model, config)
+        assert result["ok"], result
+        assert result["importo"] == expected
+        assert result["formula"].endswith(expected.replace(".", ",") + " €")
+    assert not calculate_retribuzione("0,5", "PADOVA", "ordinario", config)["ok"]
+    assert not calculate_retribuzione("", "VERONA", "ordinario", config)["ok"]
+    assert not calculate_retribuzione("0,5", "VERONA", "inglese", config)["ok"]
+
+
 def _approved(client):
     base="/api/bandi/26-02"
     refs=client.get(base+"/riferimenti").json()["riferimenti"]
@@ -116,6 +140,20 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
     with admin:
         aid=_approved(admin)
         path="/api/bandi/26-02/co-veneto/approvazioni/"+str(aid)
+        before_weight=admin.get(path).json()
+        before_job=before_weight["incarichi"][0]
+        saved_without_calculation=admin.put(
+            path+"/incarichi/"+str(before_job["incarico_id"]),
+            headers={"X-RankUp-Request":"1"},json={"dati":dict(before_job["work"])})
+        assert saved_without_calculation.status_code==200,saved_without_calculation.text
+        with server.connect() as db:
+            bando_id=db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()["id"]
+            db.execute("""UPDATE incarichi SET peso_copertura='0.5',sede='VERONA',ssd='MED/45'
+                          WHERE bando_id=?""",(bando_id,))
+            db.execute("""INSERT OR REPLACE INTO ssd_classificazioni
+                          (ssd,tipo,riferimento,aggiornato_il)
+                          VALUES('MED/45','professionalizzante','RIFERIMENTO SINTETICO SSD','2026-11-19T08:00:00Z')""")
+            db.commit()
         view=admin.get(path).json()
         assert view["attiva"] is True
         approvals=admin.get("/api/bandi/26-02/graduatorie/approvazioni").json()["approvazioni"]
@@ -129,13 +167,29 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         assert job["cds"] in job["work"]["note"]
         assert job["insegnamento"] in job["work"]["note"]
         assert job["work"]["livello_istruzione"]=="70"
+        assert job["work"]["retribuzione"]=="300.00"
+        assert job["retribuzione_calcolo"]["formula"]=="0,5 × 12 ore × 50,00 €/ora = 300,00 €"
+        assert job["retribuzione_calcolo"]["manuale"] is False
+        assert view["parametri_economici_confermati"] is False
         early=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert early.status_code==409
         config=_fake_config()
+        cfg_pending=admin.put("/api/admin/co-veneto/config",headers={"X-RankUp-Request":"1"},
+                              json={"dati":config,"conferma_parametri_economici":False})
+        assert cfg_pending.status_code==200,cfg_pending.text
+        assert cfg_pending.json()["parametri_economici_confermati"] is False
+        blocked_unconfirmed=_post(admin,path+"/genera",json={
+            "incarichi_ids":[job["incarico_id"]]})
+        assert blocked_unconfirmed.status_code==409
+        assert "Confermare i parametri economici" in blocked_unconfirmed.text
         cfg=admin.put("/api/admin/co-veneto/config",headers={"X-RankUp-Request":"1"},
-                      json={"dati":config})
+                      json={"dati":config,"conferma_parametri_economici":True})
         assert cfg.status_code==200,cfg.text
         assert cfg.json()["mancanti"]==[]
+        assert cfg.json()["parametri_economici_confermati"] is True
+        config_view=admin.get("/api/admin/co-veneto/config").json()
+        assert config_view["parametri_economici_confermati"] is True
+        assert config_view["storico_parametri_economici"]
         with server.connect() as db:
             row=db.execute("SELECT source_json FROM candidature WHERE id=?",
                            (job["candidatura_id"],)).fetchone()
@@ -146,6 +200,20 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
             db.commit()
         view=admin.get(path).json()
         job=next(j for j in view["incarichi"] if j["incarico_id"]==job["incarico_id"])
+        created_early=_post(admin,"/api/utenti",json={
+            "username":"operatore-co-early","password":"PasswordFittiziaTest2026!"})
+        assert created_early.status_code==200,created_early.text
+        with TestClient(server.app) as early_user:
+            login_early=_post(early_user,"/api/auth/login",json={
+                "username":"operatore-co-early","password":"PasswordFittiziaTest2026!"})
+            assert login_early.status_code==200,login_early.text
+            _complete_operator_onboarding(early_user,"operatore-co-early","PasswordFittiziaTest2026!")
+            altered=dict(job["work"])
+            altered["retribuzione"]="999"
+            blocked_override=early_user.put(
+                path+"/incarichi/"+str(job["incarico_id"]),
+                headers={"X-RankUp-Request":"1"},json={"dati":altered})
+            assert blocked_override.status_code==403,blocked_override.text
         work=dict(job["work"])
         work.update({
             "retribuzione":"1234",
@@ -153,8 +221,22 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
             "livello_istruzione":"70", "cittadinanza_codice":"000", "sesso":"F"
         })
         saved=admin.put(path+"/incarichi/"+str(job["incarico_id"]),
-                        headers={"X-RankUp-Request":"1"},json={"dati":work})
+                        headers={"X-RankUp-Request":"1"},
+                        json={"dati":work,"motivazione":"Rettifica sintetica documentata per collaudo"})
         assert saved.status_code==200,saved.text
+        after_save=admin.get(path).json()
+        updated_job=next(j for j in after_save["incarichi"] if j["incarico_id"]==job["incarico_id"])
+        assert updated_job["work"]["retribuzione"]=="1234"
+        assert updated_job["retribuzione_calcolo"]["manuale"] is True
+        assert updated_job["retribuzione_calcolo"]["motivazione"]=="Rettifica sintetica documentata per collaudo"
+        with server.connect() as db:
+            event=db.execute("""
+                SELECT dettagli_json,autore FROM co_veneto_eventi
+                WHERE evento='rettifica_retribuzione' AND incarico_id=?
+                ORDER BY id DESC LIMIT 1
+            """,(job["incarico_id"],)).fetchone()
+            assert event is not None and event["autore"]
+            assert json.loads(event["dettagli_json"])["motivazione"]=="Rettifica sintetica documentata per collaudo"
         generated=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert generated.status_code==200,generated.text
         approvals=admin.get("/api/bandi/26-02/graduatorie/approvazioni").json()["approvazioni"]
