@@ -20,6 +20,8 @@ EXTRA_PICA_FIELDS = {
     "codice_partizione": ["codice partizione studenti"],
     "partizione_studenti": ["partizione studenti"],
     "peso_copertura": ["peso copertura"],
+    # CFU: distinto sia dal peso della copertura sia dalle ore; solo intestazioni esplicite.
+    "cfu": ["cfu", "numero cfu", "crediti formativi universitari"],
     "ore": ["ore"],
     "stato_coperture": ["stato coperture"],
 }
@@ -29,7 +31,7 @@ EXTRA_DB_FIELDS = (
     "anno_corso", "tipo_corso", "tipo_cds", "ciclo",
     "inizio_pica", "fine_pica", "inizio_iso", "fine_iso",
     "codice_partizione", "partizione_studenti",
-    "peso_copertura", "ore", "stato_coperture",
+    "peso_copertura", "cfu", "ore", "stato_coperture",
 )
 
 
