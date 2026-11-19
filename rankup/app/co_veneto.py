@@ -151,6 +151,10 @@ def create_schema(db):
     if "parametri_economici_confermati" not in config_columns:
         db.execute("ALTER TABLE co_veneto_config ADD COLUMN "
                    "parametri_economici_confermati INTEGER NOT NULL DEFAULT 0")
+        # Gli XML creati prima del calcolo automatico non devono restare verdi:
+        # richiedono conferma dei nuovi parametri e una nuova generazione Admin.
+        db.execute("UPDATE co_veneto_config SET aggiornato_il=? WHERE id=1",
+                   (timestamp(),))
 
 
 def fail(message, status=400):
