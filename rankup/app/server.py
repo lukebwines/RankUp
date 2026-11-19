@@ -49,6 +49,7 @@ from title_date_check import check_three_years
 from pdf_import import (
     evaluate_pdf, MAX_PDF_BYTES, MAX_BATCH_BYTES, MAX_BATCH_FILES,
     classify_esito, ESITI_IDONEI, ESITI_NON_IDONEI, ESITI_ESCLUSI,
+    visible_rankup_ids,
 )
 from commissioni import MAX_COMMISSION_FILE, parse_commissioni, make_commission_template
 from commission_match import commission_index, resolve_commission, course_key, seat_key
@@ -5063,6 +5064,16 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
             pdf_fields=PdfReader(BytesIO(pdf_bytes),strict=False).get_fields() or {}
         except Exception:
             pdf_fields={}  # PDF appiattito: rimane la verifica documentale umana.
+        if not pdf_fields:
+            # Nessuna valutazione automaticamente ricostruita: il codice testuale
+            # deve corrispondere ESATTAMENTE alla candidatura scelta dall'Admin.
+            ids = visible_rankup_ids(pdf_bytes)
+            expected = ("RU-" + code + "-" + candidate["id_pica"] +
+                        "-" + candidate["key"][:10])
+            if len(ids) != 1 or ids[0] != expected:
+                fail("Scheda appiattita: RANKUP-ID visibile assente, ambiguo "
+                     "o non corrispondente alla candidatura PICA selezionata. "
+                     "Acquisizione bloccata, conservare il PDF e verificare la documentazione.",409)
         if pdf_fields:
             raw_status=str((pdf_fields.get("STATUS") or {}).get("/V") or "").strip()
             raw_note=str((pdf_fields.get("NOTE-COMM") or {}).get("/V") or "").strip()
