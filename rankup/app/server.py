@@ -485,6 +485,27 @@ def initialize() -> None:
             autore TEXT NOT NULL,
             quando TEXT NOT NULL
         );
+        -- Le proposte degli operatori non modificano le valutazioni convalidate.
+        CREATE TABLE IF NOT EXISTS valutazioni_pdf_proposte (
+            id INTEGER PRIMARY KEY,
+            bando_id INTEGER NOT NULL REFERENCES bandi(id) ON DELETE CASCADE,
+            valutazione_pdf_id INTEGER NOT NULL REFERENCES valutazioni_pdf(id) ON DELETE CASCADE,
+            candidatura_id INTEGER NOT NULL REFERENCES candidature(id),
+            esito TEXT NOT NULL,
+            punteggio REAL,
+            nota_commissione TEXT NOT NULL DEFAULT '',
+            motivazione_tecnica TEXT NOT NULL,
+            stato TEXT NOT NULL CHECK(stato IN ('in_attesa','approvata','respinta')),
+            proposta_da TEXT NOT NULL,
+            proposta_il TEXT NOT NULL,
+            decisa_da TEXT,
+            decisa_il TEXT,
+            motivo_rifiuto TEXT NOT NULL DEFAULT ''
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_val_proposta_attesa
+          ON valutazioni_pdf_proposte(valutazione_pdf_id) WHERE stato='in_attesa';
+        CREATE INDEX IF NOT EXISTS ix_val_proposte_bando
+          ON valutazioni_pdf_proposte(bando_id,valutazione_pdf_id,id);
         CREATE INDEX IF NOT EXISTS ix_val_eventi
           ON valutazioni_pdf_eventi(bando_id,valutazione_pdf_id);
         CREATE INDEX IF NOT EXISTS ix_val_bando ON valutazioni_pdf(bando_id,candidatura_id);
