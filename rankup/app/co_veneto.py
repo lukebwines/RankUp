@@ -568,9 +568,12 @@ def _assignments(db, code, bando_id, approval, personal_data, config=None):
                 continue
             inc = db.execute("""
                 SELECT i.id,i.key,i.inizio_iso,i.peso_copertura,i.sede,i.ssd,
-                       CASE WHEN UPPER(TRIM(i.ssd))='NN'
-                            THEN COALESCE(nn.modello,'ordinario')
-                            ELSE COALESCE(cl.tipo,'ordinario') END AS tipo_ssd
+                       CASE
+                         WHEN UPPER(TRIM(COALESCE(i.ssd,''))) IN ('','ND','N-D','NON-INDICATO')
+                           THEN NULL
+                         WHEN UPPER(TRIM(i.ssd))='NN' THEN COALESCE(nn.modello,'ordinario')
+                         ELSE COALESCE(cl.tipo,'ordinario')
+                       END AS tipo_ssd
                 FROM incarichi i
                 LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
                 LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
@@ -858,6 +861,11 @@ def register_routes(app, connect, require_authenticated, require_admin,
                 fail("La rettifica della retribuzione è riservata all'Admin", 403)
             if is_admin:
                 if same_as_calculated:
+                    manual_override, reason = False, ""
+                elif (not old_calculation.get("ok") and not _clean(new_amount)
+                      and not _clean(old_amount) and not old_manual):
+                    # Un incarico non calcolabile può comunque salvare gli altri
+                    # dati; resterà bloccato in generazione finché il dato non è risolto.
                     manual_override, reason = False, ""
                 elif old_manual and same_as_old:
                     manual_override, reason = True, old_reason
