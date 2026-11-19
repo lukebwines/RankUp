@@ -720,10 +720,22 @@ def register_routes(app, connect, require_authenticated, require_admin,
     def config_get(request: Request):
         require_admin(request)
         with connect() as db:
-            row = db.execute("SELECT aggiornato_il,autore FROM co_veneto_config WHERE id=1").fetchone()
-            return {"dati": cfg_values(db), "mancanti": missing_config(cfg_values(db)),
-                    "aggiornato_il": row["aggiornato_il"] if row else None,
-                    "autore": row["autore"] if row else None}
+            row = db.execute("""
+                SELECT aggiornato_il,autore,parametri_economici_confermati
+                FROM co_veneto_config WHERE id=1
+            """).fetchone()
+            values = cfg_values(db)
+            history = db.execute("""
+                SELECT prima_json,dopo_json,confermata,autore,quando
+                FROM co_veneto_config_eventi ORDER BY id DESC LIMIT 10
+            """).fetchall()
+            return {
+                "dati": values, "mancanti": missing_config(values),
+                "aggiornato_il": row["aggiornato_il"] if row else None,
+                "autore": row["autore"] if row else None,
+                "parametri_economici_confermati": economic_config_confirmed(db),
+                "storico_parametri_economici": [dict(item) for item in history],
+            }
 
     @app.put("/api/admin/co-veneto/config")
     def config_put(body: ConfigBody, request: Request):
@@ -731,19 +743,55 @@ def register_routes(app, connect, require_authenticated, require_admin,
         if set(body.dati) != set(CONFIG_FIELDS):
             fail("Configurazione incompleta o contiene campi non previsti")
         values = {k: _clean(v) for k, v in body.dati.items()}
+        for key in (*ECONOMIC_HOUR_FIELDS, *ECONOMIC_RATE_FIELDS):
+            values[key] = values[key].replace(",", ".")
         if any(len(v) > 250 for v in values.values()):
             fail("Campo della configurazione troppo lungo")
         for field in ("legale_data_nascita",):
             if values[field] and not iso_date(values[field]):
                 fail("Data di nascita del rappresentante non riconosciuta")
+        invalid_economic = sorted(
+            key for key in missing_config(values)
+            if key in ECONOMIC_HOUR_FIELDS or key in ECONOMIC_RATE_FIELDS
+        )
+        if body.conferma_parametri_economici and invalid_economic:
+            fail("Non è possibile confermare parametri economici non validi: " +
+                 ", ".join(invalid_economic), 400)
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            before_row = db.execute("""
+                SELECT dati_json,parametri_economici_confermati
+                FROM co_veneto_config WHERE id=1
+            """).fetchone()
+            before_values = cfg_values(db)
+            before_confirmed = economic_config_confirmed(db)
+            before_economic = {key: before_values[key]
+                               for key in (*ECONOMIC_HOUR_FIELDS,*ECONOMIC_RATE_FIELDS)}
+            after_economic = {key: values[key]
+                              for key in (*ECONOMIC_HOUR_FIELDS,*ECONOMIC_RATE_FIELDS)}
+            now = timestamp()
+            actor = request_actor()
             db.execute("""INSERT INTO co_veneto_config
-                (id,dati_json,aggiornato_il,autore) VALUES(1,?,?,?)
+                (id,dati_json,aggiornato_il,autore,parametri_economici_confermati)
+                VALUES(1,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET dati_json=excluded.dati_json,
-                aggiornato_il=excluded.aggiornato_il,autore=excluded.autore""",
-                (json.dumps(values, ensure_ascii=False), timestamp(), request_actor()))
+                aggiornato_il=excluded.aggiornato_il,autore=excluded.autore,
+                parametri_economici_confermati=excluded.parametri_economici_confermati""",
+                (json.dumps(values, ensure_ascii=False), now, actor,
+                 1 if body.conferma_parametri_economici else 0))
+            if (before_economic != after_economic
+                    or before_confirmed != body.conferma_parametri_economici):
+                db.execute("""INSERT INTO co_veneto_config_eventi
+                    (prima_json,dopo_json,confermata,autore,quando)
+                    VALUES(?,?,?,?,?)""",
+                    (json.dumps(before_economic, ensure_ascii=False),
+                     json.dumps(after_economic, ensure_ascii=False),
+                     1 if body.conferma_parametri_economici else 0, actor, now))
             db.commit()
-        return {"ok": True, "mancanti": missing_config(values)}
+        return {
+            "ok": True, "mancanti": missing_config(values),
+            "parametri_economici_confermati": body.conferma_parametri_economici,
+        }
 
     @app.get("/api/bandi/{code}/co-veneto/approvazioni/{approval_id}")
     def approval_get(code: str, approval_id: int, request: Request):
@@ -751,16 +799,21 @@ def register_routes(app, connect, require_authenticated, require_admin,
         code = valid_code(code)
         with connect() as db:
             bando_id, approval, active = _approval(db, code, approval_id, valid_code)
-            jobs = _assignments(db, code, bando_id, approval, personal_data)
             config = cfg_values(db)
+            jobs = _assignments(db, code, bando_id, approval, personal_data, config)
             lotti = db.execute("""SELECT id,nome_file,sha256,autore,creato_il
                 FROM co_veneto_lotti WHERE approvazione_id=? ORDER BY id DESC""",
                 (approval_id,)).fetchall()
         for job in jobs:
             job.pop("_source", None)
+        confirmed = economic_config_confirmed(db)
+        missing = missing_config(config)
+        if not confirmed:
+            missing.append("parametri economici da confermare in Amministrazione CO Veneto")
         return {"approvazione_id": approval_id, "attiva": active,
                 "anno_accademico": approval["anno"], "incarichi": jobs,
-                "configurazione_mancante": missing_config(config),
+                "parametri_economici_confermati": confirmed,
+                "configurazione_mancante": missing,
                 "lotti": [dict(lotto) for lotto in lotti],
                 "tipo_contratto": "B.03.00 - Collaborazione coordinata e continuativa",
                 "avvertenza": "La generazione non equivale all'invio: verificare lo ZIP in CO Veneto."}
@@ -781,12 +834,59 @@ def register_routes(app, connect, require_authenticated, require_admin,
             bando_id, approval, active = _approval(db, code, approval_id, valid_code)
             if not active:
                 fail("La procedura non ha più atti approvati attivi", 409)
-            jobs = _assignments(db, code, bando_id, approval, personal_data)
+            config = cfg_values(db)
+            jobs = _assignments(db, code, bando_id, approval, personal_data, config)
             job = next((j for j in jobs if j["incarico_id"] == job_id), None)
             if not job:
                 fail("Vincitore non presente nell'approvazione", 404)
             if job["ultimo_file"] and principal["role"] != "admin":
                 fail("File già generato: la modifica è riservata all'Admin", 403)
+
+            old_calculation = job["retribuzione_calcolo"]
+            old_amount = job["work"].get("retribuzione", "")
+            new_amount = values.get("retribuzione", "")
+            same_as_old = (_same_amount(new_amount, old_amount)
+                           or (not _clean(new_amount) and not _clean(old_amount)))
+            calculated_amount = (old_calculation.get("importo", "")
+                                 if old_calculation.get("ok") else "")
+            same_as_calculated = _same_amount(new_amount, calculated_amount)
+            is_admin = principal["role"] == "admin"
+            old_manual = bool(old_calculation.get("manuale"))
+            old_reason = _clean(old_calculation.get("motivazione"))
+
+            if not is_admin and not same_as_old:
+                fail("La rettifica della retribuzione è riservata all'Admin", 403)
+            if is_admin:
+                if same_as_calculated:
+                    manual_override, reason = False, ""
+                elif old_manual and same_as_old:
+                    manual_override, reason = True, old_reason
+                else:
+                    if not _has_valid_compenso(new_amount):
+                        fail("La retribuzione manuale deve essere un importo positivo valido", 400)
+                    reason = body.motivazione.strip()
+                    if len(reason) < 10:
+                        fail("Motivazione obbligatoria (almeno 10 caratteri) per rettificare la retribuzione", 400)
+                    manual_override = True
+            else:
+                manual_override, reason = old_manual, old_reason
+
+            saved_row = db.execute("""
+                SELECT dati_json FROM co_veneto_pratiche
+                WHERE approvazione_id=? AND incarico_id=?
+            """, (approval_id, job_id)).fetchone()
+            old_saved = json.loads(saved_row["dati_json"]) if saved_row else {}
+            stored = dict(values)
+            stored["_retribuzione_override"] = manual_override
+            stored["_retribuzione_motivazione"] = reason
+            stored["_retribuzione_calcolata"] = calculated_amount
+            stored["_retribuzione_autore"] = (
+                request_actor() if manual_override and
+                (not old_manual or not same_as_old) else
+                _clean(old_saved.get("_retribuzione_autore"))
+            )
+            stored["_retribuzione_aggiornata_il"] = timestamp()
+            actor = request_actor()
             db.execute("""INSERT INTO co_veneto_pratiche
                 (bando_id,approvazione_id,incarico_id,candidatura_id,dati_json,autore,aggiornato_il)
                 VALUES(?,?,?,?,?,?,?)
@@ -794,9 +894,24 @@ def register_routes(app, connect, require_authenticated, require_admin,
                 candidatura_id=excluded.candidatura_id,dati_json=excluded.dati_json,
                 autore=excluded.autore,aggiornato_il=excluded.aggiornato_il""",
                 (bando_id, approval_id, job_id, job["candidatura_id"],
-                 json.dumps(values, ensure_ascii=False), request_actor(), timestamp()))
+                 json.dumps(stored, ensure_ascii=False), actor, timestamp()))
+            if (manual_override != old_manual or
+                    (manual_override and not same_as_old)):
+                _event(db, bando_id, approval_id, job_id,
+                       "rettifica_retribuzione" if manual_override else
+                       "ripristino_retribuzione_automatica",
+                       {"importo_precedente": old_amount,
+                        "importo_nuovo": new_amount,
+                        "importo_calcolato": calculated_amount,
+                        "formula": old_calculation.get("formula", ""),
+                        "peso_copertura": old_calculation.get("peso_copertura", ""),
+                        "sede_pica": old_calculation.get("sede", ""),
+                        "tipo_ssd": old_calculation.get("tipo_ssd", ""),
+                        "ore": old_calculation.get("ore"),
+                        "tariffa": old_calculation.get("tariffa", ""),
+                        "motivazione": reason}, actor)
             _event(db, bando_id, approval_id, job_id, "dati_contrattuali",
-                   {"campi": sorted(values)}, request_actor())
+                   {"campi": sorted(values)}, actor)
             db.commit()
         return {"ok": True}
 
@@ -816,8 +931,10 @@ def register_routes(app, connect, require_authenticated, require_admin,
             if missing_config(config):
                 fail("Completare Amministrazione → CO Veneto: " +
                      ", ".join(missing_config(config)), 409)
+            if not economic_config_confirmed(db):
+                fail("Confermare i parametri economici in Amministrazione → CO Veneto prima di generare gli XML", 409)
             jobs = {x["incarico_id"]: x for x in
-                    _assignments(db, code, bando_id, approval, personal_data)}
+                    _assignments(db, code, bando_id, approval, personal_data, config)}
             if any(job_id not in jobs for job_id in ids):
                 fail("Uno o più incarichi non appartengono all'approvazione", 409)
             selected = [jobs[job_id] for job_id in ids]
