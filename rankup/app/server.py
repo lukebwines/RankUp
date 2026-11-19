@@ -2192,6 +2192,14 @@ def aggiorna_segnalazione(code: str, segnalazione_id: int, body: AggiornaSegnala
         row = _segnalazione(db, bando["id"], segnalazione_id)
         if row["autore"]==SYSTEM_ALERT_ACTOR:
             require_admin(request)
+            if (body.stato=="risolta" and
+                    row["titolo"].startswith("[ATTENZIONE] Recupero PDF #") and
+                    db.execute("""SELECT 1 FROM valutazioni_pdf_proposte
+                                  WHERE bando_id=? AND stato='in_attesa'
+                                    AND id=?""",
+                               (bando["id"],int(row["titolo"].rsplit("#",1)[-1])
+                                if row["titolo"].rsplit("#",1)[-1].isdigit() else -1)).fetchone()):
+                fail("La segnalazione si chiude soltanto con approvazione o rifiuto della proposta",409)
         if row["revisione"] != body.revisione:
             fail("La segnalazione è stata aggiornata. Ricarica prima di salvare.", 409)
         db.execute("""
@@ -5383,7 +5391,8 @@ def download_valutazione_pdf(code: str, pdf_id: int):
         fail("Originale PDF non disponibile",404)
     filename=_safe_filename(Path(row["nome_originale"]).stem,80)+".pdf"
     return FileResponse(file,media_type="application/pdf",
-                        filename=filename,headers={"Cache-Control":"no-store"})
+                        filename=filename,content_disposition_type="inline",
+                        headers={"Cache-Control":"no-store"})
 
 
 @app.get("/api/bandi/{code}/valutazioni")
