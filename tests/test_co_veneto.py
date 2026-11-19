@@ -168,11 +168,22 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         early=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert early.status_code==409
         config=_fake_config()
+        cfg_pending=admin.put("/api/admin/co-veneto/config",headers={"X-RankUp-Request":"1"},
+                              json={"dati":config,"conferma_parametri_economici":False})
+        assert cfg_pending.status_code==200,cfg_pending.text
+        assert cfg_pending.json()["parametri_economici_confermati"] is False
+        blocked_unconfirmed=_post(admin,path+"/genera",json={
+            "incarichi_ids":[job["incarico_id"]]})
+        assert blocked_unconfirmed.status_code==409
+        assert "Confermare i parametri economici" in blocked_unconfirmed.text
         cfg=admin.put("/api/admin/co-veneto/config",headers={"X-RankUp-Request":"1"},
                       json={"dati":config,"conferma_parametri_economici":True})
         assert cfg.status_code==200,cfg.text
         assert cfg.json()["mancanti"]==[]
         assert cfg.json()["parametri_economici_confermati"] is True
+        config_view=admin.get("/api/admin/co-veneto/config").json()
+        assert config_view["parametri_economici_confermati"] is True
+        assert config_view["storico_parametri_economici"]
         with server.connect() as db:
             row=db.execute("SELECT source_json FROM candidature WHERE id=?",
                            (job["candidatura_id"],)).fetchone()
@@ -183,6 +194,20 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
             db.commit()
         view=admin.get(path).json()
         job=next(j for j in view["incarichi"] if j["incarico_id"]==job["incarico_id"])
+        created_early=_post(admin,"/api/utenti",json={
+            "username":"operatore-co-early","password":"PasswordFittiziaTest2026!"})
+        assert created_early.status_code==200,created_early.text
+        with TestClient(server.app) as early_user:
+            login_early=_post(early_user,"/api/auth/login",json={
+                "username":"operatore-co-early","password":"PasswordFittiziaTest2026!"})
+            assert login_early.status_code==200,login_early.text
+            _complete_operator_onboarding(early_user,"operatore-co-early","PasswordFittiziaTest2026!")
+            altered=dict(job["work"])
+            altered["retribuzione"]="999"
+            blocked_override=early_user.put(
+                path+"/incarichi/"+str(job["incarico_id"]),
+                headers={"X-RankUp-Request":"1"},json={"dati":altered})
+            assert blocked_override.status_code==403,blocked_override.text
         work=dict(job["work"])
         work.update({
             "retribuzione":"1234",
