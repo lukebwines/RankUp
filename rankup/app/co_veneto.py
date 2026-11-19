@@ -527,6 +527,7 @@ class ConfigBody(BaseModel):
 
 class WorkBody(BaseModel):
     dati: dict[str, str]
+    motivazione: str = Field(default="", max_length=1000)
 
 
 class GenerateBody(BaseModel):
@@ -554,9 +555,10 @@ def _approval(db, code, approval_id, valid_code):
     return b["id"], a, active
 
 
-def _assignments(db, code, bando_id, approval, personal_data):
+def _assignments(db, code, bando_id, approval, personal_data, config=None):
     payload = json.loads(approval["dati_json"])
     personal = personal_data(db, bando_id, code, payload)
+    config = config or cfg_values(db)
     year_end = academic_end(approval["anno"])
     result = []
     for scope in payload.get("selezioni", []):
@@ -564,8 +566,16 @@ def _assignments(db, code, bando_id, approval, personal_data):
             winner_id = job.get("vincitore_id")
             if winner_id is None:
                 continue
-            inc = db.execute("SELECT id,key,inizio_iso FROM incarichi WHERE id=? AND bando_id=?",
-                             (job["id"], bando_id)).fetchone()
+            inc = db.execute("""
+                SELECT i.id,i.key,i.inizio_iso,i.peso_copertura,i.sede,i.ssd,
+                       CASE WHEN UPPER(TRIM(i.ssd))='NN'
+                            THEN COALESCE(nn.modello,'ordinario')
+                            ELSE COALESCE(cl.tipo,'ordinario') END AS tipo_ssd
+                FROM incarichi i
+                LEFT JOIN ssd_classificazioni cl ON cl.ssd=UPPER(TRIM(i.ssd))
+                LEFT JOIN incarichi_modelli_scheda nn ON nn.incarico_id=i.id
+                WHERE i.id=? AND i.bando_id=?
+            """, (job["id"], bando_id)).fetchone()
             person = db.execute("""
                 SELECT id,incarico_id,id_pica,nome,cognome,codice_fiscale,stato
                 FROM candidature WHERE id=? AND bando_id=?
@@ -585,6 +595,22 @@ def _assignments(db, code, bando_id, approval, personal_data):
             if saved and saved["candidatura_id"] == winner_id:
                 overrides = json.loads(saved["dati_json"])
             work = work_values(raw, overrides)
+            calculation = calculate_retribuzione(
+                inc["peso_copertura"], inc["sede"], inc["tipo_ssd"], config
+            )
+            legacy_manual = ("_retribuzione_override" not in overrides
+                             and bool(_clean(overrides.get("retribuzione"))))
+            manual_override = bool(overrides.get("_retribuzione_override")) or legacy_manual
+            if manual_override:
+                work["retribuzione"] = _clean(overrides.get("retribuzione"))
+            else:
+                work["retribuzione"] = calculation["importo"] if calculation["ok"] else ""
+            calculation["manuale"] = manual_override
+            calculation["motivazione"] = _clean(
+                overrides.get("_retribuzione_motivazione")
+            ) or ("Valore manuale preesistente; motivazione non registrata"
+                  if legacy_manual else "")
+            calculation["importo_applicato"] = work["retribuzione"]
             # Per i record creati prima della funzione Note, il testo viene
             # derivato senza modificare gli originali PICA/atti esistenti.
             if "note" not in overrides:
@@ -594,6 +620,8 @@ def _assignments(db, code, bando_id, approval, personal_data):
                 warnings.append("note operative da verificare")
             elif len(work["note"]) > 1000:
                 warnings.append("note operative oltre 1000 caratteri")
+            if not calculation["ok"] and not manual_override:
+                warnings.append("calcolo retribuzione: " + calculation["problema"])
             latest = db.execute("""
                 SELECT id,revisione,nome_file,autore,creato_il FROM co_veneto_xml
                 WHERE approvazione_id=? AND incarico_id=?
@@ -612,6 +640,7 @@ def _assignments(db, code, bando_id, approval, personal_data):
                     "cap": raw.get("residenza_cap", "")
                 },
                 "work": work,
+                "retribuzione_calcolo": calculation,
                 "mancanti": warnings,
                 "ultimo_file": dict(latest) if latest else None,
                 "_source": raw,
