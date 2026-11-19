@@ -168,7 +168,7 @@ def reset_with_backup(db_path:Path,sources:Path,pending:Path,backups:Path,
                 "tabelle":counts_before,
                 "database_sha256":hashlib.sha256(temp_db.read_bytes()).hexdigest(),
                 "include":"SQLite, registro tecnico se presente, originali PICA/PDF e file temporanei",
-                "preservati_dopo_reset":"opzioni, account, SSD, commissioni e archivi finali ZIP conservati nel percorso dedicato",
+                "preservati_dopo_reset":"opzioni, account, SSD, commissioni, configurazione CO Veneto e storico parametri economici; archivi finali ZIP conservati nel percorso dedicato",
             },ensure_ascii=False,indent=2))
         with ZipFile(temp_zip) as archive:
             if archive.testzip() is not None:
