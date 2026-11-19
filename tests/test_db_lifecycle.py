@@ -91,14 +91,14 @@ def test_server_migration_and_watchdog(tmp_path, monkeypatch):
     server.initialize()
     assert not (tmp_path / "schema_backups").exists()
 
-    # Simula un'installazione reale rimasta allo schema v17: la v18 deve
+    # Simula un'installazione reale rimasta allo schema v18: la v19 deve
     # creare la colonna e la tabella economica senza perdere la configurazione.
     with server.connect() as db:
         db.execute("""INSERT INTO co_veneto_config
             (id,dati_json,aggiornato_il,autore) VALUES(1,'{}','2026-11-19','admin_test')""")
         db.execute("DROP TABLE co_veneto_config_eventi")
         db.execute("ALTER TABLE co_veneto_config DROP COLUMN parametri_economici_confermati")
-        db.execute("PRAGMA user_version = 17")
+        db.execute("PRAGMA user_version = 18")
         db.commit()
 
     server.initialize()
@@ -108,11 +108,11 @@ def test_server_migration_and_watchdog(tmp_path, monkeypatch):
         assert db.execute("""SELECT 1 FROM sqlite_master
             WHERE type='table' AND name='co_veneto_config_eventi'""").fetchone()
         assert db.execute("SELECT autore FROM co_veneto_config WHERE id=1").fetchone()["autore"]=="admin_test"
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 19
     backups = list((tmp_path / "schema_backups").glob("*.sqlite3"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as previous:
-        assert previous.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert previous.execute("PRAGMA user_version").fetchone()[0] == 18
 
     raw = server.connect()
     with raw as db:
