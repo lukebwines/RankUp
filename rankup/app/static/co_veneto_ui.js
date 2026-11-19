@@ -139,6 +139,10 @@ window.createCoVenetoUI=function(ctx){
         '<p class="caption">Campi da completare prima di generare: '+
         esc((response.mancanti||[]).join(", ")||"nessuno")+'.</p>'+
         (history?'<div class="card"><h3 class="section-heading">Storico parametri economici</h3>'+history+'</div>':''));
+      var confirmEconomic=document.getElementById("co-confirm-economic");
+      document.querySelectorAll('[data-co-field^="ore_"],[data-co-field^="tariffa_"]').forEach(function(input){
+        input.addEventListener("input",function(){confirmEconomic.checked=false;});
+      });
       document.getElementById("co-admin-form").onsubmit=async function(event){
         event.preventDefault();
         var button=this.querySelector("button[type=submit]");
