@@ -119,7 +119,7 @@ def test_english_cfu_admin_confirmation_with_documentary_reference(tmp_path, mon
         job_id = original["incarico_id"]
         with server.connect() as db:
             bando_id = db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()["id"]
-            db.execute("""UPDATE incarichi SET ssd='NN',cfu='',peso_copertura=''
+            db.execute("""UPDATE incarichi SET ssd='NN',cfu='',peso_copertura='',sede='VERONA'
                           WHERE id=?""", (job_id,))
             db.execute("""INSERT INTO incarichi_modelli_scheda
                 (incarico_id,bando_id,modello,riferimento,autore,aggiornato_il)
