@@ -67,8 +67,9 @@ window.createCoVenetoUI=function(ctx){
       (locked?' readonly':'')+' style="display:block;width:100%;margin-top:5px"></label>';
   }
   function numberInputFor(key,label,value,step){
+    var minimum=step==="1"?"1":"0.01";
     return '<label style="display:block;min-width:0"><span class="caption">'+esc(label)+'</span>'+
-      '<input type="number" min="0.01" step="'+esc(step)+'" data-co-field="'+esc(key)+
+      '<input type="number" min="'+minimum+'" step="'+esc(step)+'" data-co-field="'+esc(key)+
       '" value="'+esc(value||"")+'" required style="display:block;width:100%;margin-top:5px"></label>';
   }
   function collect(container){
