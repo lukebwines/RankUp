@@ -435,6 +435,7 @@
       function showLogin(message){
         state.role=null;
         state.username="";
+        state.ticketCountsByCode={};
         var notificationCount=$("segnalazioni-counter");
         if(notificationCount)notificationCount.hidden=true;
         $("account-info").textContent="Accesso protetto";
@@ -759,6 +760,18 @@
         state.cmFilter="tutte";state.cmSearch="";
         syncAcademicSelection();updateHeader();render();
       }
+      function mostraPendentiNelSelettore(){
+        var select=$("band-select"),counts=state.ticketCountsByCode||{};
+        if(!select)return;
+        Array.from(select.options).forEach(function(option){
+          if(!option.value)return;
+          var b=state.bandi.find(function(item){return item.codice===option.value;});
+          if(!b)return;
+          var count=Number(counts[b.codice]||0);
+          option.textContent=b.codice+(b.stato==="Archiviato"?" (archiviato)":"")+
+            (count>0?" · "+count+" in sospeso":"");
+        });
+      }
       async function refreshSegnalazioniCounter(){
         if(!state.role)return;
         var role=state.role;
@@ -768,6 +781,9 @@
         try{
           var counts=await api("segnalazioni/contatori");
           if(state.role!==role)return;
+          state.ticketCountsByCode=Object.fromEntries(
+            (counts.per_bando||[]).map(function(item){return [item.codice,Number(item.totale)||0];}));
+          mostraPendentiNelSelettore();
           var totale=Math.max(0,Number(counts.totale)||0);
           var critiche=role==="admin"?Math.max(0,Number(counts.critiche)||0):0;
           counter.hidden=totale===0;
@@ -817,6 +833,7 @@
           sel.appendChild(op);
         });
         sel.value=state.active||"";
+        mostraPendentiNelSelettore();
         $("add-academic-year").textContent="+ Seleziona un nuovo A.A.";
         $("add-academic-year").style.display=state.role==="admin"?"block":"none";
       }
