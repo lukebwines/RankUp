@@ -5008,6 +5008,11 @@ class ValutazioneManuale(BaseModel):
 @app.post("/api/bandi/{code}/valutazioni/{pdf_id}/manuale")
 def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManuale,
                                  request: Request):
+    return _acquisisci_valutazione_manuale(code,pdf_id,body,request)
+
+
+def _acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManuale,
+                                    request: Request, proposal_id: int | None = None):
     """Promuove una scheda 'Da verificare' solo per un amministratore.
 
     L'autorizzazione è verificata nel server sulla sessione autenticata:
@@ -5146,6 +5151,15 @@ def acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManua
                        ensure_ascii=False),
             json.dumps(current,ensure_ascii=False),request_actor(),now
         ))
+        if proposal_id is not None:
+            approved=db.execute("""
+                UPDATE valutazioni_pdf_proposte
+                SET stato='approvata',decisa_da=?,decisa_il=?
+                WHERE id=? AND bando_id=? AND valutazione_pdf_id=?
+                  AND stato='in_attesa' AND proposta_da<>?
+            """,(request_actor(),now,proposal_id,b["id"],pdf_id,request_actor()))
+            if approved.rowcount!=1:
+                fail("Proposta non più approvabile oppure predisposta dallo stesso Admin",409)
         db.commit()
     return {
         "ok":True,"valutazione_id":pdf_id,"versione":version,
