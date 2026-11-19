@@ -1532,6 +1532,14 @@
               ((approved && state.role==="admin")
                 ? '<span class="caption">Per riaprire il CdS, regredisci prima l’approvazione generale.</span>':'')+
               '</div>'+
+              (state.role==="admin"&&!final&&!approved&&g.riapertura_attiva
+                ? '<div class="notice"><strong>Graduatoria riaperta</strong> · '+
+                  'Se una correzione tecnica cambia punteggi, idoneità, posizioni o vincitori, '+
+                  'è obbligatorio registrare il riferimento alla decisione della Commissione '+
+                  'prima della nuova finalizzazione. '+
+                  '<button type="button" class="btn secondary" data-rettifica-doc="'+i+
+                  '">Registra documento della Commissione</button></div>'
+                : '')+
               ((g.revisioni||[]).length
                 ? '<div class="caption">Versioni precedenti: '+
                   g.revisioni.map(function(rev){return '<a data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
@@ -1691,15 +1699,57 @@
               picker.click();
             };
           });
+          document.querySelectorAll("[data-rettifica-doc]").forEach(function(btn){
+            btn.onclick=async function(){
+              var g=shown[Number(btn.dataset.rettificaDoc)];
+              if(!g||!g.riapertura_attiva)return;
+              var reason=prompt("Motivazione riportata dalla Commissione, secondo il verbale:");
+              if(reason===null)return;
+              var reference=prompt("Riferimento verificato del verbale o documento della Commissione:");
+              if(reference===null)return;
+              if(reason.trim().length<10||reference.trim().length<5||
+                 reason.toUpperCase().includes("[DA VERIFICARE]")||
+                 reference.toUpperCase().includes("[DA VERIFICARE]")){
+                note("Servono motivazione e riferimento ufficiale verificato.",true);return;
+              }
+              if(!confirm("Hai verificato che il riferimento documenta la rettifica di merito "+
+                 "del CdS "+g.cds+" / "+g.sede+"?"))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+
+                  "/verbali/graduatorie/rettifica-documentata",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({
+                    revisione_id:g.riapertura_attiva,motivazione:reason.trim(),
+                    riferimento:reference.trim()})});
+                note("Riferimento della Commissione registrato nello storico amministrativo.",false);
+                renderVerbaliGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
           document.querySelectorAll("[data-verb-regress]").forEach(function(btn){
             btn.onclick=async function(){
               var g=shown[Number(btn.dataset.verbRegress)];
               if(!g)return;
+              var tipo=prompt("Tipo di riapertura: scrivi TECNICA per errore materiale "+
+                "oppure SOSTANZIALE per modifica di punteggi, giudizi, idoneità, "+
+                "posizioni o vincitore.","TECNICA");
+              if(tipo===null)return;
+              tipo=tipo.trim().toLowerCase();
+              if(tipo!=="tecnica"&&tipo!=="sostanziale"){
+                note("Seleziona TECNICA oppure SOSTANZIALE.",true);return;
+              }
               var reason=prompt("Motivazione della riapertura del verbale CdS "+g.cds+" / "+g.sede+" (obbligatoria):");
               if(reason===null)return;
               if(reason.trim().length<10){note("Motivazione obbligatoria: almeno 10 caratteri.",true);return;}
-              var reference=prompt("Riferimento documentale (facoltativo se il verbale non è stato approvato):","");
+              var reference=prompt(tipo==="sostanziale"
+                ? "Riferimento verificato del documento della Commissione (obbligatorio):"
+                : "Riferimento documentale (facoltativo per correzioni puramente tecniche):","");
               if(reference===null)return;
+              if(tipo==="sostanziale"&&reference.trim().length<5){
+                note("La modifica di merito richiede un documento della Commissione.",true);
+                return;
+              }
               if(!confirm("Regredire la graduatoria CdS da definitiva a lavorabile? "+
                 "Verrà conservata una copia storica del verbale unico con schede."))return;
               btn.disabled=true;
@@ -1707,7 +1757,7 @@
                 await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/regredisci-stato",{
                   method:"POST",headers:{"Content-Type":"application/json"},
                   body:JSON.stringify({cds:g.cds,sede:g.sede,motivazione:reason.trim(),
-                    riferimento:reference.trim()})});
+                    riferimento:reference.trim(),tipo:tipo})});
                 note("Verbale riaperto; versione precedente archiviata e scaricabile.",false);
                 renderVerbaliGraduatorie();
               }catch(err){note(err.message,true);btn.disabled=false;}
