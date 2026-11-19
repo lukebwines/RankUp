@@ -5002,8 +5002,9 @@
             ["CANDIDATO NON AMMISSIBILE - REQUISITI GENERALI NON SODDISFATTI","Non ammissibile — requisiti generali non soddisfatti"],
             ["CANDIDATO NON IDONEO - VALUTAZIONE NEGATIVA DELLA COMMISSIONE","Non idoneo — valutazione negativa della Commissione"]
           ];
-          holder.innerHTML='<div class="card mb"><h3 class="section-heading">Acquisizione manuale · Documento '+esc(record.id)+'</h3>'+
-            '<p class="notice">Trascrivi solo quanto risulta dal PDF della commissione, verificando personalmente l’identità. Il PDF originale è conservato, l’operazione è registrata e le rettifiche mantengono la versione precedente.</p>'+
+          var pdfPreviewUrl='api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+encodeURIComponent(record.id)+'/documento';
+          holder.innerHTML='<div class="card mb"><h3 class="section-heading">Recupero assistito · Documento '+esc(record.id)+'</h3>'+
+            '<p class="notice">Confronta il PDF originale con i campi da trascrivere. L’identità, il totale, l’esito e le note devono risultare dal documento della Commissione. Il PDF resta immutato e ogni recupero è tracciato.</p>'+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:18px;align-items:start">'+            '<div style="min-width:0"><h4>PDF originale · sola lettura</h4>'+            '<iframe title="Anteprima del PDF originale della Commissione" src="'+pdfPreviewUrl+'" style="display:block;width:100%;height:min(72vh,850px);min-height:420px;border:1px solid #b9c8d8;border-radius:10px;background:#fff"></iframe>'+            '<p class="caption">Se il browser non visualizza il PDF, usa «Apri PDF originale» qui sotto. Non modificare il documento.</p></div>'+            '<div style="min-width:0"><h4>Trascrizione verificata dall’Admin</h4>'+
             '<label for="eval-man-candidate">Candidatura PICA (obbligatoria)</label>'+
             '<select id="eval-man-candidate" style="display:block;width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Seleziona candidatura</option>'+
             candidates.map(function(c){return '<option value="'+esc(c.id)+'"'+(c.id===record.candidatura_id?' selected':'')+'>'+
@@ -5021,7 +5022,7 @@
             '<label style="display:block;margin:10px 0"><input type="checkbox" id="eval-man-revise"> Confermo l’eventuale rettifica di una valutazione già acquisita, conservando lo storico.</label>'+
             '<div class="actions"><button class="btn" type="button" id="eval-man-save">Conferma acquisizione manuale</button>'+
             '<button class="btn secondary" type="button" id="eval-man-cancel">Annulla</button>'+
-            '<a class="btn secondary" href="api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+encodeURIComponent(record.id)+'/documento" style="text-decoration:none">Apri PDF originale</a></div></div>';
+            '<a class="btn secondary" target="_blank" rel="noopener" href="'+pdfPreviewUrl+'" style="text-decoration:none">Apri PDF originale</a></div></div></div>';
           var select=$("eval-man-status");
           function statusMode(){
             var negative=/NON IDONEO|NON AMMISSIBILE|NON VALUTABILE|MANCANTE|NON PERTINENTE/.test(select.value);
