@@ -43,15 +43,16 @@ def test_existing_database_backup_before_version_update(tmp_path):
     with sqlite3.connect(path) as db:
         db.execute("CREATE TABLE storico (dato TEXT)")
         db.execute("INSERT INTO storico VALUES ('immutato')")
+        db.execute("PRAGMA user_version = 17")
     with sqlite3.connect(path, factory=AutoClosingConnection) as db:
-        assert current_schema_version(db) == 0
+        assert current_schema_version(db) == 17
         assert prepare_schema_upgrade(db, path)
         record_schema_version(db, SCHEMA_VERSION)
     backups = list((tmp_path / "schema_backups").glob("*.sqlite3"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as previous:
         assert previous.execute("SELECT dato FROM storico").fetchone()[0] == "immutato"
-        assert previous.execute("PRAGMA user_version").fetchone()[0] == 0
+        assert previous.execute("PRAGMA user_version").fetchone()[0] == 17
     with sqlite3.connect(path, factory=AutoClosingConnection) as db:
         assert current_schema_version(db) == SCHEMA_VERSION
         assert not prepare_schema_upgrade(db, path)
@@ -89,6 +90,30 @@ def test_server_migration_and_watchdog(tmp_path, monkeypatch):
     assert server.health()["schema_version"] == SCHEMA_VERSION
     server.initialize()
     assert not (tmp_path / "schema_backups").exists()
+
+    # Simula un'installazione reale rimasta allo schema v17: la v18 deve
+    # creare la colonna e la tabella economica senza perdere la configurazione.
+    with server.connect() as db:
+        db.execute("""INSERT INTO co_veneto_config
+            (id,dati_json,aggiornato_il,autore) VALUES(1,'{}','2026-11-19','admin_test')""")
+        db.execute("DROP TABLE co_veneto_config_eventi")
+        db.execute("ALTER TABLE co_veneto_config DROP COLUMN parametri_economici_confermati")
+        db.execute("PRAGMA user_version = 17")
+        db.commit()
+
+    server.initialize()
+    with server.connect() as db:
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(co_veneto_config)")}
+        assert "parametri_economici_confermati" in columns
+        assert db.execute("""SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='co_veneto_config_eventi'""").fetchone()
+        assert db.execute("SELECT autore FROM co_veneto_config WHERE id=1").fetchone()["autore"]=="admin_test"
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 18
+    backups = list((tmp_path / "schema_backups").glob("*.sqlite3"))
+    assert len(backups) == 1
+    with sqlite3.connect(backups[0]) as previous:
+        assert previous.execute("PRAGMA user_version").fetchone()[0] == 17
+
     raw = server.connect()
     with raw as db:
         db.execute("SELECT 1")
