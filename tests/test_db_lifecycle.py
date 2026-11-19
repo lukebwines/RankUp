@@ -156,3 +156,27 @@ def test_v18_to_v19_keeps_config_and_requires_new_english_confirmation(tmp_path,
     with sqlite3.connect(backups[0]) as previous:
         assert previous.execute("PRAGMA user_version").fetchone()[0] == 18
         assert previous.execute("SELECT parametri_economici_confermati FROM co_veneto_config WHERE id=1").fetchone()[0] == 1
+
+
+def test_v19_to_v20_adds_pending_proposals_without_losing_data(tmp_path,monkeypatch):
+    """Aggiornamento reale: nessuna perdita del bando o delle candidature."""
+    from test_pdf_import import _setup
+    server,client,_=_setup(tmp_path,monkeypatch)
+    with client:
+        with server.connect() as db:
+            previous=db.execute("SELECT COUNT(*) FROM candidature").fetchone()[0]
+            assert previous>0
+            db.execute("DROP TABLE valutazioni_pdf_proposte")
+            db.execute("PRAGMA user_version = 19")
+            db.commit()
+        server.initialize()
+        with server.connect() as db:
+            assert db.execute("PRAGMA user_version").fetchone()[0]==SCHEMA_VERSION
+            assert db.execute("SELECT COUNT(*) FROM candidature").fetchone()[0]==previous
+            assert db.execute("""SELECT 1 FROM sqlite_master
+                WHERE name='valutazioni_pdf_proposte' AND type='table'""").fetchone()
+        backups=list((tmp_path/"schema_backups").glob("*.sqlite3"))
+        assert len(backups)==1
+        with sqlite3.connect(backups[0]) as backup:
+            assert backup.execute("PRAGMA user_version").fetchone()[0]==19
+            assert backup.execute("SELECT COUNT(*) FROM candidature").fetchone()[0]==previous
