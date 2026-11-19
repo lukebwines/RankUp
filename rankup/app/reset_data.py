@@ -69,7 +69,7 @@ BUSINESS_TABLES = (
     "pica_tipo_cds_dizionario",
 )
 OPTIONAL_LEGACY_TABLES = frozenset({"ai_occupazione_lavori", "valutazioni_occupazione_ai"})
-PRESERVED_TABLES = ("rankup_admin_auth", "rankup_politiche_sicurezza", "rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "commissioni_catalogo_eventi", "commissioni_catalogo_rettifiche", "bandi_archivi", "co_veneto_config")
+PRESERVED_TABLES = ("rankup_admin_auth", "rankup_politiche_sicurezza", "rankup_utenti", "rankup_utenti_eventi", "ssd_classificazioni", "commissioni_catalogo", "commissioni_catalogo_eventi", "commissioni_catalogo_rettifiche", "bandi_archivi", "co_veneto_config", "co_veneto_config_eventi")
 RESET_CONFIRMATION = "AZZERA TUTTI I DATI RANKUP"
 
 
@@ -104,7 +104,7 @@ def preview(db, sources:Path, pending:Path):
         "originali":sum(1 for folder in (sources,pending)
                         if folder.exists() for p in folder.rglob("*") if p.is_file()),
         "conferma_richiesta":RESET_CONFIRMATION,
-        "preservati":"Credenziali e account, classificazioni SSD, anagrafica commissioni e archivi ZIP finali, configurazione Home Assistant",
+        "preservati":"Credenziali e account, classificazioni SSD, anagrafica commissioni, archivi ZIP finali e configurazione CO Veneto con storico parametri economici",
         "classificazioni_ssd_conservate":db.execute("SELECT COUNT(*) FROM ssd_classificazioni").fetchone()[0],
         "commissioni_conservate":db.execute("SELECT COUNT(*) FROM commissioni_catalogo").fetchone()[0],
         "zip_finali_conservati":db.execute("SELECT COUNT(*) FROM bandi_archivi").fetchone()[0],
