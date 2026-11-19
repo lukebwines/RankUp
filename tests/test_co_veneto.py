@@ -101,6 +101,54 @@ def test_calculate_retribuzione_uses_weight_ssd_and_pica_seat():
     assert not calculate_retribuzione("0,5", "PADOVA", "ordinario", config)["ok"]
     assert not calculate_retribuzione("", "VERONA", "ordinario", config)["ok"]
     assert not calculate_retribuzione("0,5", "VERONA", "inglese", config)["ok"]
+    # Inglese usa CFU espliciti anche quando Peso Copertura manca.
+    english = calculate_retribuzione("", "VICENZA", "inglese", config, cfu="2")
+    assert english["ok"] and english["importo"] == "1920.00"
+    assert english["formula"] == "2 CFU × 15 ore × 64,00 €/ora = 1920,00 €"
+    assert not calculate_retribuzione("2", "VERONA", "inglese", config, cfu="0")["ok"]
+    changed = dict(config, ore_inglese="16")
+    assert calculate_retribuzione("", "VERONA", "inglese", changed, cfu="1")["importo"] == "800.00"
+
+
+def test_english_cfu_admin_confirmation_with_documentary_reference(tmp_path, monkeypatch):
+    server, admin, _ = _setup(tmp_path, monkeypatch)
+    with admin:
+        approval_id = _approved(admin)
+        url = "/api/bandi/26-02/co-veneto/approvazioni/" + str(approval_id)
+        original = admin.get(url).json()["incarichi"][0]
+        job_id = original["incarico_id"]
+        with server.connect() as db:
+            bando_id = db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()["id"]
+            db.execute("""UPDATE incarichi SET ssd='NN',cfu='',peso_copertura=''
+                          WHERE id=?""", (job_id,))
+            db.execute("""INSERT INTO incarichi_modelli_scheda
+                (incarico_id,bando_id,modello,riferimento,autore,aggiornato_il)
+                VALUES(?,?,?,?,?,?)""",
+                (job_id,bando_id,"inglese","RIFERIMENTO SINTETICO DI COLLAUDO",
+                 "admin_test","2026-11-19T12:00:00+01:00"))
+            db.commit()
+        before = admin.get(url).json()["incarichi"][0]
+        assert before["retribuzione_calcolo"]["tipo_ssd"] == "inglese"
+        assert not before["retribuzione_calcolo"]["ok"]
+        assert "CFU Inglese" in before["retribuzione_calcolo"]["problema"]
+        endpoint = url + "/incarichi/" + str(job_id) + "/cfu-inglese"
+        incomplete = admin.put(endpoint,headers={"X-RankUp-Request":"1"},
+                               json={"cfu":"2","riferimento":"ND"})
+        assert incomplete.status_code == 422
+        confirmed = admin.put(endpoint,headers={"X-RankUp-Request":"1"},
+                              json={"cfu":"2","riferimento":"ATTO SINTETICO DI COLLAUDO"})
+        assert confirmed.status_code == 200, confirmed.text
+        after = admin.get(url).json()["incarichi"][0]
+        assert after["retribuzione_calcolo"]["ok"]
+        assert after["retribuzione_calcolo"]["cfu_fonte"].startswith("Admin")
+        assert after["retribuzione_calcolo"]["formula"] == "2 CFU × 15 ore × 50,00 €/ora = 1500,00 €"
+        assert after["work"]["retribuzione"] == "1500.00"
+        with server.connect() as db:
+            audit = db.execute("""SELECT dettagli_json FROM co_veneto_eventi
+                WHERE approvazione_id=? AND incarico_id=? AND evento='cfu_inglese_confermati'
+                ORDER BY id DESC LIMIT 1""", (approval_id,job_id)).fetchone()
+            assert audit is not None
+            assert json.loads(audit["dettagli_json"])["riferimento"] == "ATTO SINTETICO DI COLLAUDO"
 
 
 def _approved(client):
