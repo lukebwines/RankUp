@@ -6,13 +6,14 @@ preesistente, identificativo protocollato o anagrafica esemplificativa è inclus
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from xml.etree import ElementTree as ET
 import hashlib
 import json
 import re
+import unicodedata
 import zipfile
 
 from fastapi import HTTPException, Request
@@ -38,11 +39,20 @@ CONFIG_FIELDS = (
     "settore_ateco", "cls_settore", "pubblica_amministrazione",
     "email_delegato", "ente_previdenziale", "pat_inail",
     "qualifica_professionale", "ccnl", "livello_inquadramento", "tipo_orario",
+    "ore_ordinario", "ore_professionalizzante",
+    "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
+    "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
 )
 CONFIG_DEFAULTS = {
     "legale_soggiornante": "SI", "pubblica_amministrazione": "SI",
     "ente_previdenziale": "01", "ccnl": "ND",
     "livello_inquadramento": "ND", "tipo_orario": "N",
+    # Valori proposti dall'Ateneo: la generazione resta bloccata finché Admin
+    # non li conferma esplicitamente in Amministrazione > CO Veneto.
+    "ore_ordinario": "10", "ore_professionalizzante": "12",
+    "tariffa_verona": "50", "tariffa_legnago": "64",
+    "tariffa_vicenza": "64", "tariffa_trento": "85",
+    "tariffa_rovereto": "85", "tariffa_bolzano": "100",
 }
 CONFIG_REQUIRED = (
     "codice_fiscale", "denominazione", "legale_cognome", "legale_nome",
@@ -54,6 +64,9 @@ CONFIG_REQUIRED = (
     "pubblica_amministrazione", "email_delegato", "ente_previdenziale",
     "pat_inail", "qualifica_professionale", "ccnl",
     "livello_inquadramento", "tipo_orario",
+    "ore_ordinario", "ore_professionalizzante",
+    "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
+    "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
 )
 CONTRACT_FIELDS = (
     "retribuzione", "domicilio_indirizzo", "domicilio_citta",
@@ -123,7 +136,21 @@ def create_schema(db):
             autore TEXT NOT NULL,
             quando TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS co_veneto_config_eventi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prima_json TEXT NOT NULL,
+            dopo_json TEXT NOT NULL,
+            confermata INTEGER NOT NULL,
+            autore TEXT NOT NULL,
+            quando TEXT NOT NULL
+        );
     """)
+    config_columns = {row["name"] for row in db.execute(
+        "PRAGMA table_info(co_veneto_config)"
+    )}
+    if "parametri_economici_confermati" not in config_columns:
+        db.execute("ALTER TABLE co_veneto_config ADD COLUMN "
+                   "parametri_economici_confermati INTEGER NOT NULL DEFAULT 0")
 
 
 def fail(message, status=400):
@@ -146,6 +173,103 @@ def cfg_values(db):
     return {k: values.get(k, "") for k in CONFIG_FIELDS}
 
 
+ECONOMIC_HOUR_FIELDS = ("ore_ordinario", "ore_professionalizzante")
+ECONOMIC_RATE_FIELDS = (
+    "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
+    "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
+)
+SEAT_TARIFF_FIELDS = {
+    "VERONA": "tariffa_verona",
+    "LEGNAGO": "tariffa_legnago",
+    "VICENZA": "tariffa_vicenza",
+    "TRENTO": "tariffa_trento",
+    "ROVERETO": "tariffa_rovereto",
+    "BOLZANO": "tariffa_bolzano",
+}
+
+
+def _positive_decimal(raw):
+    try:
+        value = Decimal(str(raw or "").strip().replace(",", "."))
+        return value if value.is_finite() and value > 0 else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _italian_decimal(value, places=None):
+    if places is not None:
+        value = value.quantize(Decimal("1").scaleb(-places), rounding=ROUND_HALF_UP)
+        return format(value, f".{places}f").replace(".", ",")
+    text = format(value.normalize(), "f")
+    return text.replace(".", ",")
+
+
+def _seat_key(raw):
+    value = unicodedata.normalize("NFKD", _clean(raw))
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = re.sub(r"[().,;]", " ", value.upper())
+    value = " ".join(value.split())
+    # Accetta la denominazione PICA con provincia finale, ad es. VERONA (VR).
+    value = re.sub(r"\\s+[A-Z]{2}$", "", value)
+    return value
+
+
+def calculate_retribuzione(peso_copertura, sede, tipo_ssd, config):
+    """Calcolo deterministico; non deduce la sede o la categoria in caso di dati anomali."""
+    weight = _positive_decimal(peso_copertura)
+    if weight is None:
+        return {"ok": False, "problema": "Peso Copertura PICA mancante o non valido"}
+    seat = _seat_key(sede)
+    tariff_field = SEAT_TARIFF_FIELDS.get(seat)
+    if not tariff_field:
+        return {"ok": False, "problema": "Sede PICA non riconosciuta per la tariffa: " + _clean(sede)}
+    model = _clean(tipo_ssd).lower()
+    if model == "professionalizzante":
+        hours_field = "ore_professionalizzante"
+    elif model == "ordinario":
+        hours_field = "ore_ordinario"
+    else:
+        return {"ok": False, "problema":
+                "Classificazione SSD non utilizzabile per il calcolo delle ore: " +
+                (_clean(tipo_ssd) or "[DA VERIFICARE]")}
+    try:
+        hours_value = Decimal(str(config.get(hours_field, "")).strip().replace(",", "."))
+        if not hours_value.is_finite() or hours_value <= 0 or hours_value != hours_value.to_integral_value():
+            raise ValueError
+        hours = int(hours_value)
+    except (InvalidOperation, ValueError):
+        return {"ok": False, "problema": "Ore di riferimento non valide in Amministrazione CO Veneto"}
+    rate = _positive_decimal(config.get(tariff_field))
+    if rate is None or rate.as_tuple().exponent < -2:
+        return {"ok": False, "problema": "Tariffa oraria non valida in Amministrazione CO Veneto"}
+    amount = (weight * Decimal(hours) * rate).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    return {
+        "ok": True, "problema": "", "peso_copertura": _clean(peso_copertura),
+        "sede": _clean(sede), "tipo_ssd": model, "ore": hours,
+        "tariffa": format(rate.quantize(Decimal("0.01")), ".2f"),
+        "importo": format(amount, ".2f"),
+        "formula": (_italian_decimal(weight) + " × " + str(hours) +
+                    " ore × " + _italian_decimal(rate, 2) + " €/ora = " +
+                    _italian_decimal(amount, 2) + " €"),
+        "manuale": False, "motivazione": "", "importo_applicato": format(amount, ".2f"),
+    }
+
+
+def _same_amount(left, right):
+    a = _positive_decimal(left)
+    b = _positive_decimal(right)
+    return a is not None and b is not None and a == b
+
+
+def economic_config_confirmed(db):
+    row = db.execute(
+        "SELECT parametri_economici_confermati FROM co_veneto_config WHERE id=1"
+    ).fetchone()
+    return bool(row and row["parametri_economici_confermati"])
+
+
 def missing_config(values):
     """Anche codifiche palesemente errate sono da verificare, non solo i vuoti."""
     problems = [key for key in CONFIG_REQUIRED
@@ -163,6 +287,16 @@ def missing_config(values):
         problems.append("codice_fiscale")
     for key in ("sede_legale_cap", "sede_lavoro_cap"):
         if values.get(key) and not re.fullmatch(r"[0-9]{5}", values[key]):
+            problems.append(key)
+    for key in ECONOMIC_HOUR_FIELDS:
+        raw = str(values.get(key) or "").strip()
+        if raw and not re.fullmatch(r"[0-9]+", raw):
+            problems.append(key)
+        elif raw and int(raw) <= 0:
+            problems.append(key)
+    for key in ECONOMIC_RATE_FIELDS:
+        rate = _positive_decimal(values.get(key))
+        if rate is None or rate.as_tuple().exponent < -2:
             problems.append(key)
     return sorted(set(problems))
 
@@ -247,7 +381,8 @@ def work_values(source, saved):
     automatic = {"domicilio_comune_codice", "nascita_comune_codice",
                  "cittadinanza_codice", "livello_istruzione"}
     values.update({key: _clean(saved.get(key)) for key in CONTRACT_FIELDS
-                   if key in saved and (key not in automatic or _clean(saved.get(key)))})
+                   if key != "retribuzione" and key in saved
+                   and (key not in automatic or _clean(saved.get(key)))})
     # Se il Comune di domicilio è stato cambiato manualmente rispetto a PICA,
     # non mantenere in automatico il codice del vecchio Comune.
     city_from_pica = _clean(source.get("residenza_citta"))
@@ -387,6 +522,7 @@ def make_xml(config, source, work, start, end, when=None):
 
 class ConfigBody(BaseModel):
     dati: dict[str, str]
+    conferma_parametri_economici: bool = False
 
 
 class WorkBody(BaseModel):
