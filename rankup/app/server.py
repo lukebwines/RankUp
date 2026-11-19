@@ -2065,6 +2065,37 @@ def _segnalazione(db, bando_id, segnalazione_id):
     return row
 
 
+@app.get("/api/segnalazioni/contatori")
+def contatori_segnalazioni(request: Request):
+    """Conta le segnalazioni non risolte in tutti i bandi non archiviati.
+
+    Restituisce soltanto conteggi: le segnalazioni automatiche sono riservate
+    all'Admin, come nella lista dettagliata. Nessun contenuto riservato esce
+    verso la vista degli operatori.
+    """
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal:
+        fail("Autenticazione richiesta",401)
+    admin=int(principal["role"]=="admin")
+    with connect() as db:
+        rows=db.execute("""
+            SELECT b.codice, COUNT(*) AS totale,
+                   SUM(CASE WHEN s.autore=?
+                         AND s.titolo LIKE '[CRITICO]%' THEN 1 ELSE 0 END) AS critiche
+            FROM segnalazioni s
+            JOIN bandi b ON b.id=s.bando_id
+            WHERE b.stato<>'Archiviato' AND s.stato IN ('aperta','in_carico')
+              AND (?=1 OR s.autore<>?)
+            GROUP BY b.id,b.codice
+            ORDER BY b.codice
+        """,(SYSTEM_ALERT_ACTOR,admin,SYSTEM_ALERT_ACTOR)).fetchall()
+    bandi=[{"codice":r["codice"],"totale":int(r["totale"]),
+            "critiche":int(r["critiche"] or 0)} for r in rows]
+    return {"totale":sum(r["totale"] for r in bandi),
+            "critiche":sum(r["critiche"] for r in bandi),
+            "per_bando":bandi}
+
+
 @app.get("/api/bandi/{code}/segnalazioni")
 def elenco_segnalazioni(code: str, request: Request):
     is_admin=AUTH.principal(request.cookies.get(COOKIE_NAME))["role"]=="admin"
