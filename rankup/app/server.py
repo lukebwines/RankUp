@@ -5255,6 +5255,8 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
             and item["stato"]=="Acquisita" and item["attiva"]==1)
         item["punteggio_rilevato"]=None
         item["manuale_possibile"]=False
+        item["rankup_id_visibile"]=""
+        item["rankup_id_verificato"]=False
         if item["stato"]=="Da verificare":
             filename=(BASE/original_path).resolve()
             if filename.is_relative_to(safe_dir) and filename.is_file() and filename.stat().st_size<=MAX_PDF_BYTES:
@@ -5262,6 +5264,14 @@ def stato_valutazioni(code: str,cds: str="",sede: str=""):
                     data=filename.read_bytes()
                     if hashlib.sha256(data).hexdigest()==stored_sha:
                         fields=PdfReader(BytesIO(data),strict=False).get_fields() or {}
+                        if not fields:
+                            visible_ids=visible_rankup_ids(data)
+                            if len(visible_ids)==1:
+                                item["rankup_id_visibile"]=visible_ids[0]
+                                matching=[c for c in candidates if
+                                    visible_ids[0] == ("RU-" + code + "-" + c["id_pica"] + "-" + c["key"][:10])]
+                                item["rankup_id_verificato"]=(len(matching)==1 and
+                                    item["candidatura_id"]==matching[0]["id"])
                         if fields:
                             selected=str((fields.get("STATUS") or {}).get("/V") or "").strip()
                             note=str((fields.get("NOTE-COMM") or {}).get("/V") or "").strip()
