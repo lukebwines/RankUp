@@ -156,6 +156,34 @@ def create_schema(db):
         # richiedono conferma dei nuovi parametri e una nuova generazione Admin.
         db.execute("UPDATE co_veneto_config SET aggiornato_il=? WHERE id=1",
                    (timestamp(),))
+    # Nuova regola per Inglese: richiede una conferma dei parametri aggiornata.
+    # I precedenti XML sono conservati; lo stato ZIP li segnala da rigenerare.
+    saved = db.execute("SELECT dati_json,parametri_economici_confermati "
+                       "FROM co_veneto_config WHERE id=1").fetchone()
+    if saved:
+        try:
+            previous = json.loads(saved["dati_json"])
+        except (ValueError, TypeError):
+            previous = {}
+        if "ore_inglese" not in previous:
+            current = dict(CONFIG_DEFAULTS)
+            current.update({key: value for key, value in previous.items()
+                            if key in CONFIG_FIELDS})
+            before = {key: str(previous.get(key, CONFIG_DEFAULTS.get(key, "")))
+                      for key in (*ECONOMIC_HOUR_FIELDS,*ECONOMIC_RATE_FIELDS)}
+            after = {key: str(current.get(key, "")) for key in before}
+            when = timestamp()
+            db.execute("""INSERT INTO co_veneto_config_eventi
+                (prima_json,dopo_json,confermata,autore,quando)
+                VALUES(?,?,?,?,?)""",
+                (json.dumps(before,ensure_ascii=False), json.dumps(after,ensure_ascii=False),
+                 0, "migrazione-applicativa", when))
+            current.update({key: previous.get(key, "") for key in CONFIG_FIELDS
+                            if key in previous})
+            db.execute("""UPDATE co_veneto_config SET dati_json=?,
+                parametri_economici_confermati=0,aggiornato_il=?,autore=?
+                WHERE id=1""", (json.dumps(current,ensure_ascii=False),
+                when, "migrazione-applicativa"))
 
 
 def fail(message, status=400):
