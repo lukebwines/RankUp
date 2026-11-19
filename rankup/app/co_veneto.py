@@ -181,9 +181,8 @@ def create_schema(db):
             current.update({key: previous.get(key, "") for key in CONFIG_FIELDS
                             if key in previous})
             db.execute("""UPDATE co_veneto_config SET dati_json=?,
-                parametri_economici_confermati=0,aggiornato_il=?,autore=?
-                WHERE id=1""", (json.dumps(current,ensure_ascii=False),
-                when, "migrazione-applicativa"))
+                parametri_economici_confermati=0,aggiornato_il=?
+                WHERE id=1""", (json.dumps(current,ensure_ascii=False), when))
 
 
 def fail(message, status=400):
