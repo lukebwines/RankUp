@@ -34,7 +34,7 @@ def test_scheda_gia_compilata_importabile_dopo_ripristino_pre_emissione(tmp_path
 
     # FASE 2: un ripristino antecedente all'emissione fa perdere
     # le tracce di generazione, ma ricostruisce lo stesso PICA originale.
-    server, client, _ = _setup(ripristinata, monkeypatch)
+    server, client, _ = _setup(ripristinata, monkeypatch, generate_sheets=False)
     with client:
         with server.connect() as db:
             assert db.execute("SELECT COUNT(*) FROM valutazioni_pdf").fetchone()[0] == 0
@@ -85,7 +85,7 @@ def test_pdf_con_identificativo_discordante_dopo_restore_non_e_associato(tmp_pat
             "STATUS": "CANDIDATO AMMESSO IN GRADUATORIA",
         })
 
-    server, client, _ = _setup(ripristinata, monkeypatch)
+    server, client, _ = _setup(ripristinata, monkeypatch, generate_sheets=False)
     with client:
         risultato = _preview(client, [("identificativo_non_valido.pdf", alterato)])
         assert risultato["riepilogo"]["da_verificare"] == 1, risultato
