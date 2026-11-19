@@ -85,6 +85,25 @@ def pica_fixture(with_degree_date=False):
          "20/10/2020" if with_degree_date else "", "SSD-A", "SSD-PERSONALE"] + extra_a,
     ])
 
+def test_cfu_pica_is_distinct_from_weight_and_hours():
+    source = load_workbook(BytesIO(pica_fixture()))
+    ws = source.active
+    cfucol = ws.max_column + 1
+    ws.cell(2, cfucol, "CFU")
+    ws.cell(3, cfucol, "2")
+    ws.cell(4, cfucol, "1")
+    ws.cell(5, cfucol, "2")
+    output = BytesIO()
+    source.save(output)
+    parsed = parse_pica("cfu_test.xlsx", output.getvalue())
+    assignment = parsed["rows"][0]["incarico"]
+    assert assignment["cfu"] == "2"
+    assert assignment["peso_copertura"] == "2"
+    assert assignment["ore"] == ""
+    assert parsed["rows"][1]["incarico"]["cfu"] == "1"
+    assert "cfu" in EXTRA_DB_FIELDS
+
+
 def commissioni_fixture():
     return make_excel([
         ["CORSO DI LAUREA", "SEDE", "PRESIDENTE", "COMPONENTI COMMISSIONE",

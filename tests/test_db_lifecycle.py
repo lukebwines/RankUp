@@ -108,7 +108,7 @@ def test_server_migration_and_watchdog(tmp_path, monkeypatch):
         assert db.execute("""SELECT 1 FROM sqlite_master
             WHERE type='table' AND name='co_veneto_config_eventi'""").fetchone()
         assert db.execute("SELECT autore FROM co_veneto_config WHERE id=1").fetchone()["autore"]=="admin_test"
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     backups = list((tmp_path / "schema_backups").glob("*.sqlite3"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as previous:
@@ -119,3 +119,40 @@ def test_server_migration_and_watchdog(tmp_path, monkeypatch):
         db.execute("SELECT 1")
     with pytest.raises(sqlite3.ProgrammingError):
         raw.execute("SELECT 1")
+
+
+def test_v18_to_v19_keeps_config_and_requires_new_english_confirmation(tmp_path, monkeypatch):
+    monkeypatch.setenv("RANKUP_DATA_DIR", str(tmp_path))
+    (tmp_path / "options.json").write_text(json.dumps({
+        "admin_username": "amministratore_test",
+        "admin_password": "PasswordFittiziaMoltoLunga123!"
+    }))
+    import server
+    server = importlib.reload(server)
+    with server.connect() as db:
+        db.execute("""INSERT INTO co_veneto_config
+            (id,dati_json,aggiornato_il,autore,parametri_economici_confermati)
+            VALUES(1,?,?,?,1)""",
+            (json.dumps({"ore_ordinario":"10","ore_professionalizzante":"12",
+                         "tariffa_verona":"50","denominazione":"ENTE SINTETICO"}),
+             "2026-11-18T10:00:00+01:00","admin_test"))
+        db.execute("ALTER TABLE incarichi DROP COLUMN cfu")
+        db.execute("PRAGMA user_version = 18")
+        db.commit()
+    server.initialize()
+    with server.connect() as db:
+        assert "cfu" in {r["name"] for r in db.execute("PRAGMA table_info(incarichi)")}
+        cfg = db.execute("""SELECT dati_json,parametri_economici_confermati,autore
+            FROM co_veneto_config WHERE id=1""").fetchone()
+        saved = json.loads(cfg["dati_json"])
+        assert saved["ore_inglese"] == "15"
+        assert saved["denominazione"] == "ENTE SINTETICO"
+        assert cfg["parametri_economici_confermati"] == 0
+        assert cfg["autore"] == "admin_test"
+        assert db.execute("SELECT COUNT(*) FROM co_veneto_config_eventi").fetchone()[0] == 1
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    backups = list((tmp_path / "schema_backups").glob("*.sqlite3"))
+    assert len(backups) == 1
+    with sqlite3.connect(backups[0]) as previous:
+        assert previous.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert previous.execute("SELECT parametri_economici_confermati FROM co_veneto_config WHERE id=1").fetchone()[0] == 1

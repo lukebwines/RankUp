@@ -39,7 +39,8 @@ window.createCoVenetoUI=function(ctx){
   var economicGroups=[
     ["Ore di riferimento",[
       ["ore_ordinario","SSD non professionalizzante · ore","1"],
-      ["ore_professionalizzante","SSD professionalizzante · ore","1"]
+      ["ore_professionalizzante","SSD professionalizzante · ore","1"],
+      ["ore_inglese","Inglese · ore per CFU","1"]
     ]],
     ["Tariffe orarie per sede PICA (€)",[
       ["tariffa_verona","Verona · €/ora","0.01"],
@@ -104,6 +105,7 @@ window.createCoVenetoUI=function(ctx){
       var economicLabels={
         ore_ordinario:"Ore non professionalizzanti",
         ore_professionalizzante:"Ore professionalizzanti",
+        ore_inglese:"Ore per CFU · Inglese",
         tariffa_verona:"Verona €/ora",tariffa_legnago:"Legnago €/ora",
         tariffa_vicenza:"Vicenza €/ora",tariffa_trento:"Trento €/ora",
         tariffa_rovereto:"Rovereto €/ora",tariffa_bolzano:"Bolzano €/ora"
@@ -125,8 +127,8 @@ window.createCoVenetoUI=function(ctx){
         'Inserire soltanto dati dell’Ateneo verificati; la tipologia B.03.00 resta fissa.</div>'+
         '<form id="co-admin-form">'+sections+
         '<section class="card mb"><h3 class="section-heading">Parametri economici per la retribuzione</h3>'+
-        '<p class="caption">Il calcolo utilizza il Peso Copertura e la Sede importati da PICA e la classificazione SSD già presente in RankUP. '+
-        'La classificazione non viene duplicata né modificata da questa sezione.</p>'+
+        '<p class="caption">Ordinario e professionalizzante: Peso Copertura × ore × tariffa sede. '+
+        'Inglese: CFU verificati × ore per CFU × tariffa della sede PICA. La classificazione SSD già presente non viene modificata.</p>'+
         economicSections+
         '<label style="display:flex;align-items:flex-start;gap:9px;margin-top:10px">'+
         '<input type="checkbox" id="co-confirm-economic" style="margin-top:3px"'+
@@ -186,6 +188,24 @@ window.createCoVenetoUI=function(ctx){
         esc(job.ultimo_file.revisione)+'</strong> · '+esc(job.ultimo_file.creato_il)+
         ' · '+esc(job.ultimo_file.autore)+' · <a href="api/'+url(code,approvalId)+
         '/xml/'+encodeURIComponent(job.ultimo_file.id)+'">Scarica XML conservato</a></p>';
+    }
+    if(calculation.tipo_ssd==="inglese"){
+      htmlParts+='<p class="caption"><strong>Inglese · CFU:</strong> '+
+        esc(calculation.cfu||"[DA VERIFICARE]")+
+        ' · Fonte: '+esc(calculation.cfu_fonte||"[DA VERIFICARE]")+
+        '. I CFU non sono ricavati dal Peso Copertura né dal campo Ore.</p>';
+      if(admin&&!locked){
+        htmlParts+='<div class="card" style="margin:12px 0">'+
+          '<strong>Conferma CFU Inglese · Solo Admin</strong>'+
+          '<p class="caption">Per dati mancanti o da rettificare, indicare CFU e riferimento ufficiale; la conferma è registrata nel registro operazioni.</p>'+
+          '<div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-top:8px">'+
+          '<label>CFU<input type="number" data-co-english-cfu min="0.001" step="any" value="'+
+          esc(calculation.cfu||"")+'" style="width:100%"></label>'+
+          '<label>Riferimento documentale<input type="text" data-co-english-ref maxlength="500" '+
+          'placeholder="Fonte verificata dei CFU" style="width:100%"></label></div>'+
+          '<button class="btn secondary" type="button" data-co-english-save="'+
+          esc(job.incarico_id)+'" style="margin-top:8px">Conferma CFU</button></div>';
+      }
     }
     if(calculation.ok){
       htmlParts+='<p class="caption">Calcolo automatico: <strong>'+
@@ -310,6 +330,24 @@ window.createCoVenetoUI=function(ctx){
             field.focus();field.select();
             note("Seleziona Copia (Ctrl+C) per copiare le Note evidenziate.",false);
           }
+        };
+      });
+      document.querySelectorAll("[data-co-english-save]").forEach(function(button){
+        button.onclick=async function(){
+          var card=button.closest("[data-co-card]");
+          var jobId=Number(button.dataset.coEnglishSave);
+          var value=card.querySelector("[data-co-english-cfu]").value.trim();
+          var reference=card.querySelector("[data-co-english-ref]").value.trim();
+          if(!value||!reference){note("Indicare CFU e fonte ufficiale verificata.",true);return;}
+          button.disabled=true;
+          try{
+            await api(url(code,approvalId)+"/incarichi/"+encodeURIComponent(jobId)+"/cfu-inglese",{
+              method:"PUT",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({cfu:value,riferimento:reference})
+            });
+            note("CFU Inglese confermati; retribuzione ricalcolata.",false);
+            renderApproval();
+          }catch(err){note(err.message,true);button.disabled=false;}
         };
       });
       document.querySelectorAll("[data-co-save]").forEach(function(button){
