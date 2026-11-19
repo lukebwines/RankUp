@@ -56,6 +56,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 import admin_credentials as admin_store
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
+from procedural_safety import rettifica_sostanziale, anomalie_approvazione
 from graduatoria_excel import render_graduatoria_excel
 from pdf_definitivo import verbale_definitivo
 from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf as acquisisci_verbale_seduta, source_digest as impronta_verbale_seduta, nome_verbale
@@ -5243,6 +5244,31 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria):
         if not result["verbale_generabile"]:
             fail("Impossibile rendere definitiva la graduatoria: "+
                  "; ".join(result["criticita"][:8]),409)
+        # Una riapertura tecnica non può diventare una modifica di merito
+        # senza il successivo riscontro documentato della Commissione.
+        riapertura=db.execute("""
+            SELECT r.revisione_id, v.dati_json, v.riferimento
+            FROM graduatorie_cds_riaperte r
+            JOIN graduatorie_cds_revisioni v ON v.id=r.revisione_id
+            JOIN graduatorie_cds g ON g.id=r.graduatoria_id
+            WHERE r.bando_id=? AND g.cds=? AND g.sede=?
+        """,(b["id"],body.cds,body.sede)).fetchone()
+        if (riapertura and rettifica_sostanziale(
+                json.loads(riapertura["dati_json"]),result)):
+            documentata=bool(str(riapertura["riferimento"] or "").strip())
+            if not documentata:
+                for evento in db.execute("""
+                    SELECT dettagli_json FROM graduatorie_eventi
+                    WHERE bando_id=? AND evento='Riferimento Commissione integrativo'
+                    ORDER BY id DESC
+                """,(b["id"],)):
+                    dettagli=json.loads(evento["dettagli_json"])
+                    if dettagli.get("revisione_id")==riapertura["revisione_id"]:
+                        documentata=True
+                        break
+            if not documentata:
+                fail("La riapertura ha modificato il merito: inserire prima il "
+                     "riferimento verificato del documento della Commissione",409)
         stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
         snapshot=json.dumps(result,ensure_ascii=False,sort_keys=True)
         digest=hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
@@ -5316,13 +5342,15 @@ def _motivo_regressione(body: RegredisciStato, riferimento_obbligatorio: bool = 
 class RegredisciGraduatoriaCdS(RegredisciStato):
     cds: str = Field(min_length=1,max_length=250)
     sede: str = Field(min_length=1,max_length=100)
+    tipo: Literal["tecnica", "sostanziale"] = "tecnica"
 
 
 @app.post("/api/bandi/{code}/verbali/graduatorie/regredisci-stato")
 def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Request):
     require_admin(request)
     code=valid_code(code)
-    motivo,riferimento=_motivo_regressione(body)
+    motivo,riferimento=_motivo_regressione(
+        body, riferimento_obbligatorio=(body.tipo=="sostanziale"))
     # Genera prima la copia archivistica completa (frontespizio e schede).
     # Nessun atto è sbloccato se gli originali non sono verificabili.
     with connect() as check:
@@ -5376,10 +5404,47 @@ def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Req
             VALUES(?,?,?,?,?,?,?)
         """,(b["id"],"cds",row["id"],"Regressione da definitiva a lavorabile",
              json.dumps({"revisione_id":revision.lastrowid,"hash_precedente":old_hash,
-                         "motivazione":motivo,"riferimento":riferimento},ensure_ascii=False),
+                         "motivazione":motivo,"riferimento":riferimento,
+                         "tipo":body.tipo},ensure_ascii=False),
              request_actor(),stamp))
         db.commit()
     return {"ok":True,"stato":"lavorabile","revisione_id":revision.lastrowid}
+
+
+class RiferimentoCommissioneIntegrativo(BaseModel):
+    revisione_id: int = Field(gt=0)
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/rettifica-documentata")
+def integra_documento_rettifica(code: str, body: RiferimentoCommissioneIntegrativo,
+                                request: Request):
+    """Associa un nuovo riscontro della Commissione senza riscrivere lo storico."""
+    require_admin(request)
+    code=valid_code(code)
+    motivo,ref=_motivo_regressione(body,riferimento_obbligatorio=True)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        linked=db.execute("""
+            SELECT r.graduatoria_id FROM graduatorie_cds_riaperte r
+            WHERE r.bando_id=? AND r.revisione_id=?
+        """,(b["id"],body.revisione_id)).fetchone()
+        if not linked:
+            fail("Riapertura non più attiva: documento non associabile",409)
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)""",
+            (b["id"],"cds",linked["graduatoria_id"],
+             "Riferimento Commissione integrativo",
+             json.dumps({"revisione_id":body.revisione_id,
+                         "riferimento":ref,"motivazione":motivo},ensure_ascii=False),
+             request_actor(),datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+        db.commit()
+    return {"ok":True,"revisione_id":body.revisione_id}
 
 
 @app.get("/api/bandi/{code}/verbali/graduatorie/revisioni/{revision_id}/pdf")
@@ -6219,11 +6284,27 @@ def registra_approvazione(code: str, approval_id: int, body: ConfermaApprovazion
             fail("Approvazione inesistente o gia registrata",409)
         snapshot=json.loads(approval["dati_json"])
         now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
-        for gid in snapshot["ids"]:
-            r=db.execute("""SELECT stato FROM graduatorie_cds WHERE id=? AND bando_id=?""",
-                         (gid,b["id"])).fetchone()
+        # Ricontrollo bloccante immediatamente prima dell'atto: oltre allo
+        # stato verifica snapshot, schede, parità e impronte dei PDF definitivi.
+        for indice,gid in enumerate(snapshot["ids"]):
+            r=db.execute("""
+                SELECT g.stato,g.cds,g.sede,g.dati_json,g.hash_dati,
+                       d.pdf_definitivo,d.sha256 AS hash_pdf
+                FROM graduatorie_cds g
+                LEFT JOIN graduatorie_cds_documenti d ON d.graduatoria_id=g.id
+                WHERE g.id=? AND g.bando_id=?
+            """,(gid,b["id"])).fetchone()
             if not r or r["stato"]!="definitiva":
                 fail("Una graduatoria non e piu disponibile: annullare la bozza",409)
+            if indice>=len(snapshot.get("selezioni",[])):
+                fail("Bozza di approvazione incompleta: annullarla",409)
+            attuale=_graduatoria_status(db,b["id"],r["cds"],r["sede"])
+            anomalie=anomalie_approvazione(
+                snapshot["selezioni"][indice],attuale,r["dati_json"],
+                r["hash_dati"],r["pdf_definitivo"],r["hash_pdf"])
+            if anomalie:
+                fail("Approvazione bloccata per "+r["cds"]+" / "+r["sede"]+
+                     ": "+"; ".join(anomalie[:5]),409)
         for gid in snapshot["ids"]:
             db.execute("""UPDATE graduatorie_cds SET stato='approvata',approvazione_id=?
                 WHERE id=? AND bando_id=?""",(approval_id,gid,b["id"]))
