@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.50">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.50-alerts">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -264,7 +264,7 @@
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
         <button data-page="candidature"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Candidature</button>
         <button data-page="verificaenteai" id="band-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Verifica requisito ente</button>
-        <button data-page="segnalazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Segnalazioni</button>
+        <button data-page="segnalazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Segnalazioni <span class="ru-nav-alert-count" id="segnalazioni-counter" aria-hidden="true" hidden></span></button>
         <button data-page="commissioni"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Commissioni</button>
         <button data-page="schede"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Schede PDF</button>
         <button data-page="valutazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Valutazioni</button>
@@ -435,6 +435,8 @@
       function showLogin(message){
         state.role=null;
         state.username="";
+        var notificationCount=$("segnalazioni-counter");
+        if(notificationCount)notificationCount.hidden=true;
         $("account-info").textContent="Accesso protetto";
         $("admin-users-link").style.display="none";
         $("admin-ssd-link").style.display="none";
@@ -756,6 +758,32 @@
         state.valTableQuery="";state.valTableFocusOnly=false;state.valJumpToGroup=false;
         state.cmFilter="tutte";state.cmSearch="";
         syncAcademicSelection();updateHeader();render();
+      }
+      async function refreshSegnalazioniCounter(){
+        if(!state.role)return;
+        var role=state.role;
+        var counter=$("segnalazioni-counter");
+        var nav=document.querySelector('#nav button[data-page="segnalazioni"]');
+        if(!counter||!nav)return;
+        try{
+          var counts=await api("segnalazioni/contatori");
+          if(state.role!==role)return;
+          var totale=Math.max(0,Number(counts.totale)||0);
+          var critiche=role==="admin"?Math.max(0,Number(counts.critiche)||0):0;
+          counter.hidden=totale===0;
+          counter.textContent=totale>99?"99+":String(totale);
+          counter.classList.toggle("ru-nav-alert-count--critical",critiche>0);
+          var descrizione="Segnalazioni: "+totale+" in sospeso"+
+            (critiche?"; "+critiche+" critiche":"")+
+            " nei bandi non archiviati";
+          nav.setAttribute("aria-label",descrizione);
+          nav.title=descrizione;
+        }catch(error){
+          // Non mostrare conteggi obsoleti come se fossero aggiornati.
+          counter.hidden=true;
+          nav.setAttribute("aria-label","Segnalazioni (conteggio non disponibile)");
+          nav.title="Impossibile aggiornare il contatore delle segnalazioni";
+        }
       }
       function updateHeader(){
         var selected=cur(),code=selected?selected.codice:"Tutti i bandi";
@@ -3428,7 +3456,16 @@
             return critico(a)-critico(b)||b.id-a.id;
           });
           var stamp=value=>new Date(value).toLocaleString("it-IT",{dateStyle:"short",timeStyle:"short"});
-          var controlli='<section class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(code)+'</h3>'+
+          var criticheAperte=data.segnalazioni.filter(function(ticket){
+            return ticket.origine==="sistema" && ticket.livello==="critico" &&
+              ticket.stato!=="risolta";
+          }).length;
+          var riepilogoCritico=criticheAperte?
+            '<p class="ru-ticket-critical-summary" role="status">'+
+            '<span aria-hidden="true">&#9888;</span> '+
+            criticheAperte+(criticheAperte===1?' segnalazione critica da gestire':
+              ' segnalazioni critiche da gestire')+'</p>':"";
+          var controlli='<section class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(code)+'</h3>'+riepilogoCritico+
             '<div class="actions ru-ticket-controls"><label>Ambito <select id="ticket-ambito">'+
             option("","Tutte le segnalazioni",ambito)+ambiti(ambito)+'</select></label>'+
             (data.is_admin?'<label>Origine <select id="ticket-origine">'+
@@ -3453,9 +3490,23 @@
               '<form data-ticket-reply="'+ticket.id+'" class="ru-ticket-form"><label>Risposta'+
               '<textarea name="testo" rows="2" required maxlength="4000"></textarea></label>'+
               '<div><button class="btn secondary" type="submit">Aggiungi risposta</button></div></form></details>';
-            return '<article class="card mb ru-ticket"><div class="actions ru-ticket-controls"><span class="ru-status-pill ru-ticket-status--'+esc(ticket.stato)+'">'+
+            var sistema=ticket.origine==="sistema";
+            var livello=sistema && ["critico","attenzione","informativo"].includes(ticket.livello)
+              ?ticket.livello:"";
+            var simbolo=livello==="critico"?"&#9888;":
+              livello==="attenzione"?"&#9888;":"&#9432;";
+            var indicatore=livello?'<strong class="ru-ticket-severity ru-ticket-severity--'+
+              esc(livello)+'"><span aria-hidden="true">'+simbolo+'</span> '+
+              esc(livello.toUpperCase())+'</strong>':"";
+            var titolo=sistema?ticket.titolo.replace(/^\[(?:CRITICO|ATTENZIONE|INFORMATIVO)\]\s*/,""):
+              ticket.titolo;
+            return '<article class="card mb ru-ticket'+
+              (livello?' ru-ticket--'+esc(livello):"")+
+              (ticket.stato==="risolta"?' ru-ticket--closed':"")+
+              '"><div class="actions ru-ticket-controls">'+indicatore+
+              '<span class="ru-status-pill ru-ticket-status--'+esc(ticket.stato)+'">'+
               esc(stati[ticket.stato])+'</span><span class="caption">'+esc(scope)+'</span></div>'+
-              '<h3 class="section-heading">'+esc(ticket.titolo)+'</h3><p class="caption">'+esc(ticket.autore)+
+              '<h3 class="section-heading">'+esc(titolo)+'</h3><p class="caption">'+esc(ticket.autore)+
               ' · '+esc(stamp(ticket.creata_il))+' · '+(ticket.assegnato_a?"Assegnata a "+esc(ticket.assegnato_a):"Da assegnare")+
               '</p><p class="ru-ticket-text">'+esc(ticket.testo)+'</p>'+
               ticket.risposte.map(r=>'<blockquote><p class="caption">'+esc(r.autore)+' · '+esc(stamp(r.creata_il))+
@@ -3480,6 +3531,7 @@
                 if(state.page==="segnalazioni"&&state.active===code){
                   if(onSaved)onSaved();
                   note("Segnalazione aggiornata.",false);
+                  refreshSegnalazioniCounter();
                   renderSegnalazioni();
                 }
               }catch(error){
@@ -5168,6 +5220,7 @@
       async function reload(){
         var result=await api("bandi");state.bandi=result.bandi;
         syncAcademicSelection();updateHeader();
+        refreshSegnalazioniCounter();
       }
       $("academic-year-select").onchange=function(){setAcademicYear(this.value);};
       $("add-academic-year").onclick=function(){
@@ -5187,6 +5240,12 @@
       $("band-select").onchange=function(){state.commissioniInLavorazioneOnly=false;setActive(this.value);};
       document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){if(b.dataset.page==="segnalazioni")apriSegnalazioni("");else {state.commissioniInLavorazioneOnly=false;go(b.dataset.page);}};});
       checkAuthentication();
+      // Il contatore resta visibile fuori dalla pagina Segnalazioni.
+      // Aggiornamento leggero quando la scheda è visibile.
+      setInterval(function(){
+        if(state.role && document.visibilityState==="visible")
+          refreshSegnalazioniCounter();
+      },60000);
     })();
   </script>
 </body>
