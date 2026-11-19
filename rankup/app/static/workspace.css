@@ -920,3 +920,30 @@ html[data-theme="dark"] .ru-workspace .ru-approval-card--active .actions button.
 html[data-theme="dark"] .ru-workspace .actions button.ru-regress-danger{
   background:#9e293c!important;color:#fff!important;border-color:#d15667!important;
 }
+
+/* CO Veneto / dati incarico: labels su due righe e input sulla stessa baseline.
+   Il layout non cambia l'ordine dei campi né i valori salvati. */
+.ru-workspace .ru-co-contract-fields{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));
+  align-items:stretch;
+  gap:14px;
+  margin-top:14px;
+}
+.ru-workspace .ru-co-contract-fields .ru-co-contract-field{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+.ru-workspace .ru-co-contract-fields .ru-co-contract-field > .caption{
+  display:block;
+  min-height:2.8em;
+  line-height:1.4;
+  overflow-wrap:break-word;
+}
+.ru-workspace .ru-co-contract-fields .ru-co-contract-field > input{
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  margin-top:auto!important;
+}

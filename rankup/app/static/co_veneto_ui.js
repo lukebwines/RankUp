@@ -62,8 +62,10 @@ window.createCoVenetoUI=function(ctx){
     ["livello_istruzione","Codice livello istruzione"],
     ["sesso","Sesso (M/F)"]
   ];
-  function inputFor(key,label,value,locked){
-    return '<label style="display:block;min-width:0"><span class="caption">'+esc(label)+'</span>'+
+  function inputFor(key,label,value,locked,contract){
+    var cssClass=contract?' class="ru-co-contract-field"':'';
+    var labelStyle=contract?'display:flex;flex-direction:column;min-width:0':'display:block;min-width:0';
+    return '<label'+cssClass+' style="'+labelStyle+'"><span class="caption">'+esc(label)+'</span>'+
       '<input type="text" data-co-field="'+esc(key)+'" value="'+esc(value||"")+'"'+
       (locked?' readonly':'')+' style="display:block;width:100%;margin-top:5px"></label>';
   }
@@ -222,10 +224,10 @@ window.createCoVenetoUI=function(ctx){
       htmlParts+='<p class="caption" style="color:#b25240">[DA VERIFICARE] '+
         esc(job.mancanti.join(", "))+'</p>';
     }
-    htmlParts+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px">'+
+    htmlParts+='<div class="ru-co-contract-fields">'+
       contractFields.map(function(field){
         var fieldLocked=locked||(field[0]==="retribuzione"&&!admin);
-        return inputFor(field[0],field[1],job.work[field[0]],fieldLocked);
+        return inputFor(field[0],field[1],job.work[field[0]],fieldLocked,true);
       }).join("")+'</div>'+
       (admin&&!locked?'<label style="display:block;margin-top:10px"><span class="caption">Motivazione rettifica retribuzione (obbligatoria se l’importo differisce dal calcolo)</span>'+
         '<input type="text" data-co-retribuzione-motivazione maxlength="1000" placeholder="Indicare la motivazione documentata" style="display:block;width:100%;margin-top:5px"></label>':'')+
