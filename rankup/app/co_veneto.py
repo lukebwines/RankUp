@@ -39,7 +39,7 @@ CONFIG_FIELDS = (
     "settore_ateco", "cls_settore", "pubblica_amministrazione",
     "email_delegato", "ente_previdenziale", "pat_inail",
     "qualifica_professionale", "ccnl", "livello_inquadramento", "tipo_orario",
-    "ore_ordinario", "ore_professionalizzante",
+    "ore_ordinario", "ore_professionalizzante", "ore_inglese",
     "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
     "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
 )
@@ -50,6 +50,7 @@ CONFIG_DEFAULTS = {
     # Valori proposti dall'Ateneo: la generazione resta bloccata finché Admin
     # non li conferma esplicitamente in Amministrazione > CO Veneto.
     "ore_ordinario": "10", "ore_professionalizzante": "12",
+    "ore_inglese": "15",
     "tariffa_verona": "50", "tariffa_legnago": "64",
     "tariffa_vicenza": "64", "tariffa_trento": "85",
     "tariffa_rovereto": "85", "tariffa_bolzano": "100",
@@ -64,7 +65,7 @@ CONFIG_REQUIRED = (
     "pubblica_amministrazione", "email_delegato", "ente_previdenziale",
     "pat_inail", "qualifica_professionale", "ccnl",
     "livello_inquadramento", "tipo_orario",
-    "ore_ordinario", "ore_professionalizzante",
+    "ore_ordinario", "ore_professionalizzante", "ore_inglese",
     "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
     "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
 )
@@ -177,7 +178,7 @@ def cfg_values(db):
     return {k: values.get(k, "") for k in CONFIG_FIELDS}
 
 
-ECONOMIC_HOUR_FIELDS = ("ore_ordinario", "ore_professionalizzante")
+ECONOMIC_HOUR_FIELDS = ("ore_ordinario", "ore_professionalizzante", "ore_inglese")
 ECONOMIC_RATE_FIELDS = (
     "tariffa_verona", "tariffa_legnago", "tariffa_vicenza",
     "tariffa_trento", "tariffa_rovereto", "tariffa_bolzano",
@@ -218,45 +219,58 @@ def _seat_key(raw):
     return value
 
 
-def calculate_retribuzione(peso_copertura, sede, tipo_ssd, config):
-    """Calcolo deterministico; non deduce la sede o la categoria in caso di dati anomali."""
-    weight = _positive_decimal(peso_copertura)
-    if weight is None:
-        return {"ok": False, "problema": "Peso Copertura PICA mancante o non valido"}
+def calculate_retribuzione(peso_copertura, sede, tipo_ssd, config, *, cfu=None):
+    """Per Inglese: CFU espliciti × 15 ore; mai dedurre CFU da peso/ore."""
     seat = _seat_key(sede)
     tariff_field = SEAT_TARIFF_FIELDS.get(seat)
     if not tariff_field:
         return {"ok": False, "problema": "Sede PICA non riconosciuta per la tariffa: " + _clean(sede)}
     model = _clean(tipo_ssd).lower()
-    if model == "professionalizzante":
-        hours_field = "ore_professionalizzante"
-    elif model == "ordinario":
-        hours_field = "ore_ordinario"
+    if model == "inglese":
+        quantity = _positive_decimal(cfu)
+        if quantity is None:
+            return {"ok": False, "tipo_ssd": model,
+                    "problema": "CFU Inglese mancanti o non validi: acquisire dato PICA o conferma documentata Admin"}
+        hours_field = "ore_inglese"
+        base_label = "CFU"
+    elif model in ("ordinario", "professionalizzante"):
+        quantity = _positive_decimal(peso_copertura)
+        if quantity is None:
+            return {"ok": False, "tipo_ssd": model,
+                    "problema": "Peso Copertura PICA mancante o non valido"}
+        hours_field = ("ore_professionalizzante" if model == "professionalizzante"
+                       else "ore_ordinario")
+        base_label = "Peso Copertura"
     else:
-        return {"ok": False, "problema":
-                "Classificazione SSD non utilizzabile per il calcolo delle ore: " +
+        return {"ok": False, "tipo_ssd": model, "problema":
+                "Classificazione SSD non utilizzabile per il calcolo: " +
                 (_clean(tipo_ssd) or "[DA VERIFICARE]")}
     try:
         hours_value = Decimal(str(config.get(hours_field, "")).strip().replace(",", "."))
-        if not hours_value.is_finite() or hours_value <= 0 or hours_value != hours_value.to_integral_value():
+        if (not hours_value.is_finite() or hours_value <= 0 or
+                hours_value != hours_value.to_integral_value()):
             raise ValueError
         hours = int(hours_value)
     except (InvalidOperation, ValueError):
-        return {"ok": False, "problema": "Ore di riferimento non valide in Amministrazione CO Veneto"}
+        return {"ok": False, "tipo_ssd": model,
+                "problema": "Ore di riferimento non valide in Amministrazione CO Veneto"}
     rate = _positive_decimal(config.get(tariff_field))
     if rate is None or rate.as_tuple().exponent < -2:
-        return {"ok": False, "problema": "Tariffa oraria non valida in Amministrazione CO Veneto"}
-    amount = (weight * Decimal(hours) * rate).quantize(
+        return {"ok": False, "tipo_ssd": model,
+                "problema": "Tariffa oraria non valida in Amministrazione CO Veneto"}
+    amount = (quantity * Decimal(hours) * rate).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
     return {
         "ok": True, "problema": "", "peso_copertura": _clean(peso_copertura),
-        "sede": _clean(sede), "tipo_ssd": model, "ore": hours,
-        "tariffa": format(rate.quantize(Decimal("0.01")), ".2f"),
+        "cfu": _clean(cfu) if model == "inglese" else "",
+        "base": base_label, "sede": _clean(sede), "tipo_ssd": model,
+        "ore": hours, "tariffa": format(rate.quantize(Decimal("0.01")), ".2f"),
         "importo": format(amount, ".2f"),
-        "formula": (_italian_decimal(weight) + " × " + str(hours) +
-                    " ore × " + _italian_decimal(rate, 2) + " €/ora = " +
-                    _italian_decimal(amount, 2) + " €"),
+        "formula": (_italian_decimal(quantity) +
+                    (" CFU × " if model == "inglese" else " × ") +
+                    str(hours) + " ore × " + _italian_decimal(rate, 2) +
+                    " €/ora = " + _italian_decimal(amount, 2) + " €"),
         "manuale": False, "motivazione": "", "importo_applicato": format(amount, ".2f"),
     }
 
