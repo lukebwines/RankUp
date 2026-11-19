@@ -87,6 +87,7 @@ def test_server_migration_and_watchdog(tmp_path, monkeypatch):
     with server.connect() as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert server.health()["status"] == "ok"
+    assert server.health()["version"] == "1.0.49"
     assert server.health()["schema_version"] == SCHEMA_VERSION
     server.initialize()
     assert not (tmp_path / "schema_backups").exists()
