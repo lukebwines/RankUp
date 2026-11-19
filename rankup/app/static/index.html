@@ -5004,7 +5004,7 @@
           ];
           var pdfPreviewUrl='api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+encodeURIComponent(record.id)+'/documento';
           holder.innerHTML='<div class="card mb"><h3 class="section-heading">Recupero assistito · Documento '+esc(record.id)+'</h3>'+
-            '<p class="notice">Confronta il PDF originale con i campi da trascrivere. L’identità, il totale, l’esito e le note devono risultare dal documento della Commissione. Il PDF resta immutato e ogni recupero è tracciato.</p>'+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:18px;align-items:start">'+            '<div style="min-width:0"><h4>PDF originale · sola lettura</h4>'+            '<iframe title="Anteprima del PDF originale della Commissione" src="'+pdfPreviewUrl+'" style="display:block;width:100%;height:min(72vh,850px);min-height:420px;border:1px solid #b9c8d8;border-radius:10px;background:#fff"></iframe>'+            '<p class="caption">Se il browser non visualizza il PDF, usa «Apri PDF originale» qui sotto. Non modificare il documento.</p></div>'+            '<div style="min-width:0"><h4>Trascrizione verificata dall’Admin</h4>'+
+            '<p class="notice">Confronta il PDF originale con i campi da trascrivere. L’identità, il totale, l’esito e le note devono risultare dal documento della Commissione. Il PDF resta immutato e ogni recupero è tracciato.</p>'+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:18px;align-items:start">'+            '<div style="min-width:0"><h4>PDF originale · sola lettura</h4>'+            '<iframe title="Anteprima del PDF originale della Commissione" src="'+pdfPreviewUrl+'" style="display:block;width:100%;height:min(72vh,850px);min-height:420px;border:1px solid #b9c8d8;border-radius:10px;background:#fff"></iframe>'+            '<p class="caption">Se il browser non visualizza il PDF, usa «Apri PDF originale» qui sotto. Non modificare il documento.</p></div>'+            '<div style="min-width:0"><h4>Trascrizione verificata dall’Admin</h4>'+            '<div class="notice" style="margin-bottom:12px"><strong>RANKUP-ID rilevato nel PDF:</strong> '+            (record.rankup_id_visibile?'<code>'+esc(record.rankup_id_visibile)+'</code>':'Non disponibile nei campi testuali')+            '<div id="eval-man-id-check" style="margin-top:6px">Seleziona una candidatura per verificarne la corrispondenza.</div>'+            '<small>La verifica definitiva del codice e della chiave della candidatura avviene sempre sul server.</small></div>'+
             '<label for="eval-man-candidate">Candidatura PICA (obbligatoria)</label>'+
             '<select id="eval-man-candidate" style="display:block;width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Seleziona candidatura</option>'+
             candidates.map(function(c){return '<option value="'+esc(c.id)+'"'+(c.id===record.candidatura_id?' selected':'')+'>'+
@@ -5023,6 +5023,20 @@
             '<div class="actions"><button class="btn" type="button" id="eval-man-save">Conferma acquisizione manuale</button>'+
             '<button class="btn secondary" type="button" id="eval-man-cancel">Annulla</button>'+
             '<a class="btn secondary" target="_blank" rel="noopener" href="'+pdfPreviewUrl+'" style="text-decoration:none">Apri PDF originale</a></div></div></div>';
+          var candidacySelect=$("eval-man-candidate");
+          var detectedId=String(record.rankup_id_visibile||"");
+          function updateVisibleIdCheck(){
+            var chosen=candidates.find(function(c){return String(c.id)===candidacySelect.value;});
+            var label=$("eval-man-id-check");
+            if(!label)return;
+            if(!detectedId){label.textContent="Identificativo non disponibile: verifica documentale obbligatoria.";return;}
+            if(!chosen){label.textContent="Seleziona la candidatura PICA da confrontare.";return;}
+            var matches=detectedId.startsWith("RU-"+code+"-"+chosen.id_pica+"-");
+            label.textContent=matches?"ID PICA coerente; verifica completa al salvataggio.":"ATTENZIONE: ID della scheda discordante dalla candidatura PICA selezionata.";
+            label.style.color=matches?"inherit":"#b42318";
+          }
+          candidacySelect.onchange=updateVisibleIdCheck;
+          updateVisibleIdCheck();
           var select=$("eval-man-status");
           function statusMode(){
             var negative=/NON IDONEO|NON AMMISSIBILE|NON VALUTABILE|MANCANTE|NON PERTINENTE/.test(select.value);
@@ -5035,6 +5049,10 @@
           $("eval-man-save").onclick=async function(){
             var candidacy=$("eval-man-candidate").value;
             if(!candidacy||!select.value){note("Seleziona candidatura PICA ed esito documentato",true);return;}
+            var chosenCandidate=candidates.find(function(c){return String(c.id)===candidacy;});
+            if(detectedId && (!chosenCandidate || !detectedId.startsWith("RU-"+code+"-"+chosenCandidate.id_pica+"-"))){
+              note("RANKUP-ID discordante dalla candidatura selezionata. Acquisizione bloccata.",true);return;
+            }
             var score=$("eval-man-score").value.trim();
             var negative=$("eval-man-score-row").style.display==="none";
             if(!negative&&!score){note("Per un candidato idoneo il punteggio deve essere riportato dal documento",true);return;}
