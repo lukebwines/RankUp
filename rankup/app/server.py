@@ -5313,6 +5313,9 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         SELECT id,quando FROM graduatorie_cds_revisioni
         WHERE bando_id=? AND cds=? AND sede=? ORDER BY id DESC
     """,(bando_id,cds,sede)).fetchall()]
+    # La riapertura corrente è esposta soltanto per permettere all'Admin
+    # di collegare un riferimento ufficiale senza alterare il verbale storico.
+    ranked["riapertura_attiva"] = (int(reopened["revisione_id"]) if reopened else None)
     ranked["conferma"] = dict(saved) if saved and not reopened else None
     ranked["pdf_definitivo_presente"]=bool(saved and saved["pdf_definitivo_presente"])
     # "Passed" significa acquisita e validata, inclusi esclusi/non idonei motivati.
