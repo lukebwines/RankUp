@@ -4961,7 +4961,10 @@
           document.querySelectorAll("[data-val-approve]").forEach(function(btn){
             btn.onclick=function(){
               var proposal=proposals.find(function(p){return String(p.id)===btn.dataset.valApprove;});
-              if(proposal)renderRecoveryApproval(code,proposal);
+              if(proposal){
+                var doc=archive.find(function(r){return String(r.id)===String(proposal.valutazione_pdf_id);});
+                renderRecoveryApproval(code,proposal,doc);
+              }
             };
           });
           $("pdf-eval-preview").onclick=async function(){
@@ -4985,7 +4988,7 @@
       }
 
 
-      async function renderRecoveryApproval(code, proposal){
+      async function renderRecoveryApproval(code, proposal, documentRecord){
         if(state.role!=="admin"){note("Approvazione riservata all'Admin",true);return;}
         var holder=$("manual-eval-panel");
         if(!holder)return;
@@ -5001,6 +5004,7 @@
           'min-height:470px;height:min(72vh,850px);border:1px solid #b9c8d8;border-radius:10px"></iframe>'+
           '<a class="btn secondary" target="_blank" rel="noopener" href="'+fileUrl+'">Apri PDF originale</a></section>'+
           '<section style="min-width:0"><h4>Trascrizione proposta da '+esc(proposal.proposta_da)+'</h4>'+
+          '<p><strong>RANKUP-ID del PDF:</strong> '+esc((documentRecord&&documentRecord.rankup_id_visibile)||'Leggere dal documento')+'</p>'+
           '<p><strong>Candidatura PICA:</strong> '+esc(proposal.id_pica)+' · '+
           esc(proposal.cognome+' '+proposal.nome)+'</p>'+
           '<p><strong>Esito:</strong> '+esc(proposal.esito)+'</p>'+
