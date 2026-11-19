@@ -140,6 +140,12 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
     with admin:
         aid=_approved(admin)
         path="/api/bandi/26-02/co-veneto/approvazioni/"+str(aid)
+        before_weight=admin.get(path).json()
+        before_job=before_weight["incarichi"][0]
+        saved_without_calculation=admin.put(
+            path+"/incarichi/"+str(before_job["incarico_id"]),
+            headers={"X-RankUp-Request":"1"},json={"dati":dict(before_job["work"])})
+        assert saved_without_calculation.status_code==200,saved_without_calculation.text
         with server.connect() as db:
             bando_id=db.execute("SELECT id FROM bandi WHERE codice='26-02'").fetchone()["id"]
             db.execute("""UPDATE incarichi SET peso_copertura='0.5',sede='VERONA',ssd='MED/45'
