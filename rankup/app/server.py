@@ -5157,7 +5157,9 @@ def _acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManu
             VALUES(?,?,?,?,?,?,?,?)
         """,(
             b["id"],pdf_id,candidate["id"],
-            "Rettifica manuale" if previous else "Acquisizione manuale",
+            ("Rettifica da proposta verificata" if previous else
+             "Acquisizione da proposta verificata") if proposal_id is not None else
+            ("Rettifica manuale" if previous else "Acquisizione manuale"),
             json.dumps({"documento_da_verificare":old,
                         "versione_precedente":dict(previous) if previous else None},
                        ensure_ascii=False),
