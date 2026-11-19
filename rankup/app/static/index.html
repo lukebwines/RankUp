@@ -3392,6 +3392,7 @@
       function apriSegnalazioni(ambito){
         state.ambitoSegnalazioni=ambito;
         state.soloMieSegnalazioni=false;
+        state.origineSegnalazioni="";
         go("segnalazioni");
       }
 
@@ -3404,6 +3405,7 @@
           if(state.page!=="segnalazioni"||state.active!==code)return;
           var commissioni=new Map(data.commissioni.map(c=>[String(c.id),c.cds+" · "+c.sede]));
           var ambito=state.ambitoSegnalazioni||"";
+          var origine=state.origineSegnalazioni||"";
           if(ambito!=="bando"&&!commissioni.has(ambito))ambito="";
           var stati={aperta:"Aperta",in_carico:"In carico",risolta:"Risolta"};
           var option=(key,label,selected)=>'<option value="'+esc(key)+'"'+
@@ -3416,12 +3418,23 @@
           var mostrati=data.segnalazioni.filter(function(ticket){
             var scope=ticket.commissione_id===null?"bando":String(ticket.commissione_id);
             return (!ambito||scope===ambito)&&
+              (!origine||ticket.origine===origine)&&
               (!state.soloMieSegnalazioni||ticket.assegnato_a===data.utente);
+          }).sort(function(a,b){
+            var critico=function(ticket){
+              return ticket.origine==="sistema" && ticket.livello==="critico" &&
+                ticket.stato!=="risolta" ? 0 : 1;
+            };
+            return critico(a)-critico(b)||b.id-a.id;
           });
           var stamp=value=>new Date(value).toLocaleString("it-IT",{dateStyle:"short",timeStyle:"short"});
           var controlli='<section class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(code)+'</h3>'+
             '<div class="actions ru-ticket-controls"><label>Ambito <select id="ticket-ambito">'+
             option("","Tutte le segnalazioni",ambito)+ambiti(ambito)+'</select></label>'+
+            (data.is_admin?'<label>Origine <select id="ticket-origine">'+
+            option("","Utenti e sistema",origine)+
+            option("utente","Utenti",origine)+option("sistema","RankUP · Sistema",origine)+
+            '</select></label>':"")+
             '<label><input type="checkbox" id="ticket-mie"'+
             (state.soloMieSegnalazioni?' checked':'')+'> Assegnate a me</label></div>'+
             (data.sola_lettura?'<p class="caption">Bando archiviato · Sola lettura</p>':
@@ -3450,6 +3463,9 @@
           }).join("");
           html(controlli+(elenco||panel("Nessuna segnalazione","Non ci sono segnalazioni per questa selezione.")));
           $("ticket-ambito").onchange=function(){state.ambitoSegnalazioni=this.value;renderSegnalazioni();};
+          if(data.is_admin)$("ticket-origine").onchange=function(){
+            state.origineSegnalazioni=this.value;renderSegnalazioni();
+          };
           $("ticket-mie").onchange=function(){state.soloMieSegnalazioni=this.checked;renderSegnalazioni();};
 
           function salva(form,suffix,method,payload,onSaved){
