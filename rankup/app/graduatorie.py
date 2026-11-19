@@ -101,13 +101,10 @@ def build_graduatoria(db, bando_id: int, cds: str, sede: str) -> dict:
                                              for c in group})
                 except (TypeError,ValueError,KeyError):
                     valid=False
-            # Le vecchie decisioni sul primo posto restano riconosciute.
-            if (not valid and position==1 and len(group)==2 and selection
-                    and selection["candidatura_id"] in {c["candidatura_id"] for c in group}):
-                ordered_ids=[selection["candidatura_id"]]+[
-                    c["candidatura_id"] for c in group
-                    if c["candidatura_id"]!=selection["candidatura_id"]]
-                valid=True
+            # Nessuna risoluzione implicita da precedenti proposte di vincitore:
+            # una parità è valida solo con ordine e versioni delle schede
+            # corrispondenti alla decisione documentata della Commissione.
+            # Gli atti già approvati conservano i propri snapshot storici.
             if valid:
                 rank_order={cid:index for index,cid in enumerate(ordered_ids)}
                 group.sort(key=lambda c:rank_order[c["candidatura_id"]])

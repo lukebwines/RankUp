@@ -56,6 +56,7 @@ from auth import Authentication, COOKIE_NAME, SESSION_SECONDS, cookie_path, secu
 import admin_credentials as admin_store
 from schede import make_scheda
 from graduatorie import build_graduatoria, render_graduatoria_pdf, enrich_print_metadata
+from procedural_safety import rettifica_sostanziale, anomalie_approvazione
 from graduatoria_excel import render_graduatoria_excel
 from pdf_definitivo import verbale_definitivo
 from verbale_seduta import genera_pdf as genera_verbale_seduta, acquisisci_pdf as acquisisci_verbale_seduta, source_digest as impronta_verbale_seduta, nome_verbale
@@ -84,6 +85,7 @@ ASSETS = Path(__file__).resolve().parent / "static"
 CODE_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
 USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,49}$")
 CURRENT_ACTOR: ContextVar[str | None] = ContextVar("rankup_actor",default=None)
+SYSTEM_ALERT_ACTOR = "RankUP · Sistema"
 
 
 def request_actor() -> str:
@@ -1025,7 +1027,7 @@ with audit_connect() as audit_db:
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.50", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.51", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 if AUTH.recovery_issued:
     try:
@@ -1036,6 +1038,72 @@ if AUTH.recovery_issued:
     except (sqlite3.Error,OSError):
         pass
 app.mount("/static", StaticFiles(directory=str(ASSETS)), name="static")
+
+def _sistema_segnalazione(db, bando_id: int, livello: str, titolo: str,
+                         testo: str) -> None:
+    """Avviso idempotente, distinto dal registro amministrativo append-only."""
+    titolo="["+livello+"] "+titolo
+    presente=db.execute("""
+        SELECT 1 FROM segnalazioni WHERE bando_id=? AND autore=?
+        AND titolo=? AND stato<>'risolta' LIMIT 1
+    """,(bando_id,SYSTEM_ALERT_ACTOR,titolo)).fetchone()
+    if presente:
+        return
+    db.execute("""INSERT INTO segnalazioni
+        (bando_id,commissione_id,titolo,testo,autore,assegnato_a,creata_il)
+        VALUES(?,NULL,?,?,?,?,?)""",
+        (bando_id,titolo,testo,SYSTEM_ALERT_ACTOR,AUTH.username,
+         datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+
+
+def _segnalazioni_parita_aggiornate(code: str) -> None:
+    """Dopo l'acquisizione o rettifica, segnala le parità ancora aperte."""
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id,stato FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b or b["stato"]=="Archiviato":
+            return
+        aperte=set()
+        ambiti=db.execute("""
+            SELECT DISTINCT cds,sede FROM incarichi WHERE bando_id=?
+        """,(b["id"],)).fetchall()
+        for ambito in ambiti:
+            dati=build_graduatoria(db,b["id"],ambito["cds"],ambito["sede"])
+            for incarico in dati["incarichi"]:
+                for parita in incarico["parita"]:
+                    titolo=("Parità da risolvere · incarico "+str(incarico["id"])+
+                            " · punti "+str(parita["punteggio"]))
+                    aperte.add("[ATTENZIONE] "+titolo)
+                    _sistema_segnalazione(
+                        db,b["id"],"ATTENZIONE",titolo,
+                        "Il modulo "+str(incarico["modulo"])+
+                        " presenta una parità da sciogliere nel verbale della "
+                        "Commissione. L'Admin deve verificare le Note e "
+                        "registrare l'ordine con Gestisci parità.")
+        # Quando la parità è risolta, l'avviso ordinario non resta in carico.
+        for avviso in db.execute("""
+            SELECT id,titolo FROM segnalazioni
+            WHERE bando_id=? AND autore=? AND stato<>'risolta'
+            AND titolo LIKE '[ATTENZIONE] Parità da risolvere%'
+        """,(b["id"],SYSTEM_ALERT_ACTOR)).fetchall():
+            if avviso["titolo"] not in aperte:
+                db.execute("UPDATE segnalazioni SET stato='risolta',revisione=revisione+1 WHERE id=?",
+                           (avviso["id"],))
+        db.commit()
+
+
+def _segnalazione_blocco(code: str, username: str, path: str,
+                         livello: str, descrizione: str) -> None:
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:
+            return
+        _sistema_segnalazione(db,b["id"],livello,descrizione,
+            "Operazione impedita dal controllo server. Utente: "+username+
+            "; percorso: "+path+". Verificare il procedimento e lo storico.")
+        db.commit()
+
 
 @app.middleware("http")
 async def require_rankup_login(request: Request, call_next):
@@ -1113,6 +1181,31 @@ async def require_rankup_login(request: Request, call_next):
             record_audit(category,kind,outcome,request,
                          utente=principal["username"],metodo=request.method,
                          percorso=template,oggetto=audit_target(path))
+        # Solo dopo il completamento della transazione: gli avvisi sono
+        # separati dai dati istruttori e non sostituiscono mai un blocco.
+        parts=path.split("/")
+        if (len(parts)>=5 and parts[:3]==["","api","bandi"] and
+                CODE_RE.fullmatch(parts[3].upper()) and
+                request.method in ("POST","PUT","PATCH")):
+            code=parts[3].upper()
+            try:
+                if (response.status_code<400 and
+                        ("/schede" in path or "/verbali/graduatorie" in path)):
+                    _segnalazioni_parita_aggiornate(code)
+                if (response.status_code==403 and
+                        ("/verbali/graduatorie" in path or
+                         "/graduatorie/approvazioni" in path)):
+                    _segnalazione_blocco(code,principal["username"],path,
+                        "CRITICO","Tentativo di operazione non autorizzata")
+                elif (response.status_code==409 and
+                      "/graduatorie/approvazioni/" in path and
+                      path.endswith("/conferma")):
+                    _segnalazione_blocco(code,principal["username"],path,
+                        "CRITICO","Approvazione generale bloccata")
+            except (sqlite3.Error,OSError,ValueError):
+                record_audit("sicurezza","segnalazione_sistema_non_registrata",
+                             "errore",request,utente=principal["username"],
+                             percorso=template)
     return response
 
 
@@ -1772,7 +1865,7 @@ def health():
             raise sqlite3.DatabaseError("Schema RankUP non inizializzato")
     except (sqlite3.Error, OSError):
         raise HTTPException(status_code=503, detail="Database RankUP non disponibile")
-    return {"status": "ok", "version": "1.0.50", "schema_version": SCHEMA_VERSION}
+    return {"status": "ok", "version": "1.0.51", "schema_version": SCHEMA_VERSION}
 
 
 class NuovoBandoInput(BaseModel):
@@ -1972,8 +2065,40 @@ def _segnalazione(db, bando_id, segnalazione_id):
     return row
 
 
+@app.get("/api/segnalazioni/contatori")
+def contatori_segnalazioni(request: Request):
+    """Conta le segnalazioni non risolte in tutti i bandi non archiviati.
+
+    Restituisce soltanto conteggi: le segnalazioni automatiche sono riservate
+    all'Admin, come nella lista dettagliata. Nessun contenuto riservato esce
+    verso la vista degli operatori.
+    """
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if not principal:
+        fail("Autenticazione richiesta",401)
+    admin=int(principal["role"]=="admin")
+    with connect() as db:
+        rows=db.execute("""
+            SELECT b.codice, COUNT(*) AS totale,
+                   SUM(CASE WHEN s.autore=?
+                         AND s.titolo LIKE '[CRITICO]%' THEN 1 ELSE 0 END) AS critiche
+            FROM segnalazioni s
+            JOIN bandi b ON b.id=s.bando_id
+            WHERE b.stato<>'Archiviato' AND s.stato IN ('aperta','in_carico')
+              AND (?=1 OR s.autore<>?)
+            GROUP BY b.id,b.codice
+            ORDER BY b.codice
+        """,(SYSTEM_ALERT_ACTOR,admin,SYSTEM_ALERT_ACTOR)).fetchall()
+    bandi=[{"codice":r["codice"],"totale":int(r["totale"]),
+            "critiche":int(r["critiche"] or 0)} for r in rows]
+    return {"totale":sum(r["totale"] for r in bandi),
+            "critiche":sum(r["critiche"] for r in bandi),
+            "per_bando":bandi}
+
+
 @app.get("/api/bandi/{code}/segnalazioni")
-def elenco_segnalazioni(code: str):
+def elenco_segnalazioni(code: str, request: Request):
+    is_admin=AUTH.principal(request.cookies.get(COOKIE_NAME))["role"]=="admin"
     with connect() as db:
         db.execute("BEGIN")
         bando = _bando_segnalazioni(db, valid_code(code))
@@ -1983,18 +2108,28 @@ def elenco_segnalazioni(code: str):
             ORDER BY cds COLLATE NOCASE,sede
         """, params)
         segnalazioni = {
-            row["id"]: dict(row, risposte=[]) for row in db.execute("""
-                SELECT * FROM segnalazioni WHERE bando_id=? ORDER BY id DESC
-            """, params)
+            row["id"]: dict(
+                row, risposte=[],
+                origine=("sistema" if row["autore"]==SYSTEM_ALERT_ACTOR else "utente"),
+                livello=(row["titolo"].split("]",1)[0][1:].lower()
+                         if row["autore"]==SYSTEM_ALERT_ACTOR and
+                         row["titolo"].startswith("[") else "informativo"))
+            for row in db.execute("""
+                SELECT * FROM segnalazioni WHERE bando_id=?
+                  AND (?=1 OR autore<>?)
+                ORDER BY id DESC
+            """,(bando["id"],int(is_admin),SYSTEM_ALERT_ACTOR))
         }
         for row in db.execute("""
             SELECT r.* FROM segnalazioni_risposte r
             JOIN segnalazioni s ON s.id=r.segnalazione_id
             WHERE s.bando_id=? ORDER BY r.id
         """, params):
-            segnalazioni[row["segnalazione_id"]]["risposte"].append(dict(row))
+            if row["segnalazione_id"] in segnalazioni:
+                segnalazioni[row["segnalazione_id"]]["risposte"].append(dict(row))
         return {
             "segnalazioni": list(segnalazioni.values()),
+            "is_admin": is_admin,
             "commissioni": [dict(row) for row in commissioni],
             "assegnatari": _assegnatari_segnalazioni(db),
             "utente": request_actor(),
@@ -2025,13 +2160,16 @@ def crea_segnalazione(code: str, body: NuovaSegnalazione):
 
 
 @app.put("/api/bandi/{code}/segnalazioni/{segnalazione_id}")
-def aggiorna_segnalazione(code: str, segnalazione_id: int, body: AggiornaSegnalazione):
+def aggiorna_segnalazione(code: str, segnalazione_id: int, body: AggiornaSegnalazione,
+                          request: Request):
     code = valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
         _require_bando_aperto(db,code)
         bando = _bando_segnalazioni(db, code)
         row = _segnalazione(db, bando["id"], segnalazione_id)
+        if row["autore"]==SYSTEM_ALERT_ACTOR:
+            require_admin(request)
         if row["revisione"] != body.revisione:
             fail("La segnalazione è stata aggiornata. Ricarica prima di salvare.", 409)
         db.execute("""
@@ -2042,13 +2180,16 @@ def aggiorna_segnalazione(code: str, segnalazione_id: int, body: AggiornaSegnala
 
 
 @app.post("/api/bandi/{code}/segnalazioni/{segnalazione_id}/risposte", status_code=201)
-def rispondi_segnalazione(code: str, segnalazione_id: int, body: RispostaSegnalazione):
+def rispondi_segnalazione(code: str, segnalazione_id: int, body: RispostaSegnalazione,
+                          request: Request):
     code = valid_code(code)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
         _require_bando_aperto(db,code)
         bando = _bando_segnalazioni(db, code)
-        _segnalazione(db, bando["id"], segnalazione_id)
+        row=_segnalazione(db, bando["id"], segnalazione_id)
+        if row["autore"]==SYSTEM_ALERT_ACTOR:
+            require_admin(request)
         cursor = db.execute("""
             INSERT INTO segnalazioni_risposte (segnalazione_id,testo,autore,creata_il)
             VALUES (?,?,?,?)
@@ -5172,6 +5313,9 @@ def _graduatoria_status(db, bando_id: int, cds: str, sede: str) -> dict:
         SELECT id,quando FROM graduatorie_cds_revisioni
         WHERE bando_id=? AND cds=? AND sede=? ORDER BY id DESC
     """,(bando_id,cds,sede)).fetchall()]
+    # La riapertura corrente è esposta soltanto per permettere all'Admin
+    # di collegare un riferimento ufficiale senza alterare il verbale storico.
+    ranked["riapertura_attiva"] = (int(reopened["revisione_id"]) if reopened else None)
     ranked["conferma"] = dict(saved) if saved and not reopened else None
     ranked["pdf_definitivo_presente"]=bool(saved and saved["pdf_definitivo_presente"])
     # "Passed" significa acquisita e validata, inclusi esclusi/non idonei motivati.
@@ -5243,6 +5387,31 @@ def finalizza_graduatoria_cds(code: str, body: FinalizzaGraduatoria):
         if not result["verbale_generabile"]:
             fail("Impossibile rendere definitiva la graduatoria: "+
                  "; ".join(result["criticita"][:8]),409)
+        # Una riapertura tecnica non può diventare una modifica di merito
+        # senza il successivo riscontro documentato della Commissione.
+        riapertura=db.execute("""
+            SELECT r.revisione_id, v.dati_json, v.riferimento
+            FROM graduatorie_cds_riaperte r
+            JOIN graduatorie_cds_revisioni v ON v.id=r.revisione_id
+            JOIN graduatorie_cds g ON g.id=r.graduatoria_id
+            WHERE r.bando_id=? AND g.cds=? AND g.sede=?
+        """,(b["id"],body.cds,body.sede)).fetchone()
+        if (riapertura and rettifica_sostanziale(
+                json.loads(riapertura["dati_json"]),result)):
+            documentata=bool(str(riapertura["riferimento"] or "").strip())
+            if not documentata:
+                for evento in db.execute("""
+                    SELECT dettagli_json FROM graduatorie_eventi
+                    WHERE bando_id=? AND evento='Riferimento Commissione integrativo'
+                    ORDER BY id DESC
+                """,(b["id"],)):
+                    dettagli=json.loads(evento["dettagli_json"])
+                    if dettagli.get("revisione_id")==riapertura["revisione_id"]:
+                        documentata=True
+                        break
+            if not documentata:
+                fail("La riapertura ha modificato il merito: inserire prima il "
+                     "riferimento verificato del documento della Commissione",409)
         stamp=datetime.now(timezone.utc).isoformat(timespec="microseconds")
         snapshot=json.dumps(result,ensure_ascii=False,sort_keys=True)
         digest=hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
@@ -5316,13 +5485,15 @@ def _motivo_regressione(body: RegredisciStato, riferimento_obbligatorio: bool = 
 class RegredisciGraduatoriaCdS(RegredisciStato):
     cds: str = Field(min_length=1,max_length=250)
     sede: str = Field(min_length=1,max_length=100)
+    tipo: Literal["tecnica", "sostanziale"] = "tecnica"
 
 
 @app.post("/api/bandi/{code}/verbali/graduatorie/regredisci-stato")
 def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Request):
     require_admin(request)
     code=valid_code(code)
-    motivo,riferimento=_motivo_regressione(body)
+    motivo,riferimento=_motivo_regressione(
+        body, riferimento_obbligatorio=(body.tipo=="sostanziale"))
     # Genera prima la copia archivistica completa (frontespizio e schede).
     # Nessun atto è sbloccato se gli originali non sono verificabili.
     with connect() as check:
@@ -5376,10 +5547,47 @@ def regredisci_stato_cds(code: str, body: RegredisciGraduatoriaCdS, request: Req
             VALUES(?,?,?,?,?,?,?)
         """,(b["id"],"cds",row["id"],"Regressione da definitiva a lavorabile",
              json.dumps({"revisione_id":revision.lastrowid,"hash_precedente":old_hash,
-                         "motivazione":motivo,"riferimento":riferimento},ensure_ascii=False),
+                         "motivazione":motivo,"riferimento":riferimento,
+                         "tipo":body.tipo},ensure_ascii=False),
              request_actor(),stamp))
         db.commit()
     return {"ok":True,"stato":"lavorabile","revisione_id":revision.lastrowid}
+
+
+class RiferimentoCommissioneIntegrativo(BaseModel):
+    revisione_id: int = Field(gt=0)
+    motivazione: str = Field(min_length=10,max_length=1000)
+    riferimento: str = Field(min_length=5,max_length=500)
+
+
+@app.post("/api/bandi/{code}/verbali/graduatorie/rettifica-documentata")
+def integra_documento_rettifica(code: str, body: RiferimentoCommissioneIntegrativo,
+                                request: Request):
+    """Associa un nuovo riscontro della Commissione senza riscrivere lo storico."""
+    require_admin(request)
+    code=valid_code(code)
+    motivo,ref=_motivo_regressione(body,riferimento_obbligatorio=True)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        linked=db.execute("""
+            SELECT r.graduatoria_id FROM graduatorie_cds_riaperte r
+            WHERE r.bando_id=? AND r.revisione_id=?
+        """,(b["id"],body.revisione_id)).fetchone()
+        if not linked:
+            fail("Riapertura non più attiva: documento non associabile",409)
+        db.execute("""INSERT INTO graduatorie_eventi
+            (bando_id,oggetto,oggetto_id,evento,dettagli_json,autore,quando)
+            VALUES(?,?,?,?,?,?,?)""",
+            (b["id"],"cds",linked["graduatoria_id"],
+             "Riferimento Commissione integrativo",
+             json.dumps({"revisione_id":body.revisione_id,
+                         "riferimento":ref,"motivazione":motivo},ensure_ascii=False),
+             request_actor(),datetime.now(timezone.utc).isoformat(timespec="microseconds")))
+        db.commit()
+    return {"ok":True,"revisione_id":body.revisione_id}
 
 
 @app.get("/api/bandi/{code}/verbali/graduatorie/revisioni/{revision_id}/pdf")
@@ -6219,11 +6427,27 @@ def registra_approvazione(code: str, approval_id: int, body: ConfermaApprovazion
             fail("Approvazione inesistente o gia registrata",409)
         snapshot=json.loads(approval["dati_json"])
         now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
-        for gid in snapshot["ids"]:
-            r=db.execute("""SELECT stato FROM graduatorie_cds WHERE id=? AND bando_id=?""",
-                         (gid,b["id"])).fetchone()
+        # Ricontrollo bloccante immediatamente prima dell'atto: oltre allo
+        # stato verifica snapshot, schede, parità e impronte dei PDF definitivi.
+        for indice,gid in enumerate(snapshot["ids"]):
+            r=db.execute("""
+                SELECT g.stato,g.cds,g.sede,g.dati_json,g.hash_dati,
+                       d.pdf_definitivo,d.sha256 AS hash_pdf
+                FROM graduatorie_cds g
+                LEFT JOIN graduatorie_cds_documenti d ON d.graduatoria_id=g.id
+                WHERE g.id=? AND g.bando_id=?
+            """,(gid,b["id"])).fetchone()
             if not r or r["stato"]!="definitiva":
                 fail("Una graduatoria non e piu disponibile: annullare la bozza",409)
+            if indice>=len(snapshot.get("selezioni",[])):
+                fail("Bozza di approvazione incompleta: annullarla",409)
+            attuale=_graduatoria_status(db,b["id"],r["cds"],r["sede"])
+            anomalie=anomalie_approvazione(
+                snapshot["selezioni"][indice],attuale,r["dati_json"],
+                r["hash_dati"],r["pdf_definitivo"],r["hash_pdf"])
+            if anomalie:
+                fail("Approvazione bloccata per "+r["cds"]+" / "+r["sede"]+
+                     ": "+"; ".join(anomalie[:5]),409)
         for gid in snapshot["ids"]:
             db.execute("""UPDATE graduatorie_cds SET stato='approvata',approvazione_id=?
                 WHERE id=? AND bando_id=?""",(approval_id,gid,b["id"]))

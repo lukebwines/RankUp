@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="static/rankup-icon.png">
   <link rel="apple-touch-icon" href="static/rankup-icon.png">
   <link rel="stylesheet" href="static/valutazioni.css">
-  <link rel="stylesheet" href="static/operativo.css?v=1.0.50">
+  <link rel="stylesheet" href="static/operativo.css?v=1.0.51">
   <script>
     (function(){
       var preference=localStorage.getItem("rankup_theme");
@@ -159,7 +159,7 @@
     html[data-theme="dark"] .ru-verb-details{border-color:#50708a}
     html[data-theme="dark"] .ru-verb-assignment{border-color:#35516b}
   </style>
-  <link rel="stylesheet" href="static/workspace.css?v=1.0.50">
+  <link rel="stylesheet" href="static/workspace.css?v=1.0.51">
   <style>
     .ru-ticket-controls { flex-wrap: wrap; }
     .ru-ticket-form { display: grid; gap: 8px; margin-top: 12px; }
@@ -264,7 +264,7 @@
         <button data-page="incarichi"><svg class="navicon" aria-hidden="true"><use href="#ri-book"></use></svg> Incarichi</button>
         <button data-page="candidature"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Candidature</button>
         <button data-page="verificaenteai" id="band-ai-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-search"></use></svg> Verifica requisito ente</button>
-        <button data-page="segnalazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Segnalazioni</button>
+        <button data-page="segnalazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Segnalazioni <span class="ru-nav-alert-count" id="segnalazioni-counter" aria-hidden="true" hidden></span></button>
         <button data-page="commissioni"><svg class="navicon" aria-hidden="true"><use href="#ri-users"></use></svg> Commissioni</button>
         <button data-page="schede"><svg class="navicon" aria-hidden="true"><use href="#ri-file"></use></svg> Schede PDF</button>
         <button data-page="valutazioni"><svg class="navicon" aria-hidden="true"><use href="#ri-clipboard"></use></svg> Valutazioni</button>
@@ -272,7 +272,7 @@
         <button data-page="graduatorie"><svg class="navicon" aria-hidden="true"><use href="#ri-list"></use></svg> Graduatorie</button>
         <button data-page="archivio" id="admin-archive-link" style="display:none"><svg class="navicon" aria-hidden="true"><use href="#ri-archive"></use></svg> Archivio finale</button>
       </nav>
-      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.50<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
+      <div class="sidebar-footer"><button class="btn secondary" id="logout-btn" type="button">Esci da RankUp</button><p class="ru-footer-version">RANKUP · v1.0.51<br><span id="account-info">Accesso protetto</span></p><div class="ru-footer-credit"><strong>Crafted by Luca B.</strong><span>© 2026 Luca B. · All rights reserved.</span></div></div>
     </aside>
     <main>
       <header class="topbar">
@@ -289,7 +289,7 @@
       <div id="content"></div>
     </main>
   </div>
-  <script src="static/co_veneto_ui.js?v=1.0.50"></script>
+  <script src="static/co_veneto_ui.js?v=1.0.51"></script>
   <script>
     (function () {
       "use strict";
@@ -435,6 +435,9 @@
       function showLogin(message){
         state.role=null;
         state.username="";
+        state.ticketCountsByCode={};
+        var notificationCount=$("segnalazioni-counter");
+        if(notificationCount)notificationCount.hidden=true;
         $("account-info").textContent="Accesso protetto";
         $("admin-users-link").style.display="none";
         $("admin-ssd-link").style.display="none";
@@ -757,6 +760,47 @@
         state.cmFilter="tutte";state.cmSearch="";
         syncAcademicSelection();updateHeader();render();
       }
+      function mostraPendentiNelSelettore(){
+        var select=$("band-select"),counts=state.ticketCountsByCode||{};
+        if(!select)return;
+        Array.from(select.options).forEach(function(option){
+          if(!option.value)return;
+          var b=state.bandi.find(function(item){return item.codice===option.value;});
+          if(!b)return;
+          var count=Number(counts[b.codice]||0);
+          option.textContent=b.codice+(b.stato==="Archiviato"?" (archiviato)":"")+
+            (count>0?" · "+count+" in sospeso":"");
+        });
+      }
+      async function refreshSegnalazioniCounter(){
+        if(!state.role)return;
+        var role=state.role;
+        var counter=$("segnalazioni-counter");
+        var nav=document.querySelector('#nav button[data-page="segnalazioni"]');
+        if(!counter||!nav)return;
+        try{
+          var counts=await api("segnalazioni/contatori");
+          if(state.role!==role)return;
+          state.ticketCountsByCode=Object.fromEntries(
+            (counts.per_bando||[]).map(function(item){return [item.codice,Number(item.totale)||0];}));
+          mostraPendentiNelSelettore();
+          var totale=Math.max(0,Number(counts.totale)||0);
+          var critiche=role==="admin"?Math.max(0,Number(counts.critiche)||0):0;
+          counter.hidden=totale===0;
+          counter.textContent=totale>99?"99+":String(totale);
+          counter.classList.toggle("ru-nav-alert-count--critical",critiche>0);
+          var descrizione="Segnalazioni: "+totale+" in sospeso"+
+            (critiche?"; "+critiche+" critiche":"")+
+            " nei bandi non archiviati";
+          nav.setAttribute("aria-label",descrizione);
+          nav.title=descrizione;
+        }catch(error){
+          // Non mostrare conteggi obsoleti come se fossero aggiornati.
+          counter.hidden=true;
+          nav.setAttribute("aria-label","Segnalazioni (conteggio non disponibile)");
+          nav.title="Impossibile aggiornare il contatore delle segnalazioni";
+        }
+      }
       function updateHeader(){
         var selected=cur(),code=selected?selected.codice:"Tutti i bandi";
         $("side-year").textContent=annoLabel();
@@ -789,6 +833,7 @@
           sel.appendChild(op);
         });
         sel.value=state.active||"";
+        mostraPendentiNelSelettore();
         $("add-academic-year").textContent="+ Seleziona un nuovo A.A.";
         $("add-academic-year").style.display=state.role==="admin"?"block":"none";
       }
@@ -1487,6 +1532,14 @@
               ((approved && state.role==="admin")
                 ? '<span class="caption">Per riaprire il CdS, regredisci prima l’approvazione generale.</span>':'')+
               '</div>'+
+              (state.role==="admin"&&!final&&!approved&&g.riapertura_attiva
+                ? '<div class="notice"><strong>Graduatoria riaperta</strong> · '+
+                  'Se una correzione tecnica cambia punteggi, idoneità, posizioni o vincitori, '+
+                  'è obbligatorio registrare il riferimento alla decisione della Commissione '+
+                  'prima della nuova finalizzazione. '+
+                  '<button type="button" class="btn secondary" data-rettifica-doc="'+i+
+                  '">Registra documento della Commissione</button></div>'
+                : '')+
               ((g.revisioni||[]).length
                 ? '<div class="caption">Versioni precedenti: '+
                   g.revisioni.map(function(rev){return '<a data-pdf-download href="api/bandi/'+encodeURIComponent(code)+
@@ -1646,15 +1699,57 @@
               picker.click();
             };
           });
+          document.querySelectorAll("[data-rettifica-doc]").forEach(function(btn){
+            btn.onclick=async function(){
+              var g=shown[Number(btn.dataset.rettificaDoc)];
+              if(!g||!g.riapertura_attiva)return;
+              var reason=prompt("Motivazione riportata dalla Commissione, secondo il verbale:");
+              if(reason===null)return;
+              var reference=prompt("Riferimento verificato del verbale o documento della Commissione:");
+              if(reference===null)return;
+              if(reason.trim().length<10||reference.trim().length<5||
+                 reason.toUpperCase().includes("[DA VERIFICARE]")||
+                 reference.toUpperCase().includes("[DA VERIFICARE]")){
+                note("Servono motivazione e riferimento ufficiale verificato.",true);return;
+              }
+              if(!confirm("Hai verificato che il riferimento documenta la rettifica di merito "+
+                 "del CdS "+g.cds+" / "+g.sede+"?"))return;
+              btn.disabled=true;
+              try{
+                await api("bandi/"+encodeURIComponent(code)+
+                  "/verbali/graduatorie/rettifica-documentata",{
+                  method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({
+                    revisione_id:g.riapertura_attiva,motivazione:reason.trim(),
+                    riferimento:reference.trim()})});
+                note("Riferimento della Commissione registrato nello storico amministrativo.",false);
+                renderVerbaliGraduatorie();
+              }catch(err){note(err.message,true);btn.disabled=false;}
+            };
+          });
           document.querySelectorAll("[data-verb-regress]").forEach(function(btn){
             btn.onclick=async function(){
               var g=shown[Number(btn.dataset.verbRegress)];
               if(!g)return;
+              var tipo=prompt("Tipo di riapertura: scrivi TECNICA per errore materiale "+
+                "oppure SOSTANZIALE per modifica di punteggi, giudizi, idoneità, "+
+                "posizioni o vincitore.","TECNICA");
+              if(tipo===null)return;
+              tipo=tipo.trim().toLowerCase();
+              if(tipo!=="tecnica"&&tipo!=="sostanziale"){
+                note("Seleziona TECNICA oppure SOSTANZIALE.",true);return;
+              }
               var reason=prompt("Motivazione della riapertura del verbale CdS "+g.cds+" / "+g.sede+" (obbligatoria):");
               if(reason===null)return;
               if(reason.trim().length<10){note("Motivazione obbligatoria: almeno 10 caratteri.",true);return;}
-              var reference=prompt("Riferimento documentale (facoltativo se il verbale non è stato approvato):","");
+              var reference=prompt(tipo==="sostanziale"
+                ? "Riferimento verificato del documento della Commissione (obbligatorio):"
+                : "Riferimento documentale (facoltativo per correzioni puramente tecniche):","");
               if(reference===null)return;
+              if(tipo==="sostanziale"&&reference.trim().length<5){
+                note("La modifica di merito richiede un documento della Commissione.",true);
+                return;
+              }
               if(!confirm("Regredire la graduatoria CdS da definitiva a lavorabile? "+
                 "Verrà conservata una copia storica del verbale unico con schede."))return;
               btn.disabled=true;
@@ -1662,7 +1757,7 @@
                 await api("bandi/"+encodeURIComponent(code)+"/verbali/graduatorie/regredisci-stato",{
                   method:"POST",headers:{"Content-Type":"application/json"},
                   body:JSON.stringify({cds:g.cds,sede:g.sede,motivazione:reason.trim(),
-                    riferimento:reference.trim()})});
+                    riferimento:reference.trim(),tipo:tipo})});
                 note("Verbale riaperto; versione precedente archiviata e scaricabile.",false);
                 renderVerbaliGraduatorie();
               }catch(err){note(err.message,true);btn.disabled=false;}
@@ -3392,6 +3487,7 @@
       function apriSegnalazioni(ambito){
         state.ambitoSegnalazioni=ambito;
         state.soloMieSegnalazioni=false;
+        state.origineSegnalazioni="";
         go("segnalazioni");
       }
 
@@ -3404,6 +3500,7 @@
           if(state.page!=="segnalazioni"||state.active!==code)return;
           var commissioni=new Map(data.commissioni.map(c=>[String(c.id),c.cds+" · "+c.sede]));
           var ambito=state.ambitoSegnalazioni||"";
+          var origine=state.origineSegnalazioni||"";
           if(ambito!=="bando"&&!commissioni.has(ambito))ambito="";
           var stati={aperta:"Aperta",in_carico:"In carico",risolta:"Risolta"};
           var option=(key,label,selected)=>'<option value="'+esc(key)+'"'+
@@ -3416,12 +3513,32 @@
           var mostrati=data.segnalazioni.filter(function(ticket){
             var scope=ticket.commissione_id===null?"bando":String(ticket.commissione_id);
             return (!ambito||scope===ambito)&&
+              (!origine||ticket.origine===origine)&&
               (!state.soloMieSegnalazioni||ticket.assegnato_a===data.utente);
+          }).sort(function(a,b){
+            var critico=function(ticket){
+              return ticket.origine==="sistema" && ticket.livello==="critico" &&
+                ticket.stato!=="risolta" ? 0 : 1;
+            };
+            return critico(a)-critico(b)||b.id-a.id;
           });
           var stamp=value=>new Date(value).toLocaleString("it-IT",{dateStyle:"short",timeStyle:"short"});
-          var controlli='<section class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(code)+'</h3>'+
+          var criticheAperte=data.segnalazioni.filter(function(ticket){
+            return ticket.origine==="sistema" && ticket.livello==="critico" &&
+              ticket.stato!=="risolta";
+          }).length;
+          var riepilogoCritico=criticheAperte?
+            '<p class="ru-ticket-critical-summary" role="status">'+
+            '<span aria-hidden="true">&#9888;</span> '+
+            criticheAperte+(criticheAperte===1?' segnalazione critica da gestire':
+              ' segnalazioni critiche da gestire')+'</p>':"";
+          var controlli='<section class="card mb"><h3 class="section-heading">Segnalazioni · '+esc(code)+'</h3>'+riepilogoCritico+
             '<div class="actions ru-ticket-controls"><label>Ambito <select id="ticket-ambito">'+
             option("","Tutte le segnalazioni",ambito)+ambiti(ambito)+'</select></label>'+
+            (data.is_admin?'<label>Origine <select id="ticket-origine">'+
+            option("","Utenti e sistema",origine)+
+            option("utente","Utenti",origine)+option("sistema","RankUP · Sistema",origine)+
+            '</select></label>':"")+
             '<label><input type="checkbox" id="ticket-mie"'+
             (state.soloMieSegnalazioni?' checked':'')+'> Assegnate a me</label></div>'+
             (data.sola_lettura?'<p class="caption">Bando archiviato · Sola lettura</p>':
@@ -3440,9 +3557,23 @@
               '<form data-ticket-reply="'+ticket.id+'" class="ru-ticket-form"><label>Risposta'+
               '<textarea name="testo" rows="2" required maxlength="4000"></textarea></label>'+
               '<div><button class="btn secondary" type="submit">Aggiungi risposta</button></div></form></details>';
-            return '<article class="card mb ru-ticket"><div class="actions ru-ticket-controls"><span class="ru-status-pill ru-ticket-status--'+esc(ticket.stato)+'">'+
+            var sistema=ticket.origine==="sistema";
+            var livello=sistema && ["critico","attenzione","informativo"].includes(ticket.livello)
+              ?ticket.livello:"";
+            var simbolo=livello==="critico"?"&#9888;":
+              livello==="attenzione"?"&#9888;":"&#9432;";
+            var indicatore=livello?'<strong class="ru-ticket-severity ru-ticket-severity--'+
+              esc(livello)+'"><span aria-hidden="true">'+simbolo+'</span> '+
+              esc(livello.toUpperCase())+'</strong>':"";
+            var titolo=sistema?ticket.titolo.replace(/^\[(?:CRITICO|ATTENZIONE|INFORMATIVO)\]\s*/,""):
+              ticket.titolo;
+            return '<article class="card mb ru-ticket'+
+              (livello?' ru-ticket--'+esc(livello):"")+
+              (ticket.stato==="risolta"?' ru-ticket--closed':"")+
+              '"><div class="actions ru-ticket-controls">'+indicatore+
+              '<span class="ru-status-pill ru-ticket-status--'+esc(ticket.stato)+'">'+
               esc(stati[ticket.stato])+'</span><span class="caption">'+esc(scope)+'</span></div>'+
-              '<h3 class="section-heading">'+esc(ticket.titolo)+'</h3><p class="caption">'+esc(ticket.autore)+
+              '<h3 class="section-heading">'+esc(titolo)+'</h3><p class="caption">'+esc(ticket.autore)+
               ' · '+esc(stamp(ticket.creata_il))+' · '+(ticket.assegnato_a?"Assegnata a "+esc(ticket.assegnato_a):"Da assegnare")+
               '</p><p class="ru-ticket-text">'+esc(ticket.testo)+'</p>'+
               ticket.risposte.map(r=>'<blockquote><p class="caption">'+esc(r.autore)+' · '+esc(stamp(r.creata_il))+
@@ -3450,6 +3581,9 @@
           }).join("");
           html(controlli+(elenco||panel("Nessuna segnalazione","Non ci sono segnalazioni per questa selezione.")));
           $("ticket-ambito").onchange=function(){state.ambitoSegnalazioni=this.value;renderSegnalazioni();};
+          if(data.is_admin)$("ticket-origine").onchange=function(){
+            state.origineSegnalazioni=this.value;renderSegnalazioni();
+          };
           $("ticket-mie").onchange=function(){state.soloMieSegnalazioni=this.checked;renderSegnalazioni();};
 
           function salva(form,suffix,method,payload,onSaved){
@@ -3464,6 +3598,7 @@
                 if(state.page==="segnalazioni"&&state.active===code){
                   if(onSaved)onSaved();
                   note("Segnalazione aggiornata.",false);
+                  refreshSegnalazioniCounter();
                   renderSegnalazioni();
                 }
               }catch(error){
@@ -5152,6 +5287,7 @@
       async function reload(){
         var result=await api("bandi");state.bandi=result.bandi;
         syncAcademicSelection();updateHeader();
+        refreshSegnalazioniCounter();
       }
       $("academic-year-select").onchange=function(){setAcademicYear(this.value);};
       $("add-academic-year").onclick=function(){
@@ -5171,6 +5307,12 @@
       $("band-select").onchange=function(){state.commissioniInLavorazioneOnly=false;setActive(this.value);};
       document.querySelectorAll("#nav button").forEach(function(b){b.onclick=function(){if(b.dataset.page==="segnalazioni")apriSegnalazioni("");else {state.commissioniInLavorazioneOnly=false;go(b.dataset.page);}};});
       checkAuthentication();
+      // Il contatore resta visibile fuori dalla pagina Segnalazioni.
+      // Aggiornamento leggero quando la scheda è visibile.
+      setInterval(function(){
+        if(state.role && document.visibilityState==="visible")
+          refreshSegnalazioniCounter();
+      },60000);
     })();
   </script>
 </body>

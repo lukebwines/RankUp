@@ -44,6 +44,19 @@ body,main{background:var(--ru-canvas)}
 .sidebar nav button:hover{background:#365d7c}
 .sidebar nav button.active{background:#335c80;box-shadow:inset 3px 0 0 #8fd8ee}
 .sidebar nav button .navicon{width:19px;height:19px;opacity:.94}
+/* Contatore delle comunicazioni ancora aperte, visibile da ogni schermata. */
+.sidebar nav button[data-page="segnalazioni"]{display:flex;align-items:center;gap:8px}
+.sidebar nav .ru-nav-alert-count{
+  margin-left:auto;flex:none;display:inline-flex;align-items:center;justify-content:center;
+  min-width:24px;height:24px;padding:2px 7px;border-radius:999px;
+  color:#33260a;background:#ffd66c;font-size:12px;font-weight:850;
+  font-variant-numeric:tabular-nums;border:1px solid #e2b54f;
+}
+.sidebar nav .ru-nav-alert-count--critical{
+  background:#d32f42;color:#fff;border-color:#f29daa;
+  box-shadow:0 0 0 2px rgba(238,71,87,.16);
+}
+.sidebar nav .ru-nav-alert-count[hidden]{display:none!important}
 .sidebar-footer{line-height:1.6}
 .sidebar-footer .ru-footer-version{margin:12px 0 0;font-size:12px;line-height:1.65;color:#b5c8dd}
 .sidebar-footer .ru-footer-credit{
@@ -587,6 +600,39 @@ html[data-theme="dark"] .ru-workspace .ru-status-pill--historical{
 
 /* RankUP 1.0.24 — Segnalazioni interne, isolate dalle altre sezioni. */
 .ru-workspace .ru-ticket{border-left:3px solid var(--ru-stroke)}
+/* Gravità leggibile per colore, icona e testo: non si basa solo sul colore. */
+.ru-workspace .ru-ticket--critico:not(.ru-ticket--closed){
+  border-left:6px solid var(--ru-danger);background:var(--ru-danger-surface);
+}
+.ru-workspace .ru-ticket--attenzione:not(.ru-ticket--closed){
+  border-left:5px solid var(--ru-warning);background:var(--ru-warning-surface);
+}
+.ru-workspace .ru-ticket--informativo:not(.ru-ticket--closed){
+  border-left:4px solid var(--ru-accent);
+}
+.ru-workspace .ru-ticket--closed{border-left-color:var(--ru-stroke);opacity:.82}
+.ru-workspace .ru-ticket-severity{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid currentColor;
+  padding:5px 10px;border-radius:8px;font-size:12px;font-weight:850;
+  letter-spacing:.035em;line-height:1.25;
+}
+.ru-workspace .ru-ticket-severity--critico{
+  background:var(--ru-danger-surface);color:var(--ru-danger);
+}
+.ru-workspace .ru-ticket-severity--attenzione{
+  background:var(--ru-warning-surface);color:var(--ru-warning);
+}
+.ru-workspace .ru-ticket-severity--informativo{
+  background:var(--ru-accent-soft);color:var(--ru-ink);
+}
+.ru-workspace .ru-ticket-severity [aria-hidden]{font-size:17px;line-height:1}
+.ru-workspace .ru-ticket-critical-summary{
+  display:flex;align-items:center;gap:8px;padding:11px 13px;
+  background:var(--ru-danger-surface);color:var(--ru-danger);
+  border:1px solid var(--ru-danger);border-radius:10px;
+  font-weight:800;margin:12px 0;
+}
+.ru-workspace .ru-ticket-critical-summary [aria-hidden]{font-size:20px}
 .ru-workspace .ru-ticket-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .ru-workspace .ru-ticket-controls label{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .ru-workspace .ru-ticket-controls select{min-width:190px;max-width:100%}
