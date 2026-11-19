@@ -161,3 +161,39 @@ def test_guasto_storico_durante_riapertura_cds_non_lascia_revisioni_orfane(tmp_p
             _ripristina_audit(server)
         ok = _post(client, endpoint, json=payload)
         assert ok.status_code == 200, ok.text
+
+
+def test_fallimento_scrittura_pdf_non_crea_graduatoria_definitiva(tmp_path, monkeypatch):
+    """Simula un guasto di persistenza del PDF, senza saturare davvero il disco."""
+    from test_graduatorie import _complete_all
+
+    server, client, sheets = _setup(tmp_path, monkeypatch)
+    with client:
+        _complete_all(client, sheets)
+        base = "/api/bandi/26-02"
+        ready = client.get(base + "/verbali/graduatorie").json()["graduatorie"][0]
+        assert ready["verbale_generabile"], ready["criticita"]
+        payload = {"cds": ready["cds"], "sede": ready["sede"]}
+        endpoint = base + "/verbali/graduatorie/definitiva"
+        with server.connect() as db:
+            eventi_prima = db.execute("SELECT COUNT(*) FROM graduatorie_eventi").fetchone()[0]
+            db.execute(
+                "CREATE TRIGGER catastrofe_pdf_non_scrivibile "
+                "BEFORE INSERT ON graduatorie_cds_documenti "
+                "BEGIN SELECT RAISE(ABORT, 'scrittura_pdf_sintetica_fallita'); END"
+            )
+            db.commit()
+        try:
+            response = _tentativo_durante_guasto(server, endpoint, payload)
+            assert response.status_code == 500, response.text
+            with server.connect() as db:
+                assert db.execute("SELECT COUNT(*) FROM graduatorie_cds").fetchone()[0] == 0
+                assert db.execute("SELECT COUNT(*) FROM graduatorie_cds_documenti").fetchone()[0] == 0
+                assert db.execute("SELECT COUNT(*) FROM graduatorie_eventi").fetchone()[0] == eventi_prima
+                assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        finally:
+            with server.connect() as db:
+                db.execute("DROP TRIGGER catastrofe_pdf_non_scrivibile")
+                db.commit()
+        ok = _post(client, endpoint, json=payload)
+        assert ok.status_code == 200, ok.text
