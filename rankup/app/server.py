@@ -5258,6 +5258,12 @@ def proponi_recupero_pdf(code: str, pdf_id: int, body: ValutazioneManuale,
             marker=str((fields.get("RANKUP-ID") or {}).get("/V") or "").strip()
             if marker!=expected:
                 fail("RANKUP-ID digitale discordante con la candidatura PICA",409)
+            original_status=str((fields.get("STATUS") or {}).get("/V") or "").strip()
+            original_notes=str((fields.get("NOTE-COMM") or {}).get("/V") or "").strip()
+            if original_status.casefold() in ("","-","-- seleziona --","seleziona","--seleziona--") and not original_notes:
+                fail("La scheda originale non contiene una decisione della Commissione",409)
+            if original_status in ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI and original_status!=body.esito:
+                fail("Esito proposto discordante dalla scheda originale",409)
         elif visible_rankup_ids(source)!=[expected]:
             fail("RANKUP-ID testuale assente o discordante: proposta bloccata",409)
         if db.execute("""SELECT 1 FROM valutazioni_pdf_proposte
