@@ -5318,6 +5318,7 @@ def approva_proposta_recupero(code: str,proposal_id: int,body: DecisioneRecupero
         fail("L'Admin deve attestare la verifica visiva del PDF originale")
     code=valid_code(code)
     with connect() as db:
+        _require_bando_aperto(db,code)
         b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
         if not b:fail("Bando non trovato",404)
         item=db.execute("""
