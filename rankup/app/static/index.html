@@ -4984,6 +4984,73 @@
         }catch(err){note("Impossibile leggere le valutazioni: "+err.message,true);html("");}
       }
 
+
+      async function renderRecoveryApproval(code, proposal){
+        if(state.role!=="admin"){note("Approvazione riservata all'Admin",true);return;}
+        var holder=$("manual-eval-panel");
+        if(!holder)return;
+        var fileUrl='api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+
+          encodeURIComponent(proposal.valutazione_pdf_id)+'/documento';
+        holder.innerHTML='<div class="card mb"><h3 class="section-heading">Verifica visiva · proposta #'+
+          esc(proposal.id)+'</h3>'+
+          '<p class="notice">Confronta ogni dato con il PDF originale. L’approvazione conserva il documento e '+
+          'registra l’operazione. La proposta non è ancora utilizzata nelle graduatorie.</p>'+
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:18px;align-items:start">'+
+          '<section style="min-width:0"><h4>Documento originale · sola lettura</h4>'+
+          '<iframe title="PDF originale da verificare" src="'+fileUrl+'" style="display:block;width:100%;'+
+          'min-height:470px;height:min(72vh,850px);border:1px solid #b9c8d8;border-radius:10px"></iframe>'+
+          '<a class="btn secondary" target="_blank" rel="noopener" href="'+fileUrl+'">Apri PDF originale</a></section>'+
+          '<section style="min-width:0"><h4>Trascrizione proposta da '+esc(proposal.proposta_da)+'</h4>'+
+          '<p><strong>Candidatura PICA:</strong> '+esc(proposal.id_pica)+' · '+
+          esc(proposal.cognome+' '+proposal.nome)+'</p>'+
+          '<p><strong>Esito:</strong> '+esc(proposal.esito)+'</p>'+
+          '<p><strong>Punteggio finale:</strong> '+esc(proposal.punteggio==null?'Non attribuito':proposal.punteggio)+'</p>'+
+          '<p><strong>Note della Commissione:</strong> '+esc(proposal.nota_commissione||'Nessuna')+'</p>'+
+          '<p><strong>Motivazione tecnica:</strong> '+esc(proposal.motivazione_tecnica)+'</p>'+
+          '<label style="display:block;margin:12px 0"><input type="checkbox" id="rec-approval-verified"> '+
+          'Ho confrontato visivamente PDF originale, identificativo PICA, totale, esito e note.</label>'+
+          '<label style="display:block;margin:12px 0"><input type="checkbox" id="rec-approval-revision"> '+
+          'Confermo l’eventuale rettifica di una valutazione preesistente.</label>'+
+          '<div class="actions"><button class="btn" id="rec-approval-accept" type="button">Approva acquisizione</button>'+
+          '<button class="btn secondary" id="rec-approval-reject" type="button">Respingi proposta</button>'+
+          '<button class="btn secondary" id="rec-approval-cancel" type="button">Chiudi</button></div>'+
+          '<label for="rec-approval-reason">Motivo del rifiuto (obbligatorio solo se respingi)</label>'+
+          '<textarea id="rec-approval-reason" rows="2" style="width:100%" '+
+          'placeholder="Spiega le differenze riscontrate nel documento"></textarea></section></div></div>';
+        holder.scrollIntoView({behavior:"smooth",block:"start"});
+        $("rec-approval-cancel").onclick=function(){holder.innerHTML="";};
+        $("rec-approval-accept").onclick=async function(){
+          if(!$("rec-approval-verified").checked){
+            note("Conferma la verifica visiva del PDF originale",true);return;
+          }
+          if(!confirm("Approvare la trascrizione dopo verifica visiva? I dati entreranno in graduatoria."))return;
+          var button=this;button.disabled=true;
+          try{
+            await api("bandi/"+encodeURIComponent(code)+"/valutazioni/proposte/"+proposal.id+"/approva",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({documento_verificato:true,
+                conferma_rettifica:$("rec-approval-revision").checked})
+            });
+            note("Proposta approvata. Segnalazione chiusa, PDF originale conservato.",false);
+            renderValutazioni();
+          }catch(err){note(err.message,true);button.disabled=false;}
+        };
+        $("rec-approval-reject").onclick=async function(){
+          var reason=$("rec-approval-reason").value.trim();
+          if(reason.length<10){note("Motiva il rifiuto con almeno 10 caratteri",true);return;}
+          if(!confirm("Respingere la proposta? La valutazione non sarà acquisita."))return;
+          var button=this;button.disabled=true;
+          try{
+            await api("bandi/"+encodeURIComponent(code)+"/valutazioni/proposte/"+proposal.id+"/respingi",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({motivazione_rifiuto:reason})
+            });
+            note("Proposta respinta con motivazione. Segnalazione chiusa.",false);
+            renderValutazioni();
+          }catch(err){note(err.message,true);button.disabled=false;}
+        };
+      }
+
       async function renderManualEvaluation(code, record, manualScope){
         var isReviewer=state.role==="admin";
         var holder=$("manual-eval-panel");
