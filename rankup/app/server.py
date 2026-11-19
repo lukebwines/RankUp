@@ -5111,6 +5111,10 @@ def _acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManu
                      "della commissione: richiedere il documento completato.",409)
             if raw_status in ESITI_IDONEI+ESITI_NON_IDONEI+ESITI_ESCLUSI and raw_status!=body.esito:
                 fail("Esito manuale discordante dall'esito registrato nel PDF originale",409)
+        if proposal_id is None and db.execute("""
+            SELECT 1 FROM valutazioni_pdf_proposte WHERE valutazione_pdf_id=? AND stato='in_attesa'
+        """,(pdf_id,)).fetchone():
+            fail("Esiste una proposta di recupero: approvarla o respingerla prima di procedere",409)
         previous=db.execute("""
             SELECT id,versione,decisione,esito,note,totale_calcolato
             FROM valutazioni_pdf
@@ -5160,6 +5164,11 @@ def _acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManu
             """,(request_actor(),now,proposal_id,b["id"],pdf_id,request_actor()))
             if approved.rowcount!=1:
                 fail("Proposta non più approvabile oppure predisposta dallo stesso Admin",409)
+            db.execute("""UPDATE segnalazioni SET stato='risolta',revisione=revisione+1
+                          WHERE bando_id=? AND autore=? AND stato<>'risolta'
+                            AND titolo=?""",
+                       (b["id"],SYSTEM_ALERT_ACTOR,
+                        _titolo_segnalazione_recupero(pdf_id,proposal_id)))
         db.commit()
     return {
         "ok":True,"valutazione_id":pdf_id,"versione":version,
@@ -5167,6 +5176,191 @@ def _acquisisci_valutazione_manuale(code: str,pdf_id: int, body: ValutazioneManu
         "punteggio":total,
         "avviso":"PDF originale conservato, esito acquisito e operazione registrata nello storico.",
     }
+
+
+
+# Integrazione della proposta con le segnalazioni gia' presenti in RankUP.
+def _titolo_segnalazione_recupero(pdf_id: int, proposal_id: int) -> str:
+    return "[ATTENZIONE] Recupero PDF #" + str(pdf_id) + " · proposta #" + str(proposal_id)
+
+
+def _convalida_dati_proposta(body: ValutazioneManuale) -> tuple[float | None,str]:
+    if not body.documento_verificato:
+        fail("L'operatore deve verificare visivamente il documento")
+    if len(body.motivazione_tecnica.strip()) < 10:
+        fail("Indicare il motivo tecnico del recupero")
+    try:
+        decisione=classify_esito(body.esito)
+    except ValueError:
+        fail("Esito della commissione non riconosciuto")
+    if decisione in ("non_idoneo","escluso"):
+        if not body.nota_commissione.strip() or body.punteggio is not None:
+            fail("Esito negativo: nota obbligatoria, punteggio non attribuito")
+        return None,decisione
+    score=body.punteggio
+    if (score is None or not score.is_finite() or score<0 or score>60
+            or score.as_tuple().exponent< -2):
+        fail("Punteggio da 0 a 60 con massimo due decimali")
+    return float(score),decisione
+
+
+@app.post("/api/bandi/{code}/valutazioni/{pdf_id}/proposta")
+def proponi_recupero_pdf(code: str, pdf_id: int, body: ValutazioneManuale,
+                         request: Request):
+    """Proposta dell'operatore: mai una valutazione acquisita."""
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
+    if principal["role"]=="admin":
+        fail("La proposta deve essere compilata da un operatore distinto dall'Admin",403)
+    code=valid_code(code)
+    score,_=_convalida_dati_proposta(body)
+    now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        doc=db.execute("SELECT * FROM valutazioni_pdf WHERE id=? AND bando_id=?",
+                       (pdf_id,b["id"])).fetchone()
+        if not doc or doc["stato"]!="Da verificare":
+            fail("La proposta richiede un PDF originale Da verificare",409)
+        candidate=db.execute("""
+            SELECT c.id,c.id_pica,c.stato,i.key,i.cds,i.sede
+            FROM candidature c JOIN incarichi i ON i.id=c.incarico_id
+            WHERE c.id=? AND c.bando_id=? AND i.bando_id=?
+        """,(body.candidatura_id,b["id"],b["id"])).fetchone()
+        if not candidate or candidate["stato"]!="Attiva":
+            fail("Candidatura PICA non attiva o non appartenente al bando",409)
+        _assert_graduatoria_open(db,b["id"],candidate["cds"],candidate["sede"])
+        if doc["candidatura_id"] is not None and doc["candidatura_id"]!=candidate["id"]:
+            fail("Il PDF risulta associato a un'altra candidatura",409)
+        base=(SOURCES/code/"schede_restituite").resolve()
+        original=(BASE/doc["percorso"]).resolve()
+        if (not original.is_relative_to(base) or not original.is_file()
+                or original.stat().st_size>MAX_PDF_BYTES):
+            fail("PDF originale non disponibile o fuori limite",409)
+        source=original.read_bytes()
+        if hashlib.sha256(source).hexdigest()!=doc["sha256"]:
+            fail("Documento originale non integro",409)
+        try:
+            fields=PdfReader(BytesIO(source),strict=False).get_fields() or {}
+        except Exception:
+            fields={}
+        expected="RU-"+code+"-"+candidate["id_pica"]+"-"+candidate["key"][:10]
+        if fields:
+            marker=str((fields.get("RANKUP-ID") or {}).get("/V") or "").strip()
+            if marker!=expected:
+                fail("RANKUP-ID digitale discordante con la candidatura PICA",409)
+        elif visible_rankup_ids(source)!=[expected]:
+            fail("RANKUP-ID testuale assente o discordante: proposta bloccata",409)
+        if db.execute("""SELECT 1 FROM valutazioni_pdf_proposte
+                        WHERE valutazione_pdf_id=? AND stato='in_attesa'""",
+                     (pdf_id,)).fetchone():
+            fail("Una proposta e' gia' in attesa di approvazione per questo PDF",409)
+        cursor=db.execute("""
+            INSERT INTO valutazioni_pdf_proposte
+            (bando_id,valutazione_pdf_id,candidatura_id,esito,punteggio,
+             nota_commissione,motivazione_tecnica,stato,proposta_da,proposta_il)
+            VALUES(?,?,?,?,?,?,?,'in_attesa',?,?)
+        """,(b["id"],pdf_id,candidate["id"],body.esito,score,
+             body.nota_commissione.strip(),body.motivazione_tecnica.strip(),
+             request_actor(),now))
+        proposal_id=cursor.lastrowid
+        _sistema_segnalazione(db,b["id"],"ATTENZIONE",
+            "Recupero PDF #"+str(pdf_id)+" · proposta #"+str(proposal_id),
+            "Proposta di recupero da verificare visivamente dall'Admin. "
+            "Documento #"+str(pdf_id)+"; candidatura PICA "+candidate["id_pica"]+
+            "; operatore "+request_actor()+". Aprire Valutazioni e confrontare "
+            "il PDF originale con totale, esito e note prima della decisione.")
+        db.commit()
+    return {"ok":True,"proposta_id":proposal_id,"stato":"in_attesa",
+            "avviso":"Proposta inviata; nessun punteggio e' stato acquisito in graduatoria."}
+
+
+@app.get("/api/bandi/{code}/valutazioni/proposte")
+def elenco_proposte_recupero(code: str, request: Request):
+    """Gli operatori vedono il proprio esito; l'Admin tutte le proposte."""
+    code=valid_code(code)
+    principal=AUTH.principal(request.cookies.get(COOKIE_NAME))
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        rows=db.execute("""
+            SELECT p.*,v.nome_originale,c.id_pica,c.cognome,c.nome,i.cds,i.sede
+            FROM valutazioni_pdf_proposte p
+            JOIN valutazioni_pdf v ON v.id=p.valutazione_pdf_id
+            JOIN candidature c ON c.id=p.candidatura_id
+            JOIN incarichi i ON i.id=c.incarico_id
+            WHERE p.bando_id=? AND (?=1 OR p.proposta_da=?)
+            ORDER BY CASE WHEN p.stato='in_attesa' THEN 0 ELSE 1 END, p.id DESC
+        """,(b["id"],int(principal["role"]=="admin"),request_actor())).fetchall()
+    return {"proposte":[dict(x) for x in rows]}
+
+
+class DecisioneRecupero(BaseModel):
+    documento_verificato: bool = False
+    conferma_rettifica: bool = False
+    motivazione_rifiuto: str = Field(default="",max_length=600)
+
+
+@app.post("/api/bandi/{code}/valutazioni/proposte/{proposal_id}/approva")
+def approva_proposta_recupero(code: str,proposal_id: int,body: DecisioneRecupero,
+                              request: Request):
+    require_admin(request)
+    if not body.documento_verificato:
+        fail("L'Admin deve attestare la verifica visiva del PDF originale")
+    code=valid_code(code)
+    with connect() as db:
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        item=db.execute("""
+            SELECT * FROM valutazioni_pdf_proposte
+            WHERE id=? AND bando_id=? AND stato='in_attesa'
+        """,(proposal_id,b["id"])).fetchone()
+        if not item:fail("Proposta non disponibile o gia' decisa",409)
+        data=dict(item)
+    # Riutilizza esattamente le validazioni del recupero manuale Admin.
+    payload=ValutazioneManuale(
+        candidatura_id=data["candidatura_id"],esito=data["esito"],
+        punteggio=Decimal(str(data["punteggio"])) if data["punteggio"] is not None else None,
+        nota_commissione=data["nota_commissione"],
+        motivazione_tecnica=data["motivazione_tecnica"],
+        documento_verificato=True,conferma_rettifica=body.conferma_rettifica)
+    return _acquisisci_valutazione_manuale(code,data["valutazione_pdf_id"],
+                                           payload,request,proposal_id=proposal_id)
+
+
+@app.post("/api/bandi/{code}/valutazioni/proposte/{proposal_id}/respingi")
+def respingi_proposta_recupero(code: str,proposal_id: int,body: DecisioneRecupero,
+                               request: Request):
+    require_admin(request)
+    motivo=body.motivazione_rifiuto.strip()
+    if len(motivo)<10:fail("Motivazione del rifiuto obbligatoria")
+    code=valid_code(code)
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _require_bando_aperto(db,code)
+        b=db.execute("SELECT id FROM bandi WHERE codice=?",(code,)).fetchone()
+        if not b:fail("Bando non trovato",404)
+        proposal=db.execute("""
+            SELECT * FROM valutazioni_pdf_proposte
+            WHERE id=? AND bando_id=? AND stato='in_attesa'
+        """,(proposal_id,b["id"])).fetchone()
+        if not proposal:fail("Proposta non disponibile o gia' decisa",409)
+        if proposal["proposta_da"]==request_actor():
+            fail("L'operatore non puo' decidere la propria proposta",403)
+        now=datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        db.execute("""
+            UPDATE valutazioni_pdf_proposte SET stato='respinta',
+                decisa_da=?,decisa_il=?,motivo_rifiuto=? WHERE id=?
+        """,(request_actor(),now,motivo,proposal_id))
+        db.execute("""UPDATE segnalazioni SET stato='risolta',revisione=revisione+1
+                      WHERE bando_id=? AND autore=? AND stato<>'risolta'
+                        AND titolo=?""",
+                   (b["id"],SYSTEM_ALERT_ACTOR,
+                    _titolo_segnalazione_recupero(proposal["valutazione_pdf_id"],
+                                                   proposal_id)))
+        db.commit()
+    return {"ok":True,"stato":"respinta","avviso":"Proposta respinta: nessuna valutazione modificata."}
 
 
 @app.get("/api/bandi/{code}/valutazioni/{pdf_id}/documento")
