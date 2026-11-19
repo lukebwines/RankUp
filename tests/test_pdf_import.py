@@ -35,7 +35,7 @@ def _edit(data: bytes, updates: dict[str,str]) -> bytes:
     return out.getvalue()
 
 
-def _setup(tmp_path,monkeypatch,pica_data=None):
+def _setup(tmp_path,monkeypatch,pica_data=None,generate_sheets=True):
     monkeypatch.setenv("RANKUP_DATA_DIR",str(tmp_path))
     (tmp_path/"options.json").write_text(json.dumps({
         "admin_username":"test-admin",
@@ -72,11 +72,13 @@ def _setup(tmp_path,monkeypatch,pica_data=None):
     })
     assert client.put("/api/bandi/26-02/riferimenti",
         headers={"X-RankUp-Request":"1"},json=source).status_code==200
-    response=client.get("/api/bandi/26-02/schede/zip")
-    assert response.status_code==200,response.text
-    with zipfile.ZipFile(BytesIO(response.content)) as archive:
-        sheets={name:archive.read(name) for name in archive.namelist() if not name.startswith("VB_")}
-    assert len(sheets)==3
+    sheets={}
+    if generate_sheets:
+        response=client.get("/api/bandi/26-02/schede/zip")
+        assert response.status_code==200,response.text
+        with zipfile.ZipFile(BytesIO(response.content)) as archive:
+            sheets={name:archive.read(name) for name in archive.namelist() if not name.startswith("VB_")}
+        assert len(sheets)==3
     return server,client,sheets
 
 
