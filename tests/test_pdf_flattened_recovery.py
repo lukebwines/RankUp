@@ -39,7 +39,7 @@ def test_flattened_pdf_identified_only_as_pending_and_recovered_by_admin(tmp_pat
         preview = _preview(client, [("appiattita.pdf", flat)])
         item = preview["schede"][0]
         assert item["stato"] == "da_verificare", item
-        assert item["id_pica"] == marker.split("-")[2]
+        assert item["id_pica"] == marker.rsplit("-", 2)[1]
         assert item["punteggio"] is None
         assert item["decisione"] == "da_verificare"
         assert "identificativo testuale riconosciuto" in item["motivo"]
