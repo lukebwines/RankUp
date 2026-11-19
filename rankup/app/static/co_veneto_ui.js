@@ -36,6 +36,20 @@ window.createCoVenetoUI=function(ctx){
       ["tipo_orario","Tipo orario"]
     ]]
   ];
+  var economicGroups=[
+    ["Ore di riferimento",[
+      ["ore_ordinario","SSD non professionalizzante · ore","1"],
+      ["ore_professionalizzante","SSD professionalizzante · ore","1"]
+    ]],
+    ["Tariffe orarie per sede PICA (€)",[
+      ["tariffa_verona","Verona · €/ora","0.01"],
+      ["tariffa_legnago","Legnago · €/ora","0.01"],
+      ["tariffa_vicenza","Vicenza · €/ora","0.01"],
+      ["tariffa_trento","Trento · €/ora","0.01"],
+      ["tariffa_rovereto","Rovereto · €/ora","0.01"],
+      ["tariffa_bolzano","Bolzano · €/ora","0.01"]
+    ]]
+  ];
   var contractFields=[
     ["retribuzione","Retribuzione annua lorda (€)"],
     ["domicilio_indirizzo","Indirizzo di domicilio"],
@@ -51,6 +65,11 @@ window.createCoVenetoUI=function(ctx){
     return '<label style="display:block;min-width:0"><span class="caption">'+esc(label)+'</span>'+
       '<input type="text" data-co-field="'+esc(key)+'" value="'+esc(value||"")+'"'+
       (locked?' readonly':'')+' style="display:block;width:100%;margin-top:5px"></label>';
+  }
+  function numberInputFor(key,label,value,step){
+    return '<label style="display:block;min-width:0"><span class="caption">'+esc(label)+'</span>'+
+      '<input type="number" min="0.01" step="'+esc(step)+'" data-co-field="'+esc(key)+
+      '" value="'+esc(value||"")+'" required style="display:block;width:100%;margin-top:5px"></label>';
   }
   function collect(container){
     var values={};
@@ -74,13 +93,36 @@ window.createCoVenetoUI=function(ctx){
             return inputFor(field[0],field[1],response.dati[field[0]],false);
           }).join("")+'</div></div>';
       }).join("");
+      var economicSections=economicGroups.map(function(group){
+        return '<div class="card mb"><h3 class="section-heading">'+esc(group[0])+'</h3>'+
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">'+
+          group[1].map(function(field){
+            return numberInputFor(field[0],field[1],response.dati[field[0]],field[2]);
+          }).join("")+'</div></div>';
+      }).join("");
+      var history=(response.storico_parametri_economici||[]).map(function(item){
+        return '<p class="caption">'+esc(item.quando)+' · '+esc(item.autore)+
+          ' · '+(item.confermata?'parametri confermati':'conferma revocata')+'</p>';
+      }).join("");
       html('<div class="notice mb"><strong>Configurazione globale · Solo Admin.</strong> '+
         'I dati della comunicazione di esempio non vengono copiati automaticamente. '+
         'Inserire soltanto dati dell’Ateneo verificati; la tipologia B.03.00 resta fissa.</div>'+
         '<form id="co-admin-form">'+sections+
+        '<section class="card mb"><h3 class="section-heading">Parametri economici per la retribuzione</h3>'+
+        '<p class="caption">Il calcolo utilizza il Peso Copertura e la Sede importati da PICA e la classificazione SSD già presente in RankUP. '+
+        'La classificazione non viene duplicata né modificata da questa sezione.</p>'+
+        economicSections+
+        '<label style="display:flex;align-items:flex-start;gap:9px;margin-top:10px">'+
+        '<input type="checkbox" id="co-confirm-economic" style="margin-top:3px"'+
+        (response.parametri_economici_confermati?' checked':'')+'>'+
+        '<span><strong>Confermo i parametri economici</strong><br>'+
+        '<span class="caption">Confermo ore e tariffe sopra indicate. Senza questa conferma RankUP non genera XML UNILAV.</span></span></label>'+
+        '<p class="caption">Le modifiche ai parametri sono registrate nello storico e rendono da rigenerare gli XML generati con la configurazione precedente.</p>'+
+        '</section>'+
         '<button class="btn" type="submit">Salva configurazione CO Veneto</button></form>'+
         '<p class="caption">Campi da completare prima di generare: '+
-        esc((response.mancanti||[]).join(", ")||"nessuno")+'.</p>');
+        esc((response.mancanti||[]).join(", ")||"nessuno")+'.</p>'+
+        (history?'<div class="card"><h3 class="section-heading">Storico parametri economici</h3>'+history+'</div>':''));
       document.getElementById("co-admin-form").onsubmit=async function(event){
         event.preventDefault();
         var button=this.querySelector("button[type=submit]");
@@ -88,10 +130,15 @@ window.createCoVenetoUI=function(ctx){
         try{
           var result=await api("admin/co-veneto/config",{
             method:"PUT",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({dati:collect(this)})
+            body:JSON.stringify({
+              dati:collect(this),
+              conferma_parametri_economici:document.getElementById("co-confirm-economic").checked
+            })
           });
           note(result.mancanti.length?"Configurazione salvata: restano campi da verificare.":
-            "Configurazione CO Veneto completa e salvata.",false);
+            (result.parametri_economici_confermati?
+              "Configurazione CO Veneto salvata e parametri economici confermati.":
+              "Configurazione salvata, ma i parametri economici non sono confermati: la generazione resta bloccata."),false);
           renderAdmin();
         }catch(error){note(error.message,true);button.disabled=false;}
       };
