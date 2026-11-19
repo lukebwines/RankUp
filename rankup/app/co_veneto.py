@@ -210,7 +210,7 @@ def _seat_key(raw):
     value = re.sub(r"[().,;]", " ", value.upper())
     value = " ".join(value.split())
     # Accetta la denominazione PICA con provincia finale, ad es. VERONA (VR).
-    value = re.sub(r"\\s+[A-Z]{2}$", "", value)
+    value = re.sub(r"\s+[A-Z]{2}$", "", value)
     return value
 
 
