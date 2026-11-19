@@ -4613,7 +4613,8 @@
             api("bandi/"+encodeURIComponent(code)),
             api("bandi/"+encodeURIComponent(code)+"/valutazioni?"+query.toString()),
             api("bandi/"+encodeURIComponent(code)+"/candidature"),
-            api("bandi/"+encodeURIComponent(code)+"/incarichi/modelli-nn")
+            api("bandi/"+encodeURIComponent(code)+"/incarichi/modelli-nn"),
+            api("bandi/"+encodeURIComponent(code)+"/valutazioni/proposte")
           ]);
           if(state.active!==code||state.page!=="valutazioni")return;
           var locations=responses[0].cds_sedi||[],report=responses[1];
@@ -4710,6 +4711,9 @@
             '</tbody></table></div>'+
             '<div id="val-table-empty" class="ru-val-table-empty" hidden>Nessun CdS corrisponde ai filtri della tabella.</div></section>';
           var archive=report.archivio||[];
+          var proposals=(responses[4].proposte||[]);
+          var proposalsByPdf=new Map(proposals.filter(function(p){return p.stato==="in_attesa";})
+            .map(function(p){return [String(p.valutazione_pdf_id),p];}));
           var jobs=report.incarichi||[];
           var split=schedeDaMostrare(archive);
           var expectedTotal=Number(report.totale_attese)||0;
@@ -4732,6 +4736,7 @@
           var flaggedIds=new Set(split.anomalie.map(function(r){return Number(r.id);}));
           var visible=historyView?archive:split.correnti;
           function evalRow(r){
+            var pendingProposal=proposalsByPdf.get(String(r.id));
             var valid=activeIds.has(Number(r.id));
             var flagged=flaggedIds.has(Number(r.id));
             var provisional=r.totale_calcolato==null?r.punteggio_rilevato:r.totale_calcolato;
@@ -4765,11 +4770,12 @@
               '/valutazioni/'+encodeURIComponent(r.id)+
               '/documento" class="btn secondary" style="text-decoration:none">PDF</a>'+
               (r.stato==="Da verificare"?
-                (state.role==="admin"?
-                  '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">Acquisisci manualmente</button>'+
-                  (r.manuale_possibile===false?
-                    '<span class="caption">Verificare la documentazione della Commissione prima di confermare</span>':''):
-                  '<span class="caption">Acquisizione manuale riservata all’Admin</span>'):'')+
+                (pendingProposal?
+                  (state.role==="admin"?
+                    '<button type="button" class="btn" data-val-approve="'+esc(pendingProposal.id)+'">Verifica proposta</button>':
+                    '<span class="ru-val-tag ru-val-tag--warning">In attesa approvazione Admin</span>'):
+                  '<button type="button" class="btn" data-val-manual="'+esc(r.id)+'">'+
+                  (state.role==="admin"?'Acquisisci manualmente':'Compila proposta')+'</button>'):'')+
               '</div></td></tr>';
           }
           function rowsTable(rows){
@@ -4860,6 +4866,23 @@
               ' PDF non associati nel bando: seleziona Tutti i CdS per consultarli.</p>':'')+
             '<p class="ru-val-help">Le versioni sostituite sono disponibili in «Tutte le versioni»; non vengono utilizzate nei verbali. Gli incarichi con schede mancanti sono contrassegnati dal rapporto fra schede correnti e candidature.</p>'+
             '</section>';
+          var proposalsVisible=proposals.filter(function(p){
+            return (!filter.cds||p.cds===filter.cds)&&(!filter.sede||p.sede===filter.sede);
+          });
+          var pendingCount=proposalsVisible.filter(function(p){return p.stato==="in_attesa";}).length;
+          content+='<section class="card mb"><h3 class="section-heading">'+
+            (state.role==="admin"?"Proposte da verificare":"Stato delle mie proposte")+'</h3>'+
+            '<p class="caption">'+(state.role==="admin"?
+              "Ogni proposta richiede il confronto visivo con il PDF originale; nessuna proposta incide sulle graduatorie prima dell’approvazione.":
+              "Le proposte restano senza effetto sulle graduatorie finché l’Admin non le approva.")+'</p>'+
+            '<p><strong>'+esc(pendingCount)+'</strong> proposte in attesa nel filtro corrente</p>'+
+            (proposalsVisible.length?'<div class="tablebox"><table><thead><tr><th>Documento e candidato</th><th>Stato</th><th>Operatore</th><th>Decisione</th></tr></thead><tbody>'+
+              proposalsVisible.map(function(p){return '<tr><td><strong>#'+esc(p.valutazione_pdf_id)+'</strong> · '+
+                esc(p.id_pica)+' · '+esc(p.cognome+' '+p.nome)+'</td><td>'+esc(p.stato)+'</td>'+
+                '<td>'+esc(p.proposta_da)+'</td><td>'+(p.stato==="in_attesa"&&state.role==="admin"?
+                  '<button type="button" class="btn" data-val-approve="'+esc(p.id)+'">Verifica visivamente</button>':
+                  esc(p.motivo_rifiuto||p.decisa_da||"In attesa dell’Admin"))+'</td></tr>';}).join('')+
+              '</tbody></table></div>':'<p class="caption">Nessuna proposta presente.</p>')+'</section>';
           content+='<div id="manual-eval-panel"></div>';
           html('<div class="ru-val-page">'+content+'</div>');
           collegaModelliNN(code,renderValutazioni);
@@ -4935,6 +4958,12 @@
               if(record)renderManualEvaluation(code,record);
             };
           });
+          document.querySelectorAll("[data-val-approve]").forEach(function(btn){
+            btn.onclick=function(){
+              var proposal=proposals.find(function(p){return String(p.id)===btn.dataset.valApprove;});
+              if(proposal)renderRecoveryApproval(code,proposal);
+            };
+          });
           $("pdf-eval-preview").onclick=async function(){
             var files=$("pdf-eval-files").files;
             if(!files.length){note("Seleziona almeno un PDF o un archivio ZIP",true);return;}
@@ -4956,10 +4985,7 @@
       }
 
       async function renderManualEvaluation(code, record, manualScope){
-        if(state.role!=="admin"){
-          note("Acquisizione manuale riservata all'amministratore",true);
-          return;
-        }
+        var isReviewer=state.role==="admin";
         var holder=$("manual-eval-panel");
         if(!holder)return;
         var filter=manualScope||state.valFilter;
@@ -5004,7 +5030,7 @@
           ];
           var pdfPreviewUrl='api/bandi/'+encodeURIComponent(code)+'/valutazioni/'+encodeURIComponent(record.id)+'/documento';
           holder.innerHTML='<div class="card mb"><h3 class="section-heading">Recupero assistito · Documento '+esc(record.id)+'</h3>'+
-            '<p class="notice">Confronta il PDF originale con i campi da trascrivere. L’identità, il totale, l’esito e le note devono risultare dal documento della Commissione. Il PDF resta immutato e ogni recupero è tracciato.</p>'+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:18px;align-items:start">'+            '<div style="min-width:0"><h4>PDF originale · sola lettura</h4>'+            '<iframe title="Anteprima del PDF originale della Commissione" src="'+pdfPreviewUrl+'" style="display:block;width:100%;height:min(72vh,850px);min-height:420px;border:1px solid #b9c8d8;border-radius:10px;background:#fff"></iframe>'+            '<p class="caption">Se il browser non visualizza il PDF, usa «Apri PDF originale» qui sotto. Non modificare il documento.</p></div>'+            '<div style="min-width:0"><h4>Trascrizione verificata dall’Admin</h4>'+            '<div class="notice" style="margin-bottom:12px"><strong>RANKUP-ID rilevato nel PDF:</strong> '+            (record.rankup_id_visibile?'<code>'+esc(record.rankup_id_visibile)+'</code>':'Non disponibile nei campi testuali')+            '<div id="eval-man-id-check" style="margin-top:6px">Seleziona una candidatura per verificarne la corrispondenza.</div>'+            '<small>La verifica definitiva del codice e della chiave della candidatura avviene sempre sul server.</small></div>'+
+            '<p class="notice">Confronta il PDF originale con i campi da trascrivere. L’identità, il totale, l’esito e le note devono risultare dal documento della Commissione. Il PDF resta immutato e ogni recupero è tracciato.</p>'+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:18px;align-items:start">'+            '<div style="min-width:0"><h4>PDF originale · sola lettura</h4>'+            '<iframe title="Anteprima del PDF originale della Commissione" src="'+pdfPreviewUrl+'" style="display:block;width:100%;height:min(72vh,850px);min-height:420px;border:1px solid #b9c8d8;border-radius:10px;background:#fff"></iframe>'+            '<p class="caption">Se il browser non visualizza il PDF, usa «Apri PDF originale» qui sotto. Non modificare il documento.</p></div>'+            '<div style="min-width:0"><h4>'+ (isReviewer?'Acquisizione verificata dall’Admin':'Proposta di trascrizione dell’operatore') +'</h4>'+            '<div class="notice" style="margin-bottom:12px"><strong>RANKUP-ID rilevato nel PDF:</strong> '+            (record.rankup_id_visibile?'<code>'+esc(record.rankup_id_visibile)+'</code>':'Non disponibile nei campi testuali')+            '<div id="eval-man-id-check" style="margin-top:6px">Seleziona una candidatura per verificarne la corrispondenza.</div>'+            '<small>La verifica definitiva del codice e della chiave della candidatura avviene sempre sul server.</small></div>'+
             '<label for="eval-man-candidate">Candidatura PICA (obbligatoria)</label>'+
             '<select id="eval-man-candidate" style="display:block;width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px"><option value="">Seleziona candidatura</option>'+
             candidates.map(function(c){return '<option value="'+esc(c.id)+'"'+(c.id===record.candidatura_id?' selected':'')+'>'+
@@ -5020,7 +5046,7 @@
             '<textarea id="eval-man-reason" rows="2" style="width:100%;margin:7px 0 14px;padding:10px;border:1px solid #c5d4e3;border-radius:8px" placeholder="Es. PDF salvato da visualizzatore che ha perso i campi, punteggio visibile nel documento"></textarea>'+
             '<label style="display:block;margin:10px 0"><input type="checkbox" id="eval-man-verified"> Ho controllato il PDF originale, l’identità del candidato, il punteggio o esito e la corrispondenza dei dati trascritti alla decisione della commissione.</label>'+
             '<label style="display:block;margin:10px 0"><input type="checkbox" id="eval-man-revise"> Confermo l’eventuale rettifica di una valutazione già acquisita, conservando lo storico.</label>'+
-            '<div class="actions"><button class="btn" type="button" id="eval-man-save">Conferma acquisizione manuale</button>'+
+            '<div class="actions"><button class="btn" type="button" id="eval-man-save">'+(isReviewer?'Conferma acquisizione manuale':'Invia proposta per approvazione')+'</button>'+
             '<button class="btn secondary" type="button" id="eval-man-cancel">Annulla</button>'+
             '<a class="btn secondary" target="_blank" rel="noopener" href="'+pdfPreviewUrl+'" style="text-decoration:none">Apri PDF originale</a></div></div></div>';
           var candidacySelect=$("eval-man-candidate");
@@ -5062,20 +5088,26 @@
             if(reason.length<10||!$("eval-man-verified").checked){
               note("Indica il motivo tecnico e conferma la verifica della documentazione",true);return;
             }
-            if(!confirm("Acquisire manualmente l'esito riportato nel PDF originale per la candidatura selezionata? L'operazione sarà registrata."))return;
+            if(!confirm(isReviewer?
+              "Acquisire manualmente l'esito riportato nel PDF originale per la candidatura selezionata? L'operazione sarà registrata.":
+              "Inviare questa proposta all’Admin? Nessuna valutazione verrà acquisita fino all’approvazione."))return;
             var button=this;button.disabled=true;button.textContent="Acquisizione...";
             try{
-              var result=await api("bandi/"+encodeURIComponent(code)+"/valutazioni/"+encodeURIComponent(record.id)+"/manuale",{
+              var endpoint="bandi/"+encodeURIComponent(code)+"/valutazioni/"+encodeURIComponent(record.id)+
+                (isReviewer?"/manuale":"/proposta");
+              var result=await api(endpoint,{
                 method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify({candidatura_id:Number(candidacy),esito:select.value,
                   punteggio:negative?null:Number(score),nota_commissione:noteCommission,
                   motivazione_tecnica:reason,documento_verificato:true,
                   conferma_rettifica:$("eval-man-revise").checked})
               });
-              note("Esito acquisito manualmente come "+result.decisione+
-                ". PDF originale conservato, versione "+result.versione+".",false);
+              note(isReviewer?
+                ("Esito acquisito manualmente come "+result.decisione+
+                 ". PDF originale conservato, versione "+result.versione+"."):
+                ("Proposta #"+result.proposta_id+" inviata all’Admin. Segnalazione automatica creata; nessuna valutazione acquisita."),false);
               renderValutazioni();
-            }catch(err){note(err.message,true);button.disabled=false;button.textContent="Conferma acquisizione manuale";}
+            }catch(err){note(err.message,true);button.disabled=false;button.textContent=isReviewer?"Conferma acquisizione manuale":"Invia proposta per approvazione";}
           };
         }catch(err){note(err.message,true);holder.innerHTML="";}
       }
