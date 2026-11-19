@@ -872,7 +872,10 @@ def register_routes(app, connect, require_authenticated, require_admin,
                     # dati; resterà bloccato in generazione finché il dato non è risolto.
                     manual_override, reason = False, ""
                 elif old_manual and same_as_old:
-                    manual_override, reason = True, old_reason
+                    manual_override = True
+                    reason = body.motivazione.strip() or old_reason
+                    if body.motivazione.strip() and len(reason) < 10:
+                        fail("La motivazione della rettifica deve contenere almeno 10 caratteri", 400)
                 else:
                     if not _has_valid_compenso(new_amount):
                         fail("La retribuzione manuale deve essere un importo positivo valido", 400)
@@ -894,7 +897,7 @@ def register_routes(app, connect, require_authenticated, require_admin,
             stored["_retribuzione_calcolata"] = calculated_amount
             stored["_retribuzione_autore"] = (
                 request_actor() if manual_override and
-                (not old_manual or not same_as_old) else
+                (not old_manual or not same_as_old or reason != old_reason) else
                 _clean(old_saved.get("_retribuzione_autore"))
             )
             stored["_retribuzione_aggiornata_il"] = timestamp()
@@ -908,7 +911,7 @@ def register_routes(app, connect, require_authenticated, require_admin,
                 (bando_id, approval_id, job_id, job["candidatura_id"],
                  json.dumps(stored, ensure_ascii=False), actor, timestamp()))
             if (manual_override != old_manual or
-                    (manual_override and not same_as_old)):
+                    (manual_override and (not same_as_old or reason != old_reason))):
                 _event(db, bando_id, approval_id, job_id,
                        "rettifica_retribuzione" if manual_override else
                        "ripristino_retribuzione_automatica",
