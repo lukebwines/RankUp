@@ -804,9 +804,9 @@ def register_routes(app, connect, require_authenticated, require_admin,
             lotti = db.execute("""SELECT id,nome_file,sha256,autore,creato_il
                 FROM co_veneto_lotti WHERE approvazione_id=? ORDER BY id DESC""",
                 (approval_id,)).fetchall()
+            confirmed = economic_config_confirmed(db)
         for job in jobs:
             job.pop("_source", None)
-        confirmed = economic_config_confirmed(db)
         missing = missing_config(config)
         if not confirmed:
             missing.append("parametri economici da confermare in Amministrazione CO Veneto")
