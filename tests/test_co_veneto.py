@@ -229,6 +229,14 @@ def test_generation_lifecycle_role_lock_and_archival(tmp_path,monkeypatch):
         assert updated_job["work"]["retribuzione"]=="1234"
         assert updated_job["retribuzione_calcolo"]["manuale"] is True
         assert updated_job["retribuzione_calcolo"]["motivazione"]=="Rettifica sintetica documentata per collaudo"
+        with server.connect() as db:
+            event=db.execute("""
+                SELECT dettagli_json,autore FROM co_veneto_eventi
+                WHERE evento='rettifica_retribuzione' AND incarico_id=?
+                ORDER BY id DESC LIMIT 1
+            """,(job["incarico_id"],)).fetchone()
+            assert event is not None and event["autore"]
+            assert json.loads(event["dettagli_json"])["motivazione"]=="Rettifica sintetica documentata per collaudo"
         generated=_post(admin,path+"/genera",json={"incarichi_ids":[job["incarico_id"]]})
         assert generated.status_code==200,generated.text
         approvals=admin.get("/api/bandi/26-02/graduatorie/approvazioni").json()["approvazioni"]
