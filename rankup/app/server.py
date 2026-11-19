@@ -2186,7 +2186,7 @@ def list_incarichi(code: str):
                  i.anno_corso, i.tipo_corso, i.tipo_cds, i.ciclo,
                  i.inizio_pica, i.fine_pica, i.inizio_iso, i.fine_iso,
                  i.codice_partizione, i.partizione_studenti,
-                 i.peso_copertura, i.ore, i.stato_coperture,
+                 i.peso_copertura, i.cfu, i.ore, i.stato_coperture,
                  cl.tipo AS modello_ssd,
                  er.ente_richiesto AS ente_richiesto,
                  er.fonte AS ente_fonte,
