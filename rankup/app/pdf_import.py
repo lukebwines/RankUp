@@ -94,6 +94,23 @@ def field_value(fields: dict, key: str) -> str:
     return str(value)
 
 
+
+# Il codice visibile e' l'unico dato recuperato automaticamente dai PDF
+# appiattiti; punteggio ed esito restano una trascrizione documentale Admin.
+VISIBLE_RANKUP_PATTERN = re.compile(r"(?<![A-Za-z0-9])RU-([A-Za-z0-9][A-Za-z0-9_-]*)-([0-9]+)-([A-Fa-f0-9]{10})(?![A-Za-z0-9])")
+
+
+def visible_rankup_ids(contents: bytes) -> list[str]:
+    """Identificativi leggibili come testo, senza OCR e senza interpretare esiti."""
+    try:
+        reader = PdfReader(BytesIO(contents), strict=False)
+        if len(reader.pages) != 1:
+            return []
+        text = reader.pages[0].extract_text() or ""
+    except Exception:
+        return []
+    return sorted({m.group(0) for m in VISIBLE_RANKUP_PATTERN.finditer(text)})
+
 def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
                  already: dict[int, dict]) -> dict:
     """Restituisce una scheda classificata senza persistere alcun punteggio.
@@ -128,6 +145,21 @@ def evaluate_pdf(contents: bytes, expected_code: str, candidates: list[dict],
         reader = PdfReader(BytesIO(contents), strict=False)
         fields = reader.get_fields() or {}
         if not fields or len(reader.pages) != 1:
+            if not fields and len(reader.pages) == 1:
+                ids = visible_rankup_ids(contents)
+                matches = [c for c in candidates if
+                    ("RU-" + expected_code + "-" + c["id_pica"] + "-" + c["key"][:10]) in ids]
+                if len(ids) == 1 and len(matches) == 1:
+                    c = matches[0]
+                    result.update(candidatura_id=c["id"], id_pica=c["id_pica"],
+                                  cds=c["cds"], sede=c["sede"],
+                                  incarico=c["insegnamento"]+" / "+c["modulo"],
+                                  modello=c["modello"])
+                    raise ValueError("PDF appiattito: identificativo testuale riconosciuto; "
+                                     "totale ed esito richiedono verifica e acquisizione Admin")
+                if ids:
+                    raise ValueError("PDF appiattito: identificativo testuale non univoco "
+                                     "o non riconosciuto nel bando")
             raise ValueError("Scheda non editabile, campi mancanti oppure numero di pagine inatteso")
         marker = field_value(fields, "RANKUP-ID").strip()
         possible = [
