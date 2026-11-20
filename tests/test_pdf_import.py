@@ -643,11 +643,13 @@ def test_admin_manual_button_remains_visible_for_every_pending_document():
     assert 'state.role==="admin"?' in archive
     assert 'data-val-manual' in archive
     assert 'Acquisisci manualmente' in archive
-    # Le segnalazioni sono informative; non determinano la visibilità.
-    assert 'r.manuale_possibile===false?' in archive
-    assert 'r.manuale_possibile?' not in archive
-    # Anche il rendering del modulo è protetto.
-    assert 'if(state.role!=="admin")' in html
+    assert 'Compila proposta' in archive
+    assert 'Verifica proposta' in archive
+    assert 'pendingProposal' in archive
+    # L'operatore puo' compilare, ma l'approvazione e' una rotta distinta.
+    assert 'data-val-approve' in archive
+    assert 'proposta_id' in html
+    assert 'if(state.role!=="admin")' in html  # pannello di approvazione
 
 
 def _complete_operator_onboarding(client,username,temporary_password):
