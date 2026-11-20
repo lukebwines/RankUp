@@ -5381,7 +5381,7 @@ def respingi_proposta_recupero(code: str,proposal_id: int,body: DecisioneRecuper
 
 
 @app.get("/api/bandi/{code}/valutazioni/{pdf_id}/documento")
-def download_valutazione_pdf(code: str, pdf_id: int):
+def download_valutazione_pdf(code: str, pdf_id: int, inline: bool = False):
     """Scarica l'originale ricevuto, anche quando è «Da verificare»."""
     code=valid_code(code)
     if pdf_id<=0:
@@ -5400,7 +5400,8 @@ def download_valutazione_pdf(code: str, pdf_id: int):
         fail("Originale PDF non disponibile",404)
     filename=_safe_filename(Path(row["nome_originale"]).stem,80)+".pdf"
     return FileResponse(file,media_type="application/pdf",
-                        filename=filename,content_disposition_type="inline",
+                        filename=filename,
+                        content_disposition_type="inline" if inline else "attachment",
                         headers={"Cache-Control":"no-store"})
 
 
