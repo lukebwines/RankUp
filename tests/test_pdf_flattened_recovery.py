@@ -209,3 +209,16 @@ def test_admin_rejection_closes_alert_without_score_and_operator_can_resubmit(tm
             retry=_post(operator,endpoint,json=_proposal_data(doc["candidatura_id"]))
             assert retry.status_code==200,retry.text
             assert retry.json()["proposta_id"]!=pid
+
+
+def test_preview_inline_does_not_change_original_pdf_download(tmp_path, monkeypatch):
+    server, client, sheets = _setup(tmp_path, monkeypatch)
+    with client:
+        doc, flat = _start_flattened_case(client, sheets)
+        url = f"/api/bandi/26-02/valutazioni/{doc['id']}/documento"
+        downloadable = client.get(url)
+        preview = client.get(url, params={"inline": "true"})
+        assert downloadable.status_code == 200 and preview.status_code == 200
+        assert downloadable.headers["content-disposition"].startswith("attachment;")
+        assert preview.headers["content-disposition"].startswith("inline;")
+        assert downloadable.content == preview.content == flat
