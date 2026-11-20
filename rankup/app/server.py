@@ -1049,7 +1049,7 @@ with audit_connect() as audit_db:
 
 backfill_ssd_from_saved_pica()
 backfill_incarichi_metadata()
-app = FastAPI(title="RankUp", version="1.0.51", docs_url=None, redoc_url=None)
+app = FastAPI(title="RankUp", version="1.0.52", docs_url=None, redoc_url=None)
 AUTH = Authentication(BASE)
 if AUTH.recovery_issued:
     try:
